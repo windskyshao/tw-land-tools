@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.0.9"
-BUILD_DATE = "2026-05-18"
+VERSION = "1.1.0"
+BUILD_DATE = "2026-05-21"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -1826,7 +1826,68 @@ json_status_label = tk.Label(
     padx=8,  # 🔥 減少內距
     pady=3   # 🔥 減少內距
 )
-json_status_label.pack(fill=tk.X)
+json_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+
+# 🔥 右上角更新按鈕（小顆，預設藍色；偵測到新版自動轉紅色）
+update_button = tk.Button(
+    status_frame,
+    text="🔄",
+    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
+    bg='#2196F3', fg='white',
+    relief=tk.FLAT, bd=0,
+    padx=8, pady=0,
+    cursor="hand2",
+    command=lambda: check_for_update(silent=False)
+)
+update_button.pack(side=tk.RIGHT, padx=(0, 6))
+# 滑鼠進去/出去：切換顏色 + 顯示文字提示
+update_button._tooltip = None
+
+def _update_btn_enter(_e):
+    try:
+        has_new = getattr(update_button, '_has_new_version', False)
+        # 顏色加深
+        update_button.config(bg='#D32F2F' if has_new else '#1976D2')
+        # 顯示提示
+        tip = tk.Toplevel(update_button)
+        tip.wm_overrideredirect(True)
+        tip.attributes('-topmost', True)
+        msg = "有新版可下載 (點擊查看)" if has_new else "無新版 (點擊重新檢查)"
+        bg_color = '#D32F2F' if has_new else '#333333'
+        tk.Label(
+            tip, text=msg,
+            background=bg_color, foreground='white',
+            relief=tk.SOLID, borderwidth=1,
+            font=("Microsoft JhengHei", 9),
+            padx=8, pady=3
+        ).pack()
+        # 位置：按鈕正下方稍偏左
+        tip.update_idletasks()
+        tip_w = tip.winfo_width()
+        x = update_button.winfo_rootx() + update_button.winfo_width() - tip_w
+        y = update_button.winfo_rooty() + update_button.winfo_height() + 4
+        tip.wm_geometry(f"+{x}+{y}")
+        update_button._tooltip = tip
+    except Exception:
+        pass
+
+def _update_btn_leave(_e):
+    try:
+        # 已偵測到新版時保持紅色，否則回藍色
+        if getattr(update_button, '_has_new_version', False):
+            update_button.config(bg='#F44336')
+        else:
+            update_button.config(bg='#2196F3')
+        # 關掉提示
+        tip = getattr(update_button, '_tooltip', None)
+        if tip is not None:
+            tip.destroy()
+            update_button._tooltip = None
+    except Exception:
+        pass
+
+update_button.bind('<Enter>', _update_btn_enter)
+update_button.bind('<Leave>', _update_btn_leave)
 
 frame_top = tk.Frame(root)
 frame_top.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
@@ -6065,6 +6126,108 @@ if selected_json_path:
 else:
     json_status_label.config(text=f"JSON: 自動選擇（{json_dir}）", fg='#FF8C00')
 
+# 🔥 GitHub Release 版本檢查
+GITHUB_REPO = "windskyshao/tw-land-tools"
+_LAST_UPDATE_CHECK = {"version": None, "url": None, "notes": None}
+
+def check_for_update(silent=True):
+    """檢查 GitHub 上最新 release 版本。
+
+    silent=True：背景自動檢查（不彈窗，只在發現新版時把更新按鈕變色）
+    silent=False：使用者主動點 🔄 按鈕（永遠彈窗回報結果）
+    """
+    import urllib.request
+    import urllib.error
+    api_url = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+    try:
+        req = urllib.request.Request(api_url, headers={'User-Agent': 'tw-land-tools-updater'})
+        with urllib.request.urlopen(req, timeout=8) as resp:
+            data = json.loads(resp.read().decode('utf-8'))
+    except urllib.error.HTTPError as e:
+        if e.code == 404:
+            if not silent:
+                show_large_message("檢查更新", "GitHub 上尚無正式 release（404）\n\n目前已是最新版本。")
+            return
+        if not silent:
+            show_large_message("檢查更新失敗", f"連線錯誤：HTTP {e.code}\n\n請稍後再試或檢查網路。")
+        return
+    except Exception as e:
+        if not silent:
+            show_large_message("檢查更新失敗", f"無法連線到 GitHub：{e}\n\n請檢查網路。")
+        return
+
+    remote_tag = (data.get('tag_name') or '').lstrip('v').strip()
+    remote_notes = (data.get('body') or '').strip()
+    # 取第一個 asset 作為下載連結；沒有 asset 就用 release 頁面
+    assets = data.get('assets') or []
+    download_url = assets[0]['browser_download_url'] if assets else data.get('html_url', '')
+
+    local_ver = VERSION.lstrip('v').strip()
+    _LAST_UPDATE_CHECK['version'] = remote_tag
+    _LAST_UPDATE_CHECK['url'] = download_url
+    _LAST_UPDATE_CHECK['notes'] = remote_notes
+
+    if not remote_tag:
+        if not silent:
+            show_large_message("檢查更新", "GitHub 回應無法解析版號。")
+        return
+
+    # 比較版本大小（避免本地開發版號 > GitHub release 時誤判為有新版）
+    def _ver_tuple(v):
+        parts = []
+        for p in str(v).split('.'):
+            try:
+                parts.append(int(p))
+            except ValueError:
+                parts.append(0)
+        return tuple(parts)
+
+    if _ver_tuple(remote_tag) <= _ver_tuple(local_ver):
+        # 已是最新（包含本地版號 >= 遠端的開發中狀態）
+        try:
+            update_button._has_new_version = False
+            update_button.config(bg='#2196F3', fg='white')
+        except Exception:
+            pass
+        if not silent:
+            if _ver_tuple(remote_tag) < _ver_tuple(local_ver):
+                show_large_message("檢查更新", f"目前版本 v{local_ver}\nGitHub 最新：v{remote_tag}\n\n本地版號較新（開發中？）")
+            else:
+                show_large_message("檢查更新", f"已是最新版本 v{local_ver} ✓")
+        return
+
+    # 真的有新版（remote > local）！把按鈕變紅
+    try:
+        update_button._has_new_version = True
+        update_button.config(bg='#F44336', fg='white')
+    except Exception:
+        pass
+
+    # silent 模式只變色不彈窗；非 silent 跳對話框
+    if silent:
+        update_message(f"💡 偵測到新版本 v{remote_tag}（目前 v{local_ver}），點右上角 🔄 查看")
+        return
+
+    # 詳細對話框
+    _msg = (
+        f"偵測到新版本：v{remote_tag}\n"
+        f"目前版本：v{local_ver}\n\n"
+        f"更新內容：\n{remote_notes[:500]}\n\n"
+        f"是否前往下載？"
+    )
+    if show_large_yesno("有新版本", _msg):
+        try:
+            import webbrowser
+            webbrowser.open(download_url)
+        except Exception as e:
+            show_large_message("無法開啟連結", f"請手動到以下網址下載：\n{download_url}\n\n錯誤：{e}")
+
+
+def _bg_check_update():
+    """啟動後 2 秒在背景檢查（不擋主介面）"""
+    import threading
+    threading.Thread(target=lambda: check_for_update(silent=True), daemon=True).start()
+
 # 🔥 新增：程式啟動時的提醒訊息
 def show_startup_reminder():
     update_divider()
@@ -6331,6 +6494,7 @@ def update_title_from_data_json():
 # 延遲顯示提醒訊息和資料一致性檢查
 root.after(100, show_startup_reminder)
 root.after(500, check_and_warn_data_consistency)  # 在提醒訊息之後執行
+root.after(2000, _bg_check_update)  # 🔥 啟動 2 秒後背景檢查 GitHub 是否有新版（不擋主介面）
 
 # 🔥 如果啟動時已載入 JSON，更新狀態列顯示
 if selected_json_path:

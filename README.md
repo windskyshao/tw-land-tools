@@ -35,10 +35,22 @@ python main.py
 
 ## 打包成 .exe（PyInstaller）
 
-需要先準備兩個檔案：
+需要先準備這幾項：
 
-1. `chromedriver.exe` — 放在程式根目錄
-2. `通訊錄.xlsx` — 你的聯絡人清單，格式：
+1. **`chromedriver.exe`** — 放在程式根目錄，請依 Chrome 版本至 <https://chromedriver.chromium.org/> 下載
+2. **`python_embedded\`** 資料夾 — 主程式啟動子腳本（hinet.py、finance_tax.py 等）會用到
+   - 從 <https://www.python.org/downloads/windows/> 下載「Windows embeddable package (64-bit)」zip（建議 Python 3.9.x）
+   - 解壓到 `python_embedded\` 資料夾，與 `main.py` 同層
+   - **編輯 `python_embedded\python39._pth`**，把 `#import site` 那行的 `#` 拿掉（啟用 site-packages）
+   - 下載 [get-pip.py](https://bootstrap.pypa.io/get-pip.py) 到 `python_embedded\`，執行：
+     ```
+     cd python_embedded
+     python.exe get-pip.py
+     python.exe -m pip install -r ../requirements.txt
+     ```
+   - 套件清單見本 repo 根目錄的 `requirements.txt`（共 294 個）
+   - 此資料夾不附在 repo（~1.5 GB 太大），請使用者自行準備
+3. **`通訊錄.xlsx`** — 你的聯絡人清單，格式：
 
    | 欄位 | 範例 |
    |---|---|
