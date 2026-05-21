@@ -1,0 +1,8877 @@
+{
+  "旗津國中": {
+    "旗津區": {
+      "旗下里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "振興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "慈愛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "復興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "實踐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安順里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "上竹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "鹽埕國中": {
+    "鹽埕區": {
+      "江南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中原里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南端里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "河濱里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新化里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "沙地里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港都里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "育仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新樂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瀨南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "府北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "江西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "教仁里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "慈愛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "博愛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "陸橋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "壽星里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中",
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "藍橋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中",
+              "壽山國中"
+            ]
+          }
+        ]
+      }
+    },
+    "苓雅區": {
+      "博仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "苓洲里": {
+        "regular": [
+          1,
+          12,
+          14,
+          15,
+          16,
+          17
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "前金國中": {
+    "前金區": {
+      "長生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "博孝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "國民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "復元里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林投里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "後金里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東金里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "青山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "長興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "草江里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三川里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "長城里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北金里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "榮復里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "苓雅國中"
+            ]
+          }
+        ]
+      },
+      "文西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "苓雅國中"
+            ]
+          }
+        ]
+      }
+    },
+    "新興區": {
+      "長驛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "秋山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明莊里": {
+        "regular": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "free_zones": []
+      }
+    },
+    "鹽埕區": {
+      "壽星里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中",
+              "壽山國中"
+            ]
+          }
+        ]
+      },
+      "藍橋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中",
+              "壽山國中"
+            ]
+          }
+        ]
+      }
+    },
+    "三民區": {
+      "興德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "豐裕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "裕民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "千北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "千歲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "千秋里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "立德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "力行里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "川東里": {
+        "regular": [
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "free_zones": []
+      },
+      "德北里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "三民國中"
+            ]
+          }
+        ]
+      },
+      "德西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "三民國中",
+              "鼓山高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "七賢國中": {
+    "鼓山區": {
+      "龍水里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "壽山國中": {
+    "鼓山區": {
+      "惠安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "維生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "峰南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "延平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "壽山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "哨船頭里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "麗興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "桃源里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "綠川里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "河邊里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興宗里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶樹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光化里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "山下里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "登山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "鹽埕區": {
+      "慈愛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中"
+            ]
+          }
+        ]
+      },
+      "博愛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中"
+            ]
+          }
+        ]
+      },
+      "陸橋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中"
+            ]
+          }
+        ]
+      },
+      "江西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中"
+            ]
+          }
+        ]
+      },
+      "教仁里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中"
+            ]
+          }
+        ]
+      },
+      "壽星里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中",
+              "前金國中"
+            ]
+          }
+        ]
+      },
+      "藍橋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鹽埕國中",
+              "前金國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "明華國中": {
+    "鼓山區": {
+      "明誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龍子里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              7
+            ],
+            "shared_with": [
+              "龍華國中"
+            ]
+          }
+        ]
+      }
+    },
+    "左營區": {
+      "新上里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              32,
+              33,
+              53
+            ],
+            "shared_with": [
+              "龍華國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "左營國中": {
+    "左營區": {
+      "新光里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新中里": {
+        "regular": [
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "free_zones": []
+      },
+      "尾北里": {
+        "regular": [
+          21,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35
+        ],
+        "free_zones": []
+      },
+      "菜公里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          12,
+          13,
+          14,
+          15,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          32,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          63,
+          64,
+          65
+        ],
+        "free_zones": []
+      },
+      "新下里": {
+        "regular": [
+          1,
+          9
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              21,
+              25,
+              36
+            ],
+            "shared_with": [
+              "龍華國中",
+              "大義國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "大義國中": {
+    "左營區": {
+      "自助里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "果峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "果貿里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "果惠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "崇實里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "海勝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "埤北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "埤東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "埤西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "城南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "尾北里": {
+        "regular": [
+          6,
+          8,
+          10,
+          18,
+          19,
+          26
+        ],
+        "free_zones": []
+      },
+      "新下里": {
+        "regular": [
+          1,
+          9
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              21,
+              25,
+              36
+            ],
+            "shared_with": [
+              "左營國中",
+              "龍華國中",
+              "左營國中"
+            ]
+          }
+        ]
+      },
+      "聖南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "立德國中"
+            ]
+          }
+        ]
+      },
+      "路東里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "立德國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鼓山區": {
+      "裕豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "裕興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "華豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼓峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "前峰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              9
+            ],
+            "shared_with": [
+              "鼓山高中國中部"
+            ]
+          }
+        ]
+      },
+      "雄峰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼓山高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "龍華國中": {
+    "三民區": {
+      "灣興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼎泰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      },
+      "鼎強里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      },
+      "鼎力里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      }
+    },
+    "左營區": {
+      "新中里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7
+        ],
+        "free_zones": []
+      },
+      "新上里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              32,
+              33,
+              53
+            ],
+            "shared_with": [
+              "明華國中"
+            ]
+          }
+        ]
+      },
+      "新下里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              21,
+              25,
+              36
+            ],
+            "shared_with": [
+              "左營國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鼓山區": {
+      "龍子里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              7
+            ],
+            "shared_with": [
+              "明華國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "立德國中": {
+    "左營區": {
+      "進學里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "尾西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "頂北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "頂西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "合群里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廍南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廍北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明建里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永清里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "復興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "祥和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "屏山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "尾南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廟東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廟北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "聖后里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "聖西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "尾北里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          11,
+          13,
+          15,
+          16,
+          17,
+          20,
+          22,
+          24,
+          25
+        ],
+        "free_zones": []
+      },
+      "光輝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中",
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      },
+      "莒光里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中",
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      },
+      "聖南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大義國中"
+            ]
+          }
+        ]
+      },
+      "路東里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大義國中"
+            ]
+          }
+        ]
+      }
+    },
+    "楠梓區": {
+      "和昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "福山國中": {
+    "左營區": {
+      "福山里": {
+        "regular": [
+          1,
+          3,
+          7,
+          13,
+          15,
+          24,
+          25,
+          32,
+          33,
+          34,
+          35,
+          36,
+          41,
+          42,
+          43,
+          44,
+          45,
+          47,
+          49,
+          50,
+          58,
+          62,
+          68,
+          70,
+          71,
+          72,
+          74,
+          75,
+          76,
+          77,
+          78
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              4,
+              6,
+              8,
+              12,
+              14,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              51,
+              52,
+              53,
+              57,
+              59,
+              60,
+              61,
+              63,
+              65,
+              66,
+              67,
+              73
+            ],
+            "shared_with": [
+              "文府國中"
+            ]
+          }
+        ]
+      },
+      "菜公里": {
+        "regular": [
+          2,
+          3,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          26,
+          27,
+          28,
+          29,
+          31,
+          32,
+          33,
+          34,
+          35,
+          39,
+          41,
+          42,
+          43,
+          46,
+          47,
+          48,
+          49,
+          50,
+          51,
+          52,
+          53,
+          54,
+          55,
+          56,
+          57,
+          58,
+          59,
+          60,
+          62,
+          63,
+          64
+        ],
+        "free_zones": []
+      }
+    },
+    "三民區": {
+      "鼎盛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "楠梓國中": {
+    "楠梓區": {
+      "東寧里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "享平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "惠民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "清豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中陽里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "五常里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "惠楠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "稔田里": {
+        "regular": [
+          13
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "後勁國中": {
+    "楠梓區": {
+      "瑞屏里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "錦屏里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "惠豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "金田里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "玉屏里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "稔田里": {
+        "regular": [
+          1,
+          12
+        ],
+        "free_zones": []
+      },
+      "宏榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "shared_with": [
+              "中山大學附屬國光高中國中部",
+              "中山大學附屬國光高中國中部",
+              "右昌國中"
+            ]
+          }
+        ]
+      },
+      "翠屏里": {
+        "regular": [
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          44
+        ],
+        "free_zones": []
+      },
+      "秀昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中"
+            ]
+          }
+        ]
+      },
+      "加昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "翠屏國中",
+              "國昌國中"
+            ]
+          }
+        ]
+      },
+      "宏毅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "宏南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "右昌國中": {
+    "楠梓區": {
+      "建昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "泰昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "久昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廣昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "隆昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "裕昌里": {
+        "regular": [
+          1,
+          5
+        ],
+        "free_zones": []
+      },
+      "宏榮里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "shared_with": [
+              "後勁國中",
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      },
+      "盛昌里": {
+        "regular": [
+          18,
+          20,
+          24,
+          27
+        ],
+        "free_zones": []
+      },
+      "興昌里": {
+        "regular": [
+          13,
+          14,
+          17,
+          19
+        ],
+        "free_zones": []
+      },
+      "秀昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "後勁國中"
+            ]
+          }
+        ]
+      },
+      "和昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "立德國中"
+            ]
+          }
+        ]
+      },
+      "慶昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      },
+      "宏昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "國昌國中"
+            ]
+          }
+        ]
+      }
+    },
+    "左營區": {
+      "光輝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "立德國中",
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      },
+      "莒光里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "立德國中",
+              "中山大學附屬國光高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "國昌國中": {
+    "楠梓區": {
+      "國昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興昌里": {
+        "regular": [
+          13,
+          14,
+          17,
+          19
+        ],
+        "free_zones": []
+      },
+      "盛昌里": {
+        "regular": [
+          18,
+          19,
+          20,
+          24,
+          25,
+          26,
+          27
+        ],
+        "free_zones": []
+      },
+      "裕昌里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "free_zones": []
+      },
+      "藍田里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "翠屏國中"
+            ]
+          }
+        ]
+      },
+      "仁昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "翠屏國中"
+            ]
+          }
+        ]
+      },
+      "加昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "翠屏國中",
+              "後勁國中"
+            ]
+          }
+        ]
+      },
+      "宏昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "翠屏國中": {
+    "楠梓區": {
+      "翠屏里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44,
+          45
+        ],
+        "free_zones": []
+      },
+      "藍田里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "國昌國中"
+            ]
+          }
+        ]
+      },
+      "仁昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "國昌國中"
+            ]
+          }
+        ]
+      },
+      "加昌里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "後勁國中",
+              "國昌國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "三民國中": {
+    "三民區": {
+      "立誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "立業里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "精華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民享里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安邦里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德行里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安宜里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安泰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "同德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "達德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "達仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "達明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "達勇里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德智里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "十全里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "十美里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德北里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中"
+            ]
+          }
+        ]
+      },
+      "德西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中",
+              "鼓山高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "民族國中": {
+    "三民區": {
+      "寶獅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶泰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶盛里": {
+        "regular": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "free_zones": []
+      },
+      "寶安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "shared_with": [
+              "正興國中"
+            ]
+          }
+        ]
+      },
+      "寶民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶玉里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "陽明國中"
+            ]
+          }
+        ]
+      },
+      "寶珠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "鼎金國中": {
+    "三民區": {
+      "灣成里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣子里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣利里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣復里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣愛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣勝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼎金里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼎西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼎中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本文里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本館里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "灣中里": {
+        "regular": [
+          9
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              25
+            ],
+            "shared_with": [
+              "正興國中"
+            ]
+          }
+        ]
+      },
+      "鼎強里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "龍華國中"
+            ]
+          }
+        ]
+      },
+      "鼎力里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "龍華國中"
+            ]
+          }
+        ]
+      },
+      "鼎泰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "龍華國中"
+            ]
+          }
+        ]
+      },
+      "鼎盛里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "福山國中"
+            ]
+          }
+        ]
+      },
+      "寶珠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "民族國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "陽明國中": {
+    "三民區": {
+      "寶國里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶業里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶慶里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本元里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本揚里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "本上里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶玉里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "民族國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "正興國中": {
+    "三民區": {
+      "安康里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安寧里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安吉里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安發里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正順里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶龍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶盛里": {
+        "regular": [
+          13,
+          14,
+          15,
+          16,
+          17,
+          18
+        ],
+        "free_zones": []
+      },
+      "寶安里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6
+            ],
+            "shared_with": [
+              "民族國中"
+            ]
+          }
+        ]
+      },
+      "灣中里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              9,
+              25
+            ],
+            "shared_with": [
+              "鼎金國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "苓雅國中": {
+    "苓雅區": {
+      "苓雅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "苓昇里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "苓中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "苓東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "城東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鼓中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "城西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "田西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "人和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "城北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁政里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廣澤里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "華堂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "美田里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "日中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "普照里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "和煦里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "晴朗里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "苓洲里": {
+        "regular": [
+          1,
+          12,
+          14,
+          15,
+          16,
+          17
+        ],
+        "free_zones": []
+      },
+      "普天里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      },
+      "意誠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      }
+    },
+    "前金區": {
+      "榮復里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中"
+            ]
+          }
+        ]
+      },
+      "文西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前金國中"
+            ]
+          }
+        ]
+      }
+    },
+    "前鎮區": {
+      "盛興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      },
+      "盛豐里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              27,
+              28,
+              29
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "五福國中": {
+    "苓雅區": {
+      "林泉里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林圍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林富里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "尚義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "奏捷里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "安祥里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "凱旋里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "同慶里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "高師大附中國中部"
+            ]
+          }
+        ]
+      },
+      "五權里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              12
+            ],
+            "shared_with": [
+              "大仁國中"
+            ]
+          }
+        ]
+      }
+    },
+    "三民區": {
+      "港新里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          15,
+          16,
+          17,
+          18
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              6
+            ],
+            "shared_with": [
+              "新興高中國中部"
+            ]
+          }
+        ]
+      },
+      "博惠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大仁國中"
+            ]
+          }
+        ]
+      }
+    },
+    "新興區": {
+      "中東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "順昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光耀里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "開平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德生里": {
+        "regular": [
+          6,
+          19,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "英明國中": {
+    "前鎮區": {
+      "竹北里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      }
+    },
+    "苓雅區": {
+      "林靖里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林貴里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "英明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "朝陽里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福隆里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "光華里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "林華里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "普天里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "苓雅國中"
+            ]
+          }
+        ]
+      },
+      "福地里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞豐國中"
+            ]
+          }
+        ]
+      },
+      "福康里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞豐國中"
+            ]
+          }
+        ]
+      },
+      "福海里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞豐國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "大仁國中": {
+    "苓雅區": {
+      "正心里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正文里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正言里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正道里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "五福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民主里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福壽里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中正高中國中部"
+            ]
+          }
+        ]
+      },
+      "正大里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中正高中國中部"
+            ]
+          }
+        ]
+      },
+      "五權里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "三民區": {
+      "博惠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "五福國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "前鎮國中": {
+    "前鎮區": {
+      "仁愛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明道里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明禮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "草衙里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明孝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "平等里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "平昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明正里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26
+        ],
+        "free_zones": []
+      },
+      "信義里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          19,
+          20
+        ],
+        "free_zones": []
+      },
+      "興化里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "信德里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "興仁國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "興仁國中": {
+    "前鎮區": {
+      "前鎮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮陽里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮海里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "信義里": {
+        "regular": [
+          18,
+          21,
+          22,
+          23,
+          24
+        ],
+        "free_zones": []
+      },
+      "鎮北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興化里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8
+            ],
+            "shared_with": [
+              "前鎮國中"
+            ]
+          }
+        ]
+      },
+      "信德里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前鎮國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "獅甲國中": {
+    "前鎮區": {
+      "西山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "西甲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民權里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "良和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建隆里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠純里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "振興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興邦里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮北里": {
+        "regular": [
+          18
+        ],
+        "free_zones": []
+      },
+      "盛豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "忠孝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "復國里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "興東里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "盛興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "苓雅國中"
+            ]
+          }
+        ]
+      }
+    },
+    "苓雅區": {
+      "意誠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "苓雅國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "光華國中": {
+    "前鎮區": {
+      "竹西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹內里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠孝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      },
+      "興東里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      },
+      "復國里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      },
+      "瑞竹里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞祥高中國中部"
+            ]
+          }
+        ]
+      },
+      "竹北里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      }
+    },
+    "苓雅區": {
+      "林興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      },
+      "光華里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      },
+      "林華里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "瑞豐國中": {
+    "前鎮區": {
+      "瑞崗里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞文里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞隆里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              19,
+              20,
+              21,
+              22
+            ],
+            "shared_with": [
+              "五甲國中",
+              "瑞祥高中國中部",
+              "瑞祥高中國中部"
+            ]
+          }
+        ]
+      }
+    },
+    "苓雅區": {
+      "福居里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中正高中國中部"
+            ]
+          }
+        ]
+      },
+      "福地里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      },
+      "福康里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      },
+      "福海里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "英明國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鳳山區": {
+      "武漢里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳甲國中"
+            ]
+          }
+        ]
+      },
+      "新武里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳甲國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "小港國中": {
+    "小港區": {
+      "小港里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港口里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港墘里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港后里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳宮里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      },
+      "店鎮里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      },
+      "二苓里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      },
+      "大苓里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      },
+      "三苓里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      },
+      "明義里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19,
+              20
+            ],
+            "shared_with": [
+              "前鎮國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "中山國中": {
+    "小港區": {
+      "青島里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "濟南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "泰山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "山明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "順苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "宏亮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "六苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "山東里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27
+        ],
+        "free_zones": []
+      },
+      "松金里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "明義國中"
+            ]
+          }
+        ]
+      },
+      "鳳宮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "店鎮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "二苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三苓里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "鳳林國中": {
+    "小港區": {
+      "鳳林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳森里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳源里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳鳴里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龍鳳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "明義國中": {
+    "小港區": {
+      "桂林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廈莊里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "合作里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "孔宅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "高松里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "松山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大坪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "坪頂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中厝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "松金里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中山國中"
+            ]
+          }
+        ]
+      }
+    },
+    "大寮區": {
+      "拷潭里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大寮國中"
+            ]
+          }
+        ]
+      },
+      "內坑里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              18,
+              19
+            ],
+            "shared_with": [
+              "大寮國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鳳山區": {
+      "過埤里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              3,
+              4,
+              7,
+              8,
+              10,
+              12,
+              13,
+              14,
+              16,
+              17,
+              18,
+              19,
+              20,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              48,
+              49
+            ],
+            "shared_with": []
+          }
+        ]
+      }
+    },
+    "前鎮區": {
+      "明正里": {
+        "regular": [
+          27,
+          28,
+          29,
+          30
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "明義國中中安分校": {
+    "小港區": {
+      "桂林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廈莊里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "合作里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "孔宅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "高松里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "松山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大坪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "坪頂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中厝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "明義國中",
+              "明義國中"
+            ]
+          }
+        ]
+      }
+    },
+    "前鎮區": {
+      "明正里": {
+        "regular": [
+          27,
+          28,
+          29,
+          30
+        ],
+        "free_zones": []
+      }
+    },
+    "鳳山區": {
+      "大德里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              27,
+              28,
+              29,
+              30,
+              31
+            ],
+            "shared_with": [
+              "明義國中",
+              "福誠高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "瑞祥高中國中部": {
+    "前鎮區": {
+      "瑞豐里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞平里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "五甲國中"
+            ]
+          }
+        ]
+      },
+      "瑞南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13
+            ],
+            "shared_with": [
+              "五甲國中"
+            ]
+          }
+        ]
+      },
+      "瑞祥里": {
+        "regular": [
+          18,
+          19,
+          20,
+          21,
+          24,
+          25
+        ],
+        "free_zones": []
+      },
+      "瑞隆里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              19,
+              20,
+              21,
+              22
+            ],
+            "shared_with": [
+              "五甲國中",
+              "瑞豐國中",
+              "瑞豐國中"
+            ]
+          }
+        ]
+      },
+      "瑞竹里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "光華國中"
+            ]
+          }
+        ]
+      },
+      "忠誠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              24
+            ],
+            "shared_with": [
+              "獅甲國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "中正高中國中部": {
+    "苓雅區": {
+      "正義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "衛武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福祥里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福人里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建軍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永康里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福壽里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大仁國中"
+            ]
+          }
+        ]
+      },
+      "正大里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大仁國中"
+            ]
+          }
+        ]
+      },
+      "福居里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞豐國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鳳山區": {
+      "忠義里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              3,
+              7,
+              23,
+              25,
+              27,
+              28,
+              29,
+              30,
+              31,
+              32,
+              33,
+              34
+            ],
+            "shared_with": []
+          }
+        ]
+      }
+    }
+  },
+  "鼓山高中國中部": {
+    "鼓山區": {
+      "鼓岩里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "樹德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龍井里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民族里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "自強里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "建國里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內惟里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "平和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "民強里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "厚生里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "前峰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              9
+            ],
+            "shared_with": [
+              "大義國中"
+            ]
+          }
+        ]
+      },
+      "雄峰里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大義國中"
+            ]
+          }
+        ]
+      }
+    },
+    "三民區": {
+      "川東里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5
+        ],
+        "free_zones": []
+      },
+      "德西里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "三民國中",
+              "前金國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "新興高中國中部": {
+    "新興區": {
+      "榮治里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "漢民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東坡里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "振成里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "華聲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁聲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德政里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "玉衡里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "浩然里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正氣里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永寧里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "蕉園里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "振華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新江里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "黎明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "成功里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南港里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "愛平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德望里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "明莊里": {
+        "regular": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "free_zones": []
+      },
+      "德生里": {
+        "regular": [
+          6,
+          19,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28
+        ],
+        "free_zones": []
+      }
+    },
+    "前金區": {
+      "文東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "三民區": {
+      "博愛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "長明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港新里": {
+        "regular": [
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              6
+            ],
+            "shared_with": [
+              "五福國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "國立高雄餐旅大學附屬高中國中部": {
+    "小港區": {}
+  },
+  "國立高雄師大附中國中部": {
+    "苓雅區": {
+      "凱旋里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "同慶里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "五福國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "國立中山大學附屬國光高中國中部": {
+    "楠梓區": {
+      "宏南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "後勁國中"
+            ]
+          }
+        ]
+      },
+      "宏榮里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              24,
+              25,
+              26,
+              27
+            ],
+            "shared_with": [
+              "後勁國中",
+              "後勁國中",
+              "右昌國中"
+            ]
+          },
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中"
+            ]
+          }
+        ]
+      }
+    },
+    "左營區": {
+      "光輝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "莒光里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "右昌國中",
+              "立德國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "鳳西國中": {
+    "鳳山區": {
+      "縣口里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "成功里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "縣衙里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳崗里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "和興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "和德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠義里": {
+        "regular": [
+          12,
+          13,
+          14,
+          16,
+          17,
+          18,
+          19,
+          20
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              15
+            ],
+            "shared_with": [
+              "中崙國中"
+            ]
+          }
+        ]
+      },
+      "三民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "生明里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "shared_with": [
+              "鳳山國中"
+            ]
+          }
+        ]
+      },
+      "協和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              22,
+              24
+            ],
+            "shared_with": [
+              "忠孝國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "忠孝國中": {
+    "鳳山區": {
+      "國泰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "國光里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "國隆里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "國富里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "老爺里": {
+        "regular": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          38,
+          39
+        ],
+        "free_zones": []
+      },
+      "協和里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              22,
+              24
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      },
+      "中和里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "青年國中"
+            ]
+          }
+        ]
+      },
+      "海洋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳甲國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "鳳山國中": {
+    "鳳山區": {
+      "鎮東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "埤頂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "海光里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "海風里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東門里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠信里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞竹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠智里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北門里": {
+        "regular": [
+          1,
+          2,
+          15,
+          16,
+          30,
+          31,
+          32,
+          33,
+          37,
+          38
+        ],
+        "free_zones": []
+      },
+      "光明里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      },
+      "三民里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      },
+      "新興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      },
+      "生明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "青年國中": {
+    "鳳山區": {
+      "曹公里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠孝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北門里": {
+        "regular": [
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26,
+          27,
+          28,
+          29,
+          34,
+          35,
+          36,
+          39,
+          40
+        ],
+        "free_zones": []
+      },
+      "忠義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              3,
+              7,
+              23,
+              25
+            ],
+            "shared_with": [
+              "中正高中國中部"
+            ]
+          }
+        ]
+      },
+      "中和里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "忠孝國中"
+            ]
+          }
+        ]
+      },
+      "武松里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "shared_with": [
+              "文山高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "五甲國中": {
+    "鳳山區": {
+      "鎮南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "富甲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龍成里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "善美里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "富榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "正義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "一甲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南成里": {
+        "regular": [
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "free_zones": []
+      },
+      "二甲里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24,
+          25,
+          26
+        ],
+        "free_zones": []
+      },
+      "瑞平里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞祥高中國中部"
+            ]
+          }
+        ]
+      },
+      "瑞南里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5,
+              6,
+              7,
+              8,
+              9,
+              10,
+              11,
+              12,
+              13
+            ],
+            "shared_with": [
+              "瑞祥高中國中部"
+            ]
+          }
+        ]
+      },
+      "瑞祥里": {
+        "regular": [
+          18,
+          19,
+          20,
+          21,
+          24,
+          25
+        ],
+        "free_zones": []
+      },
+      "瑞隆里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              19,
+              20,
+              21,
+              22
+            ],
+            "shared_with": [
+              "瑞豐國中",
+              "瑞祥高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "福誠高中國中部": {
+    "鳳山區": {
+      "五福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "天興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "福祥里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "鳳甲國中": {
+    "鳳山區": {
+      "新甲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新樂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新泰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新強里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新富里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "武慶里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "老爺里": {
+        "regular": [
+          1,
+          2,
+          3,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37
+        ],
+        "free_zones": []
+      },
+      "新武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "武漢里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "瑞豐國中"
+            ]
+          }
+        ]
+      },
+      "海洋里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "忠孝國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "中崙國中": {
+    "鳳山區": {
+      "中民里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中崙里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "誠義里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              15
+            ],
+            "shared_with": [
+              "鳳西國中"
+            ]
+          }
+        ]
+      },
+      "過埤里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              6,
+              9,
+              11,
+              15,
+              21,
+              32,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              50
+            ],
+            "shared_with": [
+              "鳳翔國中"
+            ]
+          },
+          {
+            "neighbors": [
+              1,
+              3,
+              4,
+              7,
+              8,
+              10,
+              12,
+              13,
+              14,
+              16,
+              17,
+              18,
+              19,
+              20,
+              34,
+              35,
+              36,
+              37,
+              38,
+              39,
+              40,
+              48,
+              49
+            ],
+            "shared_with": [
+              "明義國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "文山高中國中部": {
+    "鳳山區": {
+      "文英里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文衡里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "忠誠里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鎮北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "武松里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              1,
+              2,
+              3,
+              4,
+              5
+            ],
+            "shared_with": [
+              "青年國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鳥松區": {
+      "大華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳥松里": {
+        "regular": [
+          14,
+          15,
+          40,
+          41
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              20,
+              21,
+              22,
+              23,
+              24,
+              34,
+              35,
+              36,
+              37
+            ],
+            "shared_with": [
+              "鳥松國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "林園高中國中部": {
+    "林園區": {
+      "溪州里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "五福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林園里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "王公里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林家里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龔厝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中門里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "林內里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中厝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "潭頭里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廣應里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "頂厝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁愛里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港埔里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "港嘴里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "東林里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "文賢里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      }
+    }
+  },
+  "中芸國中": {
+    "林園區": {
+      "西汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中汕里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "西溪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中芸里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鳳芸里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "港埔里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "港嘴里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "東林里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      },
+      "文賢里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": []
+          }
+        ]
+      }
+    }
+  },
+  "大寮國中": {
+    "大寮區": {
+      "上寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "會社里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三隆里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永芳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內坑里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              18,
+              19
+            ],
+            "shared_with": [
+              "明義國中"
+            ]
+          }
+        ]
+      },
+      "忠義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "山頂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "前庄里": {
+        "regular": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "free_zones": []
+      },
+      "拷潭里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "明義國中"
+            ]
+          }
+        ]
+      },
+      "琉球里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "中庄國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "潮寮國中": {
+    "大寮區": {
+      "潮寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "會結里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "過溪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "昭明里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "義仁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新厝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "中庄國中": {
+    "大寮區": {
+      "中庄里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "江山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "翁園里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "義和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "溪寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "後庄里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "前庄里": {
+        "regular": [
+          11,
+          12,
+          13,
+          14,
+          15,
+          16
+        ],
+        "free_zones": []
+      },
+      "琉球里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大寮國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "溪埔國中": {
+    "大樹區": {
+      "三和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "溪埔里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大坑里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興田里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "統嶺里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "姑山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "大樹國中": {
+    "大樹區": {
+      "和山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大樹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "檨腳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "龍目里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "小坪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "井腳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "水寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "水安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "久堂里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "九曲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "大社國中": {
+    "大社區": {}
+  },
+  "仁武高中國中部": {
+    "仁武區": {
+      "仁武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "烏林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹後里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "後安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中華里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "大灣國中": {
+    "仁武區": {
+      "灣內里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "考潭里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁慈里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "赤山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大灣里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "八卦里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "五和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "高楠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "文府國中"
+            ]
+          }
+        ]
+      }
+    },
+    "鳥松區": {
+      "夢裡里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              3,
+              4,
+              5,
+              14,
+              15,
+              17
+            ],
+            "shared_with": [
+              "鳥松國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "鳥松國中": {
+    "鳥松區": {
+      "坔埔里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大竹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁美里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "華美里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "夢裡里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              3,
+              4,
+              5,
+              14,
+              15,
+              17
+            ],
+            "shared_with": [
+              "大灣國中"
+            ]
+          }
+        ]
+      },
+      "鳥松里": {
+        "regular": [
+          14,
+          15,
+          40,
+          41
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              20,
+              21,
+              22,
+              23,
+              24,
+              34,
+              35,
+              36,
+              37
+            ],
+            "shared_with": []
+          }
+        ]
+      }
+    }
+  },
+  "岡山國中": {
+    "岡山區": {
+      "後紅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "碧紅里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "程香里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹圍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "和平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大遼里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "台上里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              8,
+              26
+            ],
+            "shared_with": [
+              "嘉興國中"
+            ]
+          }
+        ]
+      },
+      "大莊里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中",
+              "嘉興國中"
+            ]
+          }
+        ]
+      },
+      "為隨里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中",
+              "嘉興國中"
+            ]
+          }
+        ]
+      },
+      "平安里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "忠孝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "仁義里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "維仁里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "壽天里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "劉厝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "岡山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "灣裡里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      }
+    },
+    "燕巢區": {
+      "角宿里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17
+            ],
+            "shared_with": [
+              "燕巢國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "前峰國中": {
+    "岡山區": {
+      "前峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "壽峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "協和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "仁壽里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "後協里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "協榮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "信義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "平安里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "忠孝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "仁義里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "維仁里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "壽天里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "劉厝里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "岡山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "灣裡里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "石潭里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "梓官國中"
+            ]
+          }
+        ]
+      },
+      "福興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "梓官國中"
+            ]
+          }
+        ]
+      },
+      "白米里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "梓官國中"
+            ]
+          }
+        ]
+      },
+      "大莊里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中",
+              "嘉興國中"
+            ]
+          }
+        ]
+      },
+      "為隨里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "岡山國中",
+              "嘉興國中"
+            ]
+          }
+        ]
+      },
+      "本洲里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "永安國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "嘉興國中": {
+    "岡山區": {
+      "嘉興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "華崗里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "嘉峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "潭底里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "台上里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              8,
+              26
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "大莊里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中",
+              "岡山國中"
+            ]
+          }
+        ]
+      },
+      "為隨里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中",
+              "岡山國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "橋頭國中": {
+    "橋頭區": {}
+  },
+  "燕巢國中": {
+    "燕巢區": {
+      "角宿里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              17
+            ],
+            "shared_with": [
+              "岡山國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "田寮國中": {
+    "田寮區": {}
+  },
+  "阿蓮國中": {
+    "阿蓮區": {}
+  },
+  "路竹高中國中部": {
+    "路竹區": {
+      "竹東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "後鄉里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鴨寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "頂寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新達里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三爺里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "北嶺里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹滬里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              23,
+              26
+            ],
+            "shared_with": [
+              "和湖內國中"
+            ]
+          }
+        ]
+      }
+    },
+    "湖內區": {
+      "湖內里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "湖內國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "一甲國中": {
+    "路竹區": {
+      "甲南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "甲北里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "社中里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹園里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "下坑里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "湖內國中": {
+    "湖內區": {
+      "其中湖內里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "路竹高中國中部"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "茄萣國中": {
+    "茄萣區": {}
+  },
+  "永安國中": {
+    "永安區": {},
+    "岡山區": {
+      "本洲里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "彌陀國中": {
+    "彌陀區": {}
+  },
+  "梓官國中": {
+    "梓官區": {
+      "梓信里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "梓義里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "梓和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "梓平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中崙里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "同安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大舍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "岡山區": {
+      "石潭里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "福興里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      },
+      "白米里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "前峰國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "蚵寮國中": {
+    "梓官區": {
+      "赤崁里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "赤東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "赤西里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "禮蚵里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "智蚵里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "茄苳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "典寶里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "信蚵里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "旗山國中": {
+    "旗山區": {
+      "太平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "湄洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三協里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞吉里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東昌里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廣福里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "竹峰里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "圓富國中": {
+    "旗山區": {
+      "圓富里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中正里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "內門區": {
+      "金竹里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "溝坪里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永吉里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "永富里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "大洲國中": {
+    "旗山區": {
+      "上洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "鯤洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南洲里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新光里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "南勝里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "美濃國中": {
+    "美濃區": {
+      "中圳里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東門里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "泰安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瀰濃里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "廣德里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興隆里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "合和里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          14,
+          15,
+          16,
+          17,
+          18,
+          19
+        ],
+        "free_zones": []
+      },
+      "祿興里": {
+        "regular": [
+          3,
+          16
+        ],
+        "free_zones": []
+      },
+      "福安里": {
+        "regular": [
+          1,
+          2,
+          3,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          16,
+          17,
+          18,
+          21,
+          22,
+          23
+        ],
+        "free_zones": []
+      },
+      "廣林里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              4,
+              6,
+              13
+            ],
+            "shared_with": [
+              "龍肚國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "南隆國中": {
+    "美濃區": {
+      "中壇里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "德興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "吉東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "吉洋里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "吉和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "清水里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "祿興里": {
+        "regular": [
+          1,
+          2,
+          4,
+          5,
+          6,
+          7,
+          8,
+          9,
+          10,
+          11,
+          12,
+          13,
+          14,
+          15,
+          17,
+          18,
+          19,
+          20,
+          21,
+          22,
+          23,
+          24
+        ],
+        "free_zones": []
+      },
+      "福安里": {
+        "regular": [
+          19,
+          20,
+          24
+        ],
+        "free_zones": []
+      },
+      "獅山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              9,
+              10,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "shared_with": [
+              "龍肚國中"
+            ]
+          }
+        ]
+      },
+      "龍山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              20,
+              21,
+              22
+            ],
+            "shared_with": [
+              "龍肚國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "龍肚國中": {
+    "美濃區": {
+      "龍肚里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "合和里": {
+        "regular": [
+          13
+        ],
+        "free_zones": []
+      },
+      "廣林里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              4,
+              6,
+              13
+            ],
+            "shared_with": [
+              "美濃國中"
+            ]
+          }
+        ]
+      },
+      "獅山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              9,
+              10,
+              13,
+              14,
+              15,
+              16,
+              17,
+              18,
+              19
+            ],
+            "shared_with": [
+              "南隆國中"
+            ]
+          }
+        ]
+      },
+      "龍山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              10,
+              11,
+              12,
+              13,
+              14,
+              15,
+              16,
+              20,
+              21,
+              22
+            ],
+            "shared_with": [
+              "南隆國中"
+            ]
+          }
+        ]
+      }
+    },
+    "六龜區": {
+      "新威里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "六龜高中國中部": {
+    "六龜區": {
+      "六龜里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "義寶里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "文武里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "興龍里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "大津里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新發里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新威里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "新寮里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "桃源區": {
+      "寶山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "桃源國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "寶來國中": {
+    "六龜區": {
+      "寶來里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "荖濃里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    },
+    "桃源區": {
+      "建山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "高中里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "桃源國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "甲仙國中": {
+    "甲仙區": {}
+  },
+  "杉林國中": {
+    "杉林區": {}
+  },
+  "內門國中": {
+    "內門區": {
+      "內豊里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "光興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "石坑里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內門里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "東埔里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "三平里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "木柵里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內南里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "瑞山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "觀亭里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "中埔里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "內東里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      }
+    }
+  },
+  "茂林國中": {
+    "茂林區": {}
+  },
+  "桃源國中": {
+    "桃源區": {
+      "梅山里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "復興里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "拉芙蘭里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "勤和里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "桃源里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "寶山里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "六龜高中國中部"
+            ]
+          }
+        ]
+      },
+      "高中里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "寶來國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "那瑪夏國中": {
+    "那瑪夏區": {}
+  },
+  "鳳翔國中": {
+    "鳳山區": {
+      "保安里": {
+        "regular": [
+          -1
+        ],
+        "free_zones": []
+      },
+      "二甲里": {
+        "regular": [
+          15,
+          16,
+          17,
+          27,
+          28,
+          29,
+          30,
+          31
+        ],
+        "free_zones": []
+      },
+      "南成里": {
+        "regular": [
+          1,
+          2,
+          3,
+          25,
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          32,
+          33,
+          34,
+          35,
+          36,
+          37,
+          38,
+          39,
+          40,
+          41,
+          42,
+          43,
+          44
+        ],
+        "free_zones": []
+      },
+      "過埤里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              6,
+              9,
+              11,
+              15,
+              21,
+              32,
+              41,
+              42,
+              43,
+              44,
+              45,
+              46,
+              47,
+              50
+            ],
+            "shared_with": [
+              "中崙國中"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "文府國中": {
+    "左營區": {
+      "福山里": {
+        "regular": [
+          5,
+          9,
+          10,
+          11,
+          37,
+          48,
+          54,
+          55,
+          56,
+          64,
+          69,
+          79,
+          80
+        ],
+        "free_zones": [
+          {
+            "neighbors": [
+              2,
+              4,
+              6,
+              8,
+              12,
+              14,
+              16,
+              17,
+              18,
+              19,
+              20,
+              21,
+              22,
+              23,
+              26,
+              27,
+              28,
+              29,
+              30,
+              31,
+              51,
+              52,
+              53,
+              57,
+              59,
+              60,
+              61,
+              63,
+              65,
+              66,
+              67,
+              73
+            ],
+            "shared_with": [
+              "福山國中"
+            ]
+          }
+        ]
+      },
+      "菜公里": {
+        "regular": [
+          26,
+          27,
+          28,
+          29,
+          30,
+          31,
+          33,
+          34,
+          35,
+          62
+        ],
+        "free_zones": []
+      }
+    },
+    "仁武區": {
+      "高楠里": {
+        "regular": [],
+        "free_zones": [
+          {
+            "neighbors": [
+              -1
+            ],
+            "shared_with": [
+              "大灣國中"
+            ]
+          }
+        ]
+      }
+    },
+    "橋頭區": {}
+  }
+}

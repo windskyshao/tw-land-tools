@@ -1,0 +1,68 @@
+# === Python ===
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.env
+.venv/
+venv/
+
+# === IDE ===
+.vscode/
+.idea/
+.claude/
+
+# === 系統檔案 ===
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# === 暫存 / 備份 ===
+*.tmp
+*.log
+*.bak
+*.bak.*
+*.tmp.*
+*_backup_*.py
+*_backup.py
+* 11[0-9][0-9][0-9][0-9][0-9][0-9][0-9].py
+
+# === PyInstaller 打包輸出 ===
+build/
+dist/
+dist-0/
+__pycache__/
+python_embedded/
+
+# === 程式運作產生 ===
+output/
+data.json
+data_final.json
+data_final.json.tmp.*
+window_config.json
+*.png
+*.pdf
+*.xlsx
+*.xls
+
+# === 敏感資訊（絕對不能公開）===
+通訊錄.xlsx
+chromedriver*.exe
+credentials.json
+*.env
+*_credentials.json
+
+# === 案件工作資料夾（依地段-地號命名）===
+# 例：旗津區旗津段-859/
+**/4.其他相關/
+**/1.基本資料/
+**/0.謄本/
+
+# === debug / 測試輸出 ===
+debug_*.txt
+debug_*.html
+*_debug.txt
+*_debug.png
+captcha_*.png
+compare_*.png
+test_*.txt

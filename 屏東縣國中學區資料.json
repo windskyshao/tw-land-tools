@@ -1,0 +1,1686 @@
+{
+  "明正國中": {
+    "區制)\n屏東市": {
+      "大同里": {
+        "basic": "all",
+        "shared": []
+      },
+      "楠樹里": {
+        "basic": "all",
+        "shared": []
+      },
+      "金泉里": {
+        "basic": "all",
+        "shared": []
+      },
+      "公園里": {
+        "basic": "all",
+        "shared": []
+      },
+      "斯文里溝美里": {
+        "basic": "all",
+        "shared": []
+      },
+      "仁愛里": {
+        "basic": "all",
+        "shared": []
+      },
+      "華山里": {
+        "basic": "all",
+        "shared": []
+      },
+      "大連里": {
+        "basic": "all",
+        "shared": []
+      },
+      "長興村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "中正國中": {
+    "區制)\n屏東市": {
+      "豐源里": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐田里": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐榮里": {
+        "basic": "all",
+        "shared": []
+      },
+      "橋南里": {
+        "basic": "all",
+        "shared": []
+      },
+      "橋北里": {
+        "basic": "all",
+        "shared": []
+      },
+      "長春里": {
+        "basic": "all",
+        "shared": []
+      },
+      "湖西里": {
+        "basic": "all",
+        "shared": []
+      },
+      "歸心里": {
+        "basic": "all",
+        "shared": []
+      },
+      "湖南里": {
+        "basic": "all",
+        "shared": []
+      },
+      "瑞光里": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐年里": {
+        "basic": "all",
+        "shared": []
+      },
+      "香楊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "潭頭村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "公正國中": {
+    "區制)\n屏東市": {
+      "前進里": {
+        "basic": "all",
+        "shared": []
+      },
+      "大洲里": {
+        "basic": "all",
+        "shared": []
+      },
+      "公館里": {
+        "basic": "all",
+        "shared": []
+      },
+      "頂柳里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新興里": {
+        "basic": "all",
+        "shared": []
+      },
+      "玉成里": {
+        "basic": "all",
+        "shared": []
+      },
+      "龍華里": {
+        "basic": "all",
+        "shared": []
+      },
+      "大湖里": {
+        "basic": "all",
+        "shared": []
+      },
+      "頂宅里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新生里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "鶴聲國中": {
+    "區制)\n屏東市": {
+      "大武里": {
+        "basic": "all",
+        "shared": []
+      },
+      "厚生里": {
+        "basic": "all",
+        "shared": []
+      },
+      "安鎮里": {
+        "basic": "all",
+        "shared": []
+      },
+      "清溪里": {
+        "basic": "all",
+        "shared": []
+      },
+      "長安里": {
+        "basic": "all",
+        "shared": []
+      },
+      "崇武里": {
+        "basic": "all",
+        "shared": []
+      },
+      "永安里": {
+        "basic": "all",
+        "shared": []
+      },
+      "義勇里": {
+        "basic": "all",
+        "shared": []
+      },
+      "一心里": {
+        "basic": "all",
+        "shared": []
+      },
+      "建國里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "至正國中": {
+    "區制)\n屏東市": {
+      "海豐里": {
+        "basic": "all",
+        "shared": []
+      },
+      "仁義里": {
+        "basic": "all",
+        "shared": []
+      },
+      "信和里": {
+        "basic": "all",
+        "shared": []
+      },
+      "三山里": {
+        "basic": "all",
+        "shared": []
+      },
+      "和興里": {
+        "basic": "all",
+        "shared": []
+      },
+      "北興里": {
+        "basic": "all",
+        "shared": []
+      },
+      "勝利里": {
+        "basic": "all",
+        "shared": []
+      },
+      "中正里": {
+        "basic": "all",
+        "shared": []
+      },
+      "廣興里": {
+        "basic": "all",
+        "shared": []
+      },
+      "北勢里": {
+        "basic": "all",
+        "shared": []
+      },
+      "德和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "玉泉村": {
+        "basic": [
+          10,
+          11,
+          12
+        ],
+        "shared": []
+      }
+    }
+  },
+  "長治國中": {
+    "長治鄉": {
+      "繁華村": {
+        "basic": "all",
+        "shared": []
+      },
+      "繁榮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "繁隆村": {
+        "basic": "all",
+        "shared": []
+      },
+      "繁昌村": {
+        "basic": "all",
+        "shared": []
+      },
+      "進興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新潭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "復興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "德協村": {
+        "basic": "all",
+        "shared": []
+      },
+      "德成村": {
+        "basic": "all",
+        "shared": []
+      },
+      "德榮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "崙上村": {
+        "basic": "all",
+        "shared": []
+      },
+      "長興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "香楊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "潭頭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "榮華村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "麟洛國中": {
+    "麟洛鄉": {
+      "麟趾村": {
+        "basic": "all",
+        "shared": []
+      },
+      "麟蹄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "麟頂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "田心村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "九如國中": {
+    "九如鄉": {
+      "玉水村": {
+        "basic": "all",
+        "shared": []
+      },
+      "玉泉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東寧村": {
+        "basic": "all",
+        "shared": []
+      },
+      "九清村": {
+        "basic": "all",
+        "shared": []
+      },
+      "九明村": {
+        "basic": "all",
+        "shared": []
+      },
+      "九塊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大坵村": {
+        "basic": "all",
+        "shared": []
+      },
+      "後庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "耆老村": {
+        "basic": "all",
+        "shared": []
+      },
+      "三塊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "洽興村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "里港國中": {
+    "里港鄉": {
+      "後庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "耆老村": {
+        "basic": "all",
+        "shared": []
+      },
+      "洽興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "永隆村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "鹽埔國中": {
+    "鹽埔鄉": {
+      "鹽北村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鹽中村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鹽南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新圍村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新二村": {
+        "basic": "all",
+        "shared": []
+      },
+      "仕絨村": {
+        "basic": "all",
+        "shared": []
+      },
+      "彭厝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "洛陽村": {
+        "basic": "all",
+        "shared": []
+      },
+      "永隆村": {
+        "basic": "all",
+        "shared": []
+      },
+      "高朗村": {
+        "basic": "all",
+        "shared": []
+      },
+      "久愛村": {
+        "basic": "all",
+        "shared": []
+      },
+      "振興村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "高樹國中": {
+    "區制)\n高樹鄉": {
+      "新豐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "舊寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "司馬村": {
+        "basic": "all",
+        "shared": []
+      },
+      "菜寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大埔村": {
+        "basic": "all",
+        "shared": []
+      },
+      "高樹村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東振村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "建興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "長榮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "源泉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鹽樹村": {
+        "basic": "all",
+        "shared": []
+      },
+      "田子村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "舊庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "青山村": {
+        "basic": "all",
+        "shared": []
+      },
+      "青葉村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "高泰國中": {
+    "區制)\n高樹鄉": {
+      "南華村": {
+        "basic": "all",
+        "shared": []
+      },
+      "泰山村": {
+        "basic": "all",
+        "shared": []
+      },
+      "廣興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "廣福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "舊庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "口社村": {
+        "basic": "all",
+        "shared": []
+      },
+      "賽嘉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "安坡村": {
+        "basic": "all",
+        "shared": []
+      },
+      "馬兒村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "內埔國中": {
+    "區制)\n內埔鄉": {
+      "內埔村": {
+        "basic": "all",
+        "shared": []
+      },
+      "內田村": {
+        "basic": "all",
+        "shared": []
+      },
+      "美和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "和興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "興南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "義亭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東寧村": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐田村": {
+        "basic": "all",
+        "shared": []
+      },
+      "振豐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "富田村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "崇文國中": {
+    "區制)\n內埔鄉": {
+      "龍泉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "龍潭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大新村": {
+        "basic": "all",
+        "shared": []
+      },
+      "隘寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "水門村": {
+        "basic": "all",
+        "shared": []
+      },
+      "中林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "老埤村": {
+        "basic": "all",
+        "shared": []
+      },
+      "建興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "黎明村": {
+        "basic": "all",
+        "shared": []
+      },
+      "榮華村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "竹田國中": {
+    "竹田鄉": {
+      "竹田村": {
+        "basic": "all",
+        "shared": []
+      },
+      "竹南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "西勢村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南勢村": {
+        "basic": "all",
+        "shared": []
+      },
+      "泗洲村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大湖村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鳳明村": {
+        "basic": "all",
+        "shared": []
+      },
+      "永豐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "糶糴村": {
+        "basic": "all",
+        "shared": []
+      },
+      "六巷村": {
+        "basic": "all",
+        "shared": []
+      },
+      "二崙村": {
+        "basic": "all",
+        "shared": []
+      },
+      "頭崙村": {
+        "basic": "all",
+        "shared": []
+      },
+      "美崙村": {
+        "basic": "all",
+        "shared": []
+      },
+      "履豐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "福田村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "潮州國中": {
+    "區制)\n潮州鎮": {
+      "潮州里": {
+        "basic": "all",
+        "shared": []
+      },
+      "同榮里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新榮里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新生里": {
+        "basic": "all",
+        "shared": []
+      },
+      "三星里": {
+        "basic": "all",
+        "shared": []
+      },
+      "泗林里": {
+        "basic": "all",
+        "shared": []
+      },
+      "四春里": {
+        "basic": "all",
+        "shared": []
+      },
+      "五魁里": {
+        "basic": "all",
+        "shared": []
+      },
+      "蓬萊里": {
+        "basic": "all",
+        "shared": []
+      },
+      "三共里": {
+        "basic": "all",
+        "shared": []
+      },
+      "三和里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "光春國中": {
+    "區制)\n潮州鎮": {
+      "永春里": {
+        "basic": "all",
+        "shared": []
+      },
+      "富春里": {
+        "basic": "all",
+        "shared": []
+      },
+      "光春里": {
+        "basic": "all",
+        "shared": []
+      },
+      "八爺里": {
+        "basic": "all",
+        "shared": []
+      },
+      "彭城里": {
+        "basic": "all",
+        "shared": []
+      },
+      "崙東里": {
+        "basic": "all",
+        "shared": []
+      },
+      "光華里": {
+        "basic": "all",
+        "shared": []
+      },
+      "興美里": {
+        "basic": "all",
+        "shared": []
+      },
+      "九塊里": {
+        "basic": "all",
+        "shared": []
+      },
+      "檨子里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "萬巒國中": {
+    "萬巒鄉": {
+      "萬巒村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬全村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鹿寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "硫磺村": {
+        "basic": "all",
+        "shared": []
+      },
+      "泗溝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "五溝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "成德村": {
+        "basic": "all",
+        "shared": []
+      },
+      "佳佐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "佳和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新厝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新置村": {
+        "basic": "all",
+        "shared": []
+      },
+      "赤山村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬金村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "新埤國中": {
+    "新埤鄉": {
+      "新埤村": {
+        "basic": "all",
+        "shared": []
+      },
+      "建功村": {
+        "basic": "all",
+        "shared": []
+      },
+      "餉潭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "打鐵村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南豐村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬隆村": {
+        "basic": "all",
+        "shared": []
+      },
+      "箕湖村": {
+        "basic": "all",
+        "shared": []
+      },
+      "春日村": {
+        "basic": "all",
+        "shared": []
+      },
+      "七佳村": {
+        "basic": "all",
+        "shared": []
+      },
+      "士文村": {
+        "basic": "all",
+        "shared": []
+      },
+      "古華村": {
+        "basic": "all",
+        "shared": []
+      },
+      "歸崇村": {
+        "basic": "all",
+        "shared": []
+      },
+      "力里村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "枋寮高中\n(國中部)": {
+    "枋寮鄉": {
+      "枋寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "保生村": {
+        "basic": "all",
+        "shared": []
+      },
+      "中寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "安樂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "隆山村": {
+        "basic": "all",
+        "shared": []
+      },
+      "天時村": {
+        "basic": "all",
+        "shared": []
+      },
+      "地利村": {
+        "basic": "all",
+        "shared": []
+      },
+      "人和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新龍村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "內寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新開村": {
+        "basic": "all",
+        "shared": []
+      },
+      "玉泉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "太源村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東海村": {
+        "basic": "all",
+        "shared": []
+      },
+      "春日村": {
+        "basic": "all",
+        "shared": []
+      },
+      "七佳村": {
+        "basic": "all",
+        "shared": []
+      },
+      "士文村": {
+        "basic": "all",
+        "shared": []
+      },
+      "古華村": {
+        "basic": "all",
+        "shared": []
+      },
+      "歸崇村": {
+        "basic": "all",
+        "shared": []
+      },
+      "力里村": {
+        "basic": "all",
+        "shared": []
+      },
+      "加祿村": {
+        "basic": "all",
+        "shared": []
+      },
+      "枋山村": {
+        "basic": "all",
+        "shared": []
+      },
+      "楓港村": {
+        "basic": "all",
+        "shared": []
+      },
+      "善餘村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "萬丹國中": {
+    "區制)\n萬丹鄉": {
+      "社上村": {
+        "basic": "all",
+        "shared": []
+      },
+      "社口村": {
+        "basic": "all",
+        "shared": []
+      },
+      "社中村": {
+        "basic": "all",
+        "shared": []
+      },
+      "社皮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "磚寮村": {
+        "basic": "all",
+        "shared": []
+      },
+      "上村村": {
+        "basic": "all",
+        "shared": []
+      },
+      "加興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "廈北村": {
+        "basic": "all",
+        "shared": []
+      },
+      "廈南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "崙頂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "田厝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "寶厝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "竹林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬生村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬全村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬後村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬惠村": {
+        "basic": "all",
+        "shared": []
+      },
+      "廣安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "四維村": {
+        "basic": "all",
+        "shared": []
+      },
+      "後村村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "萬新國中": {
+    "區制)\n萬丹鄉": {
+      "水泉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新鍾村": {
+        "basic": "all",
+        "shared": []
+      },
+      "香社村": {
+        "basic": "all",
+        "shared": []
+      },
+      "灣內村": {
+        "basic": "all",
+        "shared": []
+      },
+      "興全村": {
+        "basic": "all",
+        "shared": []
+      },
+      "興安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "水仙村": {
+        "basic": "all",
+        "shared": []
+      },
+      "甘棠村": {
+        "basic": "all",
+        "shared": []
+      },
+      "後村村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鳳明村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "新園國中": {
+    "新園鄉": {
+      "仙吉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "田洋村": {
+        "basic": "all",
+        "shared": []
+      },
+      "瓦嗂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "港西村": {
+        "basic": "all",
+        "shared": []
+      },
+      "烏龍村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鹽埔村": {
+        "basic": "all",
+        "shared": []
+      },
+      "五房村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新東村": {
+        "basic": "all",
+        "shared": []
+      },
+      "新園村": {
+        "basic": "all",
+        "shared": []
+      },
+      "港墘村": {
+        "basic": "all",
+        "shared": []
+      },
+      "內庄村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南龍村": {
+        "basic": "all",
+        "shared": []
+      },
+      "興龍村": {
+        "basic": "all",
+        "shared": []
+      },
+      "中洲村": {
+        "basic": "all",
+        "shared": []
+      },
+      "共和村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "東港高中\n(國中部)": {
+    "區制)\n東港鎮": {
+      "新勝里": {
+        "basic": "all",
+        "shared": []
+      },
+      "朝安里": {
+        "basic": "all",
+        "shared": []
+      },
+      "東隆里": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐漁里": {
+        "basic": "all",
+        "shared": []
+      },
+      "盛漁里": {
+        "basic": "all",
+        "shared": []
+      },
+      "興漁里": {
+        "basic": "all",
+        "shared": []
+      },
+      "鎮海里": {
+        "basic": "all",
+        "shared": []
+      },
+      "嘉蓮里": {
+        "basic": "all",
+        "shared": []
+      },
+      "南平里": {
+        "basic": "all",
+        "shared": []
+      },
+      "共和里": {
+        "basic": "all",
+        "shared": []
+      },
+      "頂中里": {
+        "basic": "all",
+        "shared": []
+      },
+      "福德里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新街里": {
+        "basic": [
+          3,
+          24
+        ],
+        "shared": []
+      },
+      "東光里": {
+        "basic": "all",
+        "shared": []
+      },
+      "東津里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "東新國中": {
+    "區制)\n東港鎮": {
+      "大潭里": {
+        "basic": "all",
+        "shared": []
+      },
+      "下廍里": {
+        "basic": "all",
+        "shared": []
+      },
+      "興農里": {
+        "basic": "all",
+        "shared": []
+      },
+      "興和里": {
+        "basic": "all",
+        "shared": []
+      },
+      "東新里": {
+        "basic": "all",
+        "shared": []
+      },
+      "內關帝里": {
+        "basic": "all",
+        "shared": []
+      },
+      "新街里": {
+        "basic": [
+          1,
+          2,
+          8
+        ],
+        "shared": []
+      },
+      "船頭里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "林邊國中": {
+    "林邊鄉": {
+      "光林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "中林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "仁和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "永樂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "林邊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "水利村": {
+        "basic": "all",
+        "shared": []
+      },
+      "崎峰村": {
+        "basic": "all",
+        "shared": []
+      },
+      "田厝村": {
+        "basic": "all",
+        "shared": []
+      },
+      "竹林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "鎮安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "羌園村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "南州國中": {
+    "南州鄉": {
+      "溪州村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬華村": {
+        "basic": "all",
+        "shared": []
+      },
+      "仁里村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "七塊村": {
+        "basic": "all",
+        "shared": []
+      },
+      "米崙村": {
+        "basic": "all",
+        "shared": []
+      },
+      "同安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "溪北村": {
+        "basic": "all",
+        "shared": []
+      },
+      "溪南村": {
+        "basic": "all",
+        "shared": []
+      },
+      "壽元村": {
+        "basic": "all",
+        "shared": []
+      },
+      "園寮村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "佳冬國中": {
+    "佳冬鄉": {
+      "佳冬村": {
+        "basic": "all",
+        "shared": []
+      },
+      "六根村": {
+        "basic": "all",
+        "shared": []
+      },
+      "萬建村": {
+        "basic": "all",
+        "shared": []
+      },
+      "石光村": {
+        "basic": "all",
+        "shared": []
+      },
+      "玉光村": {
+        "basic": "all",
+        "shared": []
+      },
+      "昌隆村": {
+        "basic": "all",
+        "shared": []
+      },
+      "豐隆村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大同村": {
+        "basic": "all",
+        "shared": []
+      },
+      "羌園村": {
+        "basic": "all",
+        "shared": []
+      },
+      "焰塭村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "琉球國中": {
+    "琉球鄉": {
+      "本福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "中福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "漁福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "大福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "天福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "上福村": {
+        "basic": "all",
+        "shared": []
+      },
+      "杉福村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "車城國中": {
+    "車城鄉": {}
+  },
+  "恆春國中": {
+    "恆春鎮": {}
+  },
+  "滿州國中": {
+    "滿州鄉": {
+      "滿州村": {
+        "basic": "all",
+        "shared": []
+      },
+      "永靖村": {
+        "basic": "all",
+        "shared": []
+      },
+      "港口村": {
+        "basic": "all",
+        "shared": []
+      },
+      "里德村": {
+        "basic": "all",
+        "shared": []
+      },
+      "響林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "長樂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "港仔村": {
+        "basic": "all",
+        "shared": []
+      },
+      "九棚村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "瑪家國中": {
+    "瑪家鄉": {}
+  },
+  "來義國中": {
+    "來義鄉": {
+      "古樓村": {
+        "basic": "all",
+        "shared": []
+      },
+      "來義村": {
+        "basic": "all",
+        "shared": []
+      },
+      "望嘉村": {
+        "basic": "all",
+        "shared": []
+      },
+      "文樂村": {
+        "basic": "all",
+        "shared": []
+      },
+      "義林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "丹林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南和村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "泰武國中": {
+    "泰武鄉": {
+      "萬安村": {
+        "basic": "all",
+        "shared": []
+      },
+      "佳平村": {
+        "basic": "all",
+        "shared": []
+      },
+      "平和村": {
+        "basic": "all",
+        "shared": []
+      },
+      "佳興村": {
+        "basic": "all",
+        "shared": []
+      },
+      "武潭村": {
+        "basic": "all",
+        "shared": []
+      },
+      "泰武村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "牡丹國中": {
+    "牡丹鄉": {
+      "石門村": {
+        "basic": "all",
+        "shared": []
+      },
+      "牡丹村": {
+        "basic": "all",
+        "shared": []
+      },
+      "旭海村": {
+        "basic": "all",
+        "shared": []
+      },
+      "東源村": {
+        "basic": "all",
+        "shared": []
+      },
+      "高士村": {
+        "basic": "all",
+        "shared": []
+      },
+      "四林村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "獅子國中": {
+    "獅子鄉": {
+      "楓林村": {
+        "basic": "all",
+        "shared": []
+      },
+      "丹路村": {
+        "basic": "all",
+        "shared": []
+      },
+      "草埔村": {
+        "basic": "all",
+        "shared": []
+      },
+      "內文村": {
+        "basic": "all",
+        "shared": []
+      },
+      "竹坑村": {
+        "basic": "all",
+        "shared": []
+      },
+      "獅子村": {
+        "basic": "all",
+        "shared": []
+      },
+      "內獅村": {
+        "basic": "all",
+        "shared": []
+      },
+      "南世村": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  },
+  "南榮國中\n(代用國中)": {
+    "崁頂鄉": {
+      "興美里": {
+        "basic": "all",
+        "shared": []
+      },
+      "檨子里": {
+        "basic": "all",
+        "shared": []
+      }
+    }
+  }
+}
