@@ -1,6 +1,15 @@
 @echo off
+chcp 950 > nul
 title 同步 dist → dist-0
 setlocal
+
+echo.
+echo ============================================================
+echo  -- 1.bat: 只同步 dist 到 dist-0（不重新打包）
+echo ============================================================
+echo  功能：當你已手動跑過 pyinstaller，只想把 dist 內容
+echo        同步到 dist-0 時用此檔（比 0.bat 快）
+echo ============================================================
 
 set "PROJ=D:\Dropbox\projects\A"
 set "SRC=%PROJ%\dist\地籍資料查詢系統"

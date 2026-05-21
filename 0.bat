@@ -1,6 +1,15 @@
 @echo off
+chcp 950 > nul
 title 自動打包 + 同步至 dist-0
 setlocal
+
+echo.
+echo ============================================================
+echo  -- 0.bat: PyInstaller 打包 + 同步到 dist-0
+echo ============================================================
+echo  功能：執行 pyinstaller 重新打包，並把 dist 同步到 dist-0
+echo        （增量同步，不會刪除 dist-0 中的個人檔案）
+echo ============================================================
 
 set "PROJ=D:\Dropbox\projects\A"
 set "SRC=%PROJ%\dist\地籍資料查詢系統"

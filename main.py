@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.0"
+VERSION = "1.1.1"
 BUILD_DATE = "2026-05-21"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
@@ -6130,6 +6130,155 @@ else:
 GITHUB_REPO = "windskyshao/tw-land-tools"
 _LAST_UPDATE_CHECK = {"version": None, "url": None, "notes": None}
 
+def perform_self_update(download_url, new_version, asset_name):
+    """下載 release zip → 解壓 → 啟動 updater.bat → 退出主程式。
+
+    updater.bat 等主程式關閉後：
+      - robocopy 覆寫 _internal/（保留 dest 內 zip 沒有的檔案，如 通訊錄.xlsx、chromedriver）
+      - 取代 地籍資料查詢系統.exe
+      - 複製 zip 內其他根目錄檔案（系統使用說明文檔.html 等）
+      - 重新啟動新版
+    """
+    import tempfile
+    import urllib.request
+    import os
+    import sys
+    import subprocess
+    import zipfile
+    import shutil
+
+    if not getattr(sys, 'frozen', False):
+        show_large_message("提示", "開發環境不支援自動更新。\n請手動 git pull 並重新打包。")
+        return
+
+    current_exe = sys.executable
+    exe_dir = os.path.dirname(current_exe)
+
+    temp_dir = tempfile.mkdtemp(prefix="land_update_")
+    zip_path = os.path.join(temp_dir, asset_name)
+
+    # 下載
+    try:
+        update_message(f"⏬ 開始下載 v{new_version}...")
+        with urllib.request.urlopen(download_url, timeout=60) as r:
+            total_size = int(r.headers.get('Content-Length', 0))
+            downloaded = 0
+            last_pct = -1
+            with open(zip_path, 'wb') as f:
+                while True:
+                    chunk = r.read(256 * 1024)
+                    if not chunk:
+                        break
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    if total_size > 0:
+                        pct = downloaded * 100 // total_size
+                        if pct != last_pct and pct % 5 == 0:
+                            update_message(f"   下載中 {pct}%（{downloaded:,}/{total_size:,} bytes）")
+                            last_pct = pct
+        update_message(f"✅ 下載完成（{downloaded:,} bytes）")
+    except Exception as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        show_large_message("下載失敗", f"{e}\n\n請稍後再試或手動到 release 頁面下載。")
+        return
+
+    # 解壓
+    extract_dir = os.path.join(temp_dir, "extracted")
+    try:
+        update_message("📦 正在解壓...")
+        with zipfile.ZipFile(zip_path, 'r') as z:
+            z.extractall(extract_dir)
+    except Exception as e:
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        show_large_message("解壓失敗", f"{e}")
+        return
+
+    # 找出解壓後的 root（zip 可能有頂層資料夾）
+    entries = os.listdir(extract_dir)
+    if len(entries) == 1 and os.path.isdir(os.path.join(extract_dir, entries[0])):
+        source_root = os.path.join(extract_dir, entries[0])
+    else:
+        source_root = extract_dir
+
+    new_exe = os.path.join(source_root, '地籍資料查詢系統.exe')
+    if not os.path.exists(new_exe):
+        shutil.rmtree(temp_dir, ignore_errors=True)
+        show_large_message("更新失敗", f"zip 內找不到 地籍資料查詢系統.exe\n預期位置：{new_exe}\n\n請檢查 release 上傳的 zip 是否正確。")
+        return
+
+    # 寫 updater.bat（UTF-8 + CRLF）
+    updater_path = os.path.join(temp_dir, "_updater.bat")
+    bat = (
+        '@echo off\r\n'
+        'chcp 65001 > nul\r\n'
+        f'title Updating to v{new_version} - DO NOT CLOSE\r\n'
+        'echo.\r\n'
+        'echo ============================================================\r\n'
+        f'echo  Updating to v{new_version}\r\n'
+        'echo ============================================================\r\n'
+        'echo.\r\n'
+        'echo Waiting for main program to exit...\r\n'
+        'timeout /t 3 /nobreak > nul\r\n'
+        '\r\n'
+        'echo [1/3] Updating _internal/...\r\n'
+        f'if exist "{source_root}\\_internal" (\r\n'
+        f'    robocopy "{source_root}\\_internal" "{exe_dir}\\_internal" /E /R:2 /W:1 /NFL /NDL /NJH /NJS\r\n'
+        '    if errorlevel 8 (\r\n'
+        '        echo [X] _internal update failed\r\n'
+        '        pause\r\n'
+        '        exit /b 1\r\n'
+        '    )\r\n'
+        ') else (\r\n'
+        '    echo   [SKIP] No _internal in zip\r\n'
+        ')\r\n'
+        '\r\n'
+        'echo [2/3] Replacing main exe...\r\n'
+        f'move /Y "{new_exe}" "{current_exe}"\r\n'
+        'if errorlevel 1 (\r\n'
+        '    echo [X] exe replace failed - file may still be in use\r\n'
+        '    pause\r\n'
+        '    exit /b 1\r\n'
+        ')\r\n'
+        '\r\n'
+        'echo Copying other top-level files...\r\n'
+        f'for %%F in ("{source_root}\\*") do (\r\n'
+        '    if not "%%~xF"=="" (\r\n'
+        '        if /I not "%%~nxF"=="地籍資料查詢系統.exe" (\r\n'
+        f'            copy /Y "%%F" "{exe_dir}\\%%~nxF" > nul\r\n'
+        '        )\r\n'
+        '    )\r\n'
+        ')\r\n'
+        '\r\n'
+        'echo [3/3] Starting new version...\r\n'
+        f'start "" "{current_exe}"\r\n'
+        '\r\n'
+        'timeout /t 1 /nobreak > nul\r\n'
+        f'rd /s /q "{temp_dir}" 2>nul\r\n'
+        'exit\r\n'
+    )
+
+    try:
+        with open(updater_path, 'wb') as f:
+            f.write(bat.encode('utf-8'))
+    except Exception as e:
+        show_large_message("建立 updater 失敗", str(e))
+        return
+
+    show_large_message("即將重新啟動", f"v{new_version} 下載完成！\n\n程式即將關閉並自動更新，更新完成後會自動重啟。\n\n請勿關閉接下來出現的黑色視窗。")
+
+    try:
+        subprocess.Popen(['cmd', '/c', updater_path], creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0))
+    except Exception as e:
+        show_large_message("啟動 updater 失敗", str(e))
+        return
+
+    try:
+        root.quit()
+    except Exception:
+        pass
+    sys.exit(0)
+
+
 def check_for_update(silent=True):
     """檢查 GitHub 上最新 release 版本。
 
@@ -6158,9 +6307,19 @@ def check_for_update(silent=True):
 
     remote_tag = (data.get('tag_name') or '').lstrip('v').strip()
     remote_notes = (data.get('body') or '').strip()
-    # 取第一個 asset 作為下載連結；沒有 asset 就用 release 頁面
+    # 找 zip asset（自動更新用）；找不到就退而用 release 頁面（手動下載）
     assets = data.get('assets') or []
-    download_url = assets[0]['browser_download_url'] if assets else data.get('html_url', '')
+    zip_asset = None
+    for a in assets:
+        if a.get('name', '').lower().endswith('.zip'):
+            zip_asset = a
+            break
+    if zip_asset:
+        download_url = zip_asset['browser_download_url']
+        asset_name = zip_asset['name']
+    else:
+        download_url = (assets[0]['browser_download_url'] if assets else data.get('html_url', ''))
+        asset_name = None
 
     local_ver = VERSION.lstrip('v').strip()
     _LAST_UPDATE_CHECK['version'] = remote_tag
@@ -6209,18 +6368,32 @@ def check_for_update(silent=True):
         return
 
     # 詳細對話框
-    _msg = (
-        f"偵測到新版本：v{remote_tag}\n"
-        f"目前版本：v{local_ver}\n\n"
-        f"更新內容：\n{remote_notes[:500]}\n\n"
-        f"是否前往下載？"
-    )
-    if show_large_yesno("有新版本", _msg):
-        try:
-            import webbrowser
-            webbrowser.open(download_url)
-        except Exception as e:
-            show_large_message("無法開啟連結", f"請手動到以下網址下載：\n{download_url}\n\n錯誤：{e}")
+    if zip_asset:
+        # 有 zip → 詢問是否自動下載 + 替換
+        _msg = (
+            f"偵測到新版本：v{remote_tag}\n"
+            f"目前版本：v{local_ver}\n\n"
+            f"更新內容：\n{remote_notes[:500]}\n\n"
+            f"是否立即自動更新？\n"
+            f"（下載 {asset_name} → 自動替換 exe + 子腳本 → 重新啟動）"
+        )
+        if show_large_yesno("有新版本", _msg):
+            perform_self_update(download_url, remote_tag, asset_name)
+    else:
+        # 沒 zip → 退而開瀏覽器讓使用者手動處理
+        _msg = (
+            f"偵測到新版本：v{remote_tag}\n"
+            f"目前版本：v{local_ver}\n\n"
+            f"更新內容：\n{remote_notes[:500]}\n\n"
+            f"（此版本未附自動更新檔，需手動下載）\n"
+            f"是否前往 release 頁面？"
+        )
+        if show_large_yesno("有新版本", _msg):
+            try:
+                import webbrowser
+                webbrowser.open(download_url)
+            except Exception as e:
+                show_large_message("無法開啟連結", f"請手動到以下網址下載：\n{download_url}\n\n錯誤：{e}")
 
 
 def _bg_check_update():

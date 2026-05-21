@@ -108,10 +108,35 @@ pyinstaller "地籍資料查詢系統.spec" -y
 
 ## 自動更新機制
 
-- 啟動 2 秒後背景檢查 GitHub Releases
-- 本地版號 = 遠端最新 release tag：右上 🔄 按鈕維持藍色
-- 遠端有新版：🔄 按鈕轉紅色 + 滑鼠移上會提示
-- 點 🔄 主動檢查時跳出對話框回報結果
+### 使用者端
+
+- 啟動 2 秒後在背景檢查 GitHub Releases
+- 本地版號 ≥ 遠端最新 release：右上 🔄 按鈕維持藍色
+- 遠端有新版：🔄 按鈕轉紅色 + 滑鼠移上會提示「有新版可下載」
+- 點 🔄 跳出對話框：
+  - **若該 release 附有 `*.zip` 檔**：詢問是否自動下載 + 替換 → 啟動 updater.bat → 退出主程式 → updater 等 3 秒後覆寫 `_internal/` 和 `地籍資料查詢系統.exe` → 重新啟動
+  - **若無 zip**：開瀏覽器到 release 頁面讓使用者手動下載
+
+### 自動更新會保留的使用者個人檔
+
+`_internal/` 採 `robocopy /E` 增量覆寫（不是 `/MIR`），所以 zip 內**沒有**的檔案不會被刪除。因此：
+
+- `_internal/通訊錄.xlsx`：保留（zip 製作時主動排除）
+- `_internal/chromedriver.exe`：保留（zip 製作時主動排除）
+- exe 同層的 `python_embedded/`、`地籍圖處理工具*.exe`、`電子謄本結構化*.exe`、`data.json`、案件資料夾：完全不動
+
+### 維護者端：發新版的標準流程
+
+1. 改 `main.py` 的 `VERSION`
+2. 跑 `0.bat` 打包到 `dist-0/`
+3. 跑本機 `2.bat` 同步原始碼到 A_github
+4. 跑本機 `3.bat` 推上 GitHub + 自動建立 tag + 開瀏覽器到 release 頁面
+5. 跑本機 `4.bat` 製作 release zip（自動排除 `通訊錄.xlsx` 和 `chromedriver*.exe`）
+6. 在 release 頁面把 `release_packages/地籍資料查詢系統_v{X.Y.Z}.zip` 拖進 Attach binaries → Publish
+
+完成後，所有舊版的使用者點 🔄 都會自動下載並更新到新版。
+
+> **限制**：自動更新只能更新 `地籍資料查詢系統.exe` 和 `_internal/`。如果版本動到 `python_embedded/`（例如新增套件）或外部 `地籍圖處理工具`、`電子謄本結構化` 程式，使用者需手動更新那些檔案，自動更新無法處理。
 
 ## 注意事項
 
