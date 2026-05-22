@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.2"
+VERSION = "1.1.3"
 BUILD_DATE = "2026-05-22"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
@@ -5402,16 +5402,20 @@ def show_large_yesno(title, message):
     dialog = tk.Toplevel(root)
     dialog.title(title)
 
-    # 🔥 根據訊息長度動態調整視窗大小
+    # 🔥 根據訊息長度動態調整視窗大小（不超過螢幕的 70%）
     msg_lines = message.count('\n') + 1
     base_height = 150
     line_height = 30
-    button_height = 100
-    dialog_height = min(base_height + (msg_lines * line_height) + button_height, 600)
+    button_height = 120  # 留給按鈕的固定區域
+    ideal_height = base_height + (msg_lines * line_height) + button_height
 
     # 置中顯示
     screen_width = dialog.winfo_screenwidth()
     screen_height = dialog.winfo_screenheight()
+    max_height = int(screen_height * 0.7)
+    dialog_height = min(ideal_height, max_height)
+    needs_scrollbar = ideal_height > max_height  # 訊息太長要捲軸
+
     x = (screen_width - 780) // 2
     y = (screen_height - dialog_height) // 2
     dialog.geometry(f"780x{dialog_height}+{x}+{y}")
@@ -5419,8 +5423,33 @@ def show_large_yesno(title, message):
     dialog.transient(root)
     dialog.grab_set()
 
-    # 🔥 支援 '<HR>' 標記插入真正的水平分隔線（貼齊彈窗寬度）
-    if '<HR>' in message:
+    # 🔥 按鈕區先 pack（side=BOTTOM 永遠保證在底部）
+    btn_frame = tk.Frame(dialog)
+    btn_frame.pack(side=tk.BOTTOM, pady=20)
+
+    # 🔥 訊息區
+    if needs_scrollbar:
+        # 訊息過長：用 Text + Scrollbar
+        msg_frame = tk.Frame(dialog)
+        msg_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
+
+        scrollbar = tk.Scrollbar(msg_frame)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+
+        text_widget = tk.Text(msg_frame,
+                              font=("Microsoft JhengHei", 14),
+                              wrap=tk.WORD,
+                              yscrollcommand=scrollbar.set,
+                              borderwidth=0,
+                              highlightthickness=0,
+                              bg=dialog.cget('bg'),
+                              padx=10, pady=10)
+        text_widget.insert('1.0', message)
+        text_widget.config(state='disabled')
+        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.config(command=text_widget.yview)
+    elif '<HR>' in message:
+        # 支援 '<HR>' 標記插入真正的水平分隔線
         parts = message.split('<HR>')
         for i, part in enumerate(parts):
             tk.Label(dialog, text=part.strip('\n'),
@@ -5431,17 +5460,13 @@ def show_large_yesno(title, message):
             if i < len(parts) - 1:
                 tk.Frame(dialog, height=1, bg='#888').pack(fill=tk.X, padx=20, pady=4)
     else:
-        # 訊息文字（大字體）- 🔥 不使用 expand，固定高度
+        # 短訊息：原本的 Label 即可
         msg_label = tk.Label(dialog, text=message,
                             font=("Microsoft JhengHei", 16),
                             wraplength=750,
                             justify=tk.LEFT,
                             padx=20, pady=20)
-        msg_label.pack(fill=tk.X)
-
-    # 按鈕區 - 🔥 固定在底部
-    btn_frame = tk.Frame(dialog)
-    btn_frame.pack(side=tk.BOTTOM, pady=20)
+        msg_label.pack(side=tk.TOP, fill=tk.X)
 
     def on_yes():
         result[0] = True
@@ -6416,8 +6441,12 @@ def perform_multi_update(updates):
         f'echo  Auto Update ({len(download_results)} items)',
         'echo ============================================================',
         'echo.',
-        'echo Waiting for main program to exit...',
-        'timeout /t 3 /nobreak > nul',
+        'echo Waiting for main program to fully release files...',
+        # 🔥 等久一點，給 Windows 充分時間釋放 pyd 等檔案
+        'timeout /t 8 /nobreak > nul',
+        # 🔥 用 taskkill 確認 main exe 真的關了（雖然 sys.exit 應該已關，但保險起見）
+        'taskkill /F /IM 地籍資料查詢系統.exe 2>nul',
+        'timeout /t 2 /nobreak > nul',
         '',
     ]
 
@@ -6428,9 +6457,10 @@ def perform_multi_update(updates):
 
         if dr['type'] == 'zip':
             # 主程式：更新 _internal/ + 替換 exe + 複製其他頂層檔案
+            # 🔥 robocopy /R:10 /W:2 = 最多 10 次重試、每次間隔 2 秒（共可撐 ~20 秒檔案釋放）
             bat_lines.extend([
                 f'if exist "{dr["src_root"]}\\_internal" (',
-                f'    robocopy "{dr["src_root"]}\\_internal" "{exe_dir}\\_internal" /E /R:2 /W:1 /NFL /NDL /NJH /NJS',
+                f'    robocopy "{dr["src_root"]}\\_internal" "{exe_dir}\\_internal" /E /R:10 /W:2 /NFL /NDL /NJH /NJS',
                 '    if errorlevel 8 (',
                 f'        echo [X] {dr["name"]} _internal update failed',
                 '        pause',
