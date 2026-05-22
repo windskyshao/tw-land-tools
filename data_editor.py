@@ -1804,14 +1804,14 @@ def format_watermark_text(code):
 
 def generate_word_report_buy(output_path, data, report_date):
     """生成 Word 格式報告（售件）- A4 直向，固定表格結構"""
-    
-    
+
+
     # ========================================
     # 🔥 開始生成報告
     # ========================================
     try:
         from docx import Document
-        from docx.shared import Cm, Pt, Inches
+        from docx.shared import Cm, Pt, Inches, RGBColor
         from docx.oxml.ns import qn
         from docx.oxml import OxmlElement
 
