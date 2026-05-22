@@ -6244,6 +6244,43 @@ UPDATE_SOURCES = [
 ]
 
 
+def _open_url_with_ssl_fallback(url, timeout=8):
+    """開啟 URL，遇 SSL 憑證驗證失敗時自動 fallback。
+
+    優先順序：
+    1. 預設 SSL（用 Windows 系統根憑證）
+    2. certifi 內建的 Mozilla 根憑證（不依賴系統，較穩）
+
+    raise：兩種方式都失敗則拋出最後一個錯誤。
+    """
+    import urllib.request
+    import urllib.error
+    import ssl
+
+    req = urllib.request.Request(url, headers={'User-Agent': 'tw-land-tools-updater'})
+
+    # Try 1：預設（使用 Windows 系統根憑證）
+    try:
+        return urllib.request.urlopen(req, timeout=timeout)
+    except urllib.error.URLError as e:
+        last_error = e
+        # 只對 SSL 錯誤做 fallback，其他錯誤（網路斷線等）直接拋出
+        if not isinstance(getattr(e, 'reason', None), ssl.SSLError):
+            raise
+
+    # Try 2：用 certifi 內建的 CA bundle
+    try:
+        import certifi
+        ctx = ssl.create_default_context(cafile=certifi.where())
+        return urllib.request.urlopen(req, timeout=timeout, context=ctx)
+    except urllib.error.URLError as e:
+        last_error = e
+    except ImportError:
+        pass  # 沒裝 certifi，沿用 last_error
+
+    raise last_error
+
+
 def _check_one_source(source):
     """檢查單一 update source。回傳 dict 包含本地/遠端版號、asset 等資訊。"""
     import urllib.request
@@ -6268,11 +6305,10 @@ def _check_one_source(source):
         result['error'] = f"無法取得本地版號：{e}"
         return result
 
-    # 抓 GitHub release
+    # 抓 GitHub release（含 SSL fallback）
     api_url = f"https://api.github.com/repos/{source['repo']}/releases/latest"
     try:
-        req = urllib.request.Request(api_url, headers={'User-Agent': 'tw-land-tools-updater'})
-        with urllib.request.urlopen(req, timeout=8) as resp:
+        with _open_url_with_ssl_fallback(api_url, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
     except urllib.error.HTTPError as e:
         if e.code == 404:
@@ -6281,7 +6317,12 @@ def _check_one_source(source):
             result['error'] = f"HTTP {e.code}"
         return result
     except Exception as e:
-        result['error'] = f"連線失敗：{e}"
+        # 把 SSL 錯誤訊息簡化
+        err_msg = str(e)
+        if 'CERTIFICATE_VERIFY_FAILED' in err_msg:
+            result['error'] = '憑證驗證失敗（請檢查日期/Windows Update）'
+        else:
+            result['error'] = f"連線失敗：{e}"
         return result
 
     remote_tag = (data.get('tag_name') or '').lstrip('v').strip()
@@ -6354,7 +6395,8 @@ def perform_multi_update(updates):
 
         dl_path = os.path.join(temp_dir, u['asset_name'])
         try:
-            with urllib.request.urlopen(u['asset_url'], timeout=60) as r:
+            # 用 SSL fallback 機制下載
+            with _open_url_with_ssl_fallback(u['asset_url'], timeout=60) as r:
                 total_size = int(r.headers.get('Content-Length', 0))
                 downloaded = 0
                 last_pct = -1
@@ -6373,7 +6415,19 @@ def perform_multi_update(updates):
             update_message(f"✅ [{idx}/{total_count}] {name} 下載完成（{downloaded:,} bytes）")
         except Exception as e:
             shutil.rmtree(temp_dir, ignore_errors=True)
-            show_large_message("下載失敗", f"{name}：{e}\n\n所有更新已取消。")
+            err_msg = str(e)
+            if 'CERTIFICATE_VERIFY_FAILED' in err_msg:
+                show_large_message(
+                    "下載失敗：SSL 憑證問題",
+                    f"{name} 無法下載。\n\n"
+                    f"請檢查本機：\n"
+                    f"  1. 日期時間是否正確\n"
+                    f"  2. Windows Update 是否最新\n"
+                    f"  3. 防火牆/防毒是否擋住 GitHub\n\n"
+                    f"或到 GitHub release 頁面用瀏覽器手動下載。"
+                )
+            else:
+                show_large_message("下載失敗", f"{name}：{e}\n\n所有更新已取消。")
             return
 
         install_type = source['install_type']
