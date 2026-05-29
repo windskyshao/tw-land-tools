@@ -37,7 +37,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver import ActionChains
 from selenium.common.exceptions import JavascriptException, NoAlertPresentException, TimeoutException, UnexpectedAlertPresentException, NoSuchElementException, WebDriverException, InvalidSessionIdException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 from PIL import Image
 from fpdf import FPDF
 import keyboard
@@ -523,6 +523,11 @@ def get_land_info():
         driver.set_window_position(chrome_x, chrome_y)
     except:
         pass
+
+    # 🔥 DPI 自動修正：用共用 helper 驗證 + 修正視窗大小與頁面縮放
+    # 只在偵測到 DPI 不同步時才動作，正常 PC 不受影響
+    verify_and_fix_chrome_window(driver)
+
     os.system('cls')
 
     # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 和小螢幕的排版問題）

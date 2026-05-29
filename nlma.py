@@ -39,7 +39,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -590,6 +590,9 @@ def run_query_session():
         print("正在開啟網頁...", flush=True)
         driver.get("https://cloudbm.nlma.gov.tw/CPTL/cpt0407m.do?")
         print("網頁已開啟，開始查詢資料", flush=True)
+
+        # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+        verify_and_fix_chrome_window(driver)
 
         # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
         # 根據 DPI 決定縮放次數：150% → 2次(80%)，175% → 4次(67%)

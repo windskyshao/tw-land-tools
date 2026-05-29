@@ -28,7 +28,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -413,6 +413,8 @@ def login():
             print(f"正在連線到 V523 網站... (嘗試 {attempt + 1}/{max_retries})", flush=True)
             driver.get("http://www.v523.com.tw/")
             print("✓ 網站載入成功", flush=True)
+            # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+            verify_and_fix_chrome_window(driver)
             time.sleep(1)  # 🔥 縮短等待時間，加快登入速度
             break
         except Exception as e:

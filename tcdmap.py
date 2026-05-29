@@ -28,7 +28,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, NoSuchElementException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -275,6 +275,9 @@ for data in data_list:
         except:
             pass
         print(f"已打開 {city} 的地圖頁面", flush=True)
+
+        # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+        verify_and_fix_chrome_window(driver)
 
         # 🔥 自動判斷是否需要縮放頁面
         zoom_count = 0

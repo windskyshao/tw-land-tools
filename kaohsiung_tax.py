@@ -82,7 +82,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.options import Options
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 from base_dir_helper import get_data_json_path, BASE_DIR, get_work_folder
 
 # 🔥 自動偵測 DPI 縮放比例
@@ -2109,6 +2109,9 @@ def fill_one_owner_with_complete_features(driver, payload, owner, wait, outdir_r
                 driver.set_window_position(kaohsiung_window_x, kaohsiung_window_y)
             except:
                 pass
+
+            # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+            verify_and_fix_chrome_window(driver)
 
             # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
             # 根據 DPI 決定縮放次數：150% → 2次(80%)，175% → 4次(67%)

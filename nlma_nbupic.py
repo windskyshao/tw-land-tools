@@ -46,7 +46,7 @@ from PIL import Image
 from fpdf import FPDF
 import numpy as np
 
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
 # ====== 縣市對應表（NBUPIC 9 個縣市）======
@@ -243,6 +243,9 @@ def open_nbupic(city_name):
     except TimeoutException:
         print("\033[91m[錯誤] 等待 Qry_LICENSING_UNIT 元素超時，頁面可能未正確載入\033[0m", flush=True)
         return False
+
+    # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+    verify_and_fix_chrome_window(driver)
 
     # 載入後可能被網站重設視窗大小，再套一次
     try:

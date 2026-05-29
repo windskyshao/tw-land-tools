@@ -60,6 +60,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException
 from webdriver_manager.chrome import ChromeDriverManager
+from webdriver_helper import verify_and_fix_chrome_window
 import requests
 from urllib.parse import urlparse
 
@@ -731,6 +732,9 @@ def try_open_finance_website(driver):
                     driver.set_window_position(finance_window_x, finance_window_y)
                 except:
                     pass
+
+                # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+                verify_and_fix_chrome_window(driver)
 
                 # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
                 # 根據 DPI 決定縮放次數：150% → 2次(80%)，175% → 4次(67%)

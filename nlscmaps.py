@@ -31,7 +31,7 @@ from PIL import Image
 from fpdf import FPDF
 import time
 from selenium.common.exceptions import UnexpectedAlertPresentException, TimeoutException, NoAlertPresentException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -369,6 +369,9 @@ try:
     driver.set_window_position(nlsc_window_x, nlsc_window_y)
 except:
     pass
+
+# 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+verify_and_fix_chrome_window(driver)
 
 # 等待元素加載 (可選)
 driver.implicitly_wait(3)  # 等待 3 秒

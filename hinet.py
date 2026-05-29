@@ -42,7 +42,7 @@ from selenium.common.exceptions import NoSuchElementException,TimeoutException
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 自動偵測 DPI 縮放比例
 def get_dpi_scale():
@@ -555,6 +555,9 @@ def login_attempt(driver, register_type, username, password, card_cert=None, max
                 driver.set_window_position(hinet_window_x, hinet_window_y)
             except:
                 pass
+
+            # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+            verify_and_fix_chrome_window(driver)
 
             # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
             # 根據 DPI 決定縮放次數：150% → 2次(80%)，175% → 4次(67%)

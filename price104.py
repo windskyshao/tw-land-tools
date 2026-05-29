@@ -22,7 +22,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.support.ui import Select
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -253,6 +253,9 @@ class Login104Woo:
                 self.driver.set_window_position(price104_window_x, price104_window_y)
             except:
                 pass
+
+            # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+            verify_and_fix_chrome_window(self.driver)
 
             print("已開啟104實價網登入頁面", flush=True)
             

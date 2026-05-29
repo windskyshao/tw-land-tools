@@ -332,6 +332,86 @@ def create_chrome_driver(options=None):
         print("3. Chrome 和 ChromeDriver 版本相容")
         raise
 
+def verify_and_fix_chrome_window(driver, target_ratio=2/3):
+    """
+    驗證 Chrome 視窗是否為螢幕的指定比例（預設 2/3），若 DPI 不同步則自動修正。
+
+    特例：只在偵測到 DPI 不同步時才動作。正常 PC（Windows DPI 設定一致）完全不會被影響。
+
+    觸發條件：
+      abs(目前視窗寬度 - 螢幕寬度 × target_ratio) > 50 px
+
+    動作：
+      1. 用 Chrome 自己回報的 screen.width（CSS 邏輯像素）重算目標寬度
+      2. set_window_size + set_window_position
+      3. 若 Chrome 邏輯寬度 < 1200 → 額外按 2 次 Ctrl+- 把頁面縮放到 80%
+         （解決小邏輯寬度下網頁排版被擠的問題）
+
+    Args:
+        driver: Chrome WebDriver（必須在 driver.get(URL) 之後且頁面已載入）
+        target_ratio: 目標寬度佔螢幕的比例（預設 2/3）
+
+    Returns:
+        dict: {'dpi_mismatch': bool, 'chrome_screen_width': int, 'fixed_width': int}
+        或 None（執行失敗時）
+    """
+    import time
+    try:
+        time.sleep(0.3)
+        chrome_screen_width = driver.execute_script("return screen.width") or 0
+        if chrome_screen_width <= 0:
+            return None
+
+        target_logical_width = int(chrome_screen_width * target_ratio)
+        current_outer_width = driver.execute_script("return window.outerWidth") or 0
+        current_outer_height = driver.execute_script("return window.outerHeight") or 800
+        current_screen_x = driver.execute_script("return window.screenX") or 0
+        current_screen_y = driver.execute_script("return window.screenY") or 0
+
+        result = {
+            'dpi_mismatch': False,
+            'chrome_screen_width': chrome_screen_width,
+            'fixed_width': current_outer_width
+        }
+
+        # 偏差超過 50 px 才動，避免抖動
+        if abs(current_outer_width - target_logical_width) > 50:
+            result['dpi_mismatch'] = True
+            print(f"[視窗] 偵測到 DPI 不同步：Chrome screen.width={chrome_screen_width}, 當前寬度={current_outer_width}, 目標={target_logical_width}", flush=True)
+
+            # 依目前視窗位置判斷放左還是放右
+            center_x = chrome_screen_width // 2
+            if (current_screen_x + current_outer_width / 2) <= center_x:
+                new_x = 0
+            else:
+                new_x = chrome_screen_width - target_logical_width
+
+            driver.set_window_size(target_logical_width, current_outer_height)
+            driver.set_window_position(new_x, current_screen_y)
+            result['fixed_width'] = target_logical_width
+            print(f"[視窗] ✓ 已修正：寬度 {target_logical_width}, 位置 ({new_x}, {current_screen_y})", flush=True)
+
+            # 特例：Chrome 邏輯寬度 < 1200 → 同步把頁面縮放到 80%
+            if chrome_screen_width < 1200:
+                try:
+                    import keyboard
+                    time.sleep(0.5)
+                    driver.execute_script("window.focus();")
+                    time.sleep(0.3)
+                    print(f"[視窗] DPI 不同步特例：Chrome 邏輯寬度 {chrome_screen_width} < 1200，同步將頁面縮放至 80%", flush=True)
+                    for _ in range(2):
+                        keyboard.press_and_release('ctrl+-')
+                        time.sleep(0.5)
+                    print(f"[視窗] ✓ 頁面已縮放至 80%", flush=True)
+                except Exception as _e:
+                    print(f"[視窗] 頁面縮放修正失敗：{_e}", flush=True)
+
+        return result
+    except Exception as _e:
+        print(f"[視窗] 驗證寬度時發生錯誤（不影響執行）：{_e}", flush=True)
+        return None
+
+
 # 向後相容：提供舊的函數名稱
 def get_webdriver(options=None):
     """向後相容的函數名稱"""

@@ -48,7 +48,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import NoSuchElementException, TimeoutException
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -871,6 +871,9 @@ if __name__ == "__main__":
             app.driver.set_window_position(interior_window_x, interior_window_y)
         except:
             pass
+
+        # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+        verify_and_fix_chrome_window(app.driver)
 
         # 等待網頁完全載入（內政部網站較慢，多等一些時間）
         time.sleep(5)

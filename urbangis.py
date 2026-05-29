@@ -31,7 +31,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, NoSuchElementException
 import sys
-from webdriver_helper import create_chrome_driver
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 
 # 🔥 自訂例外：用於從 step 3/4 早跳出（道路用地不需要點擊+擷取建蔽容積）
@@ -204,6 +204,8 @@ def initialize_page(driver, url):
         driver.set_window_position(urbangis_window_x, urbangis_window_y)
     except:
         pass
+    # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+    verify_and_fix_chrome_window(driver)
     driver.implicitly_wait(10)
 
     # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
@@ -640,7 +642,7 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
                 raise _SkipUrbanPlanQuery
 
             from selenium.webdriver.common.action_chains import ActionChains
-            from webdriver_helper import create_chrome_driver
+            from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
             # 先用 JavaScript 找到紅色邊框的 path 元素
             red_path_element = driver.execute_script("""
