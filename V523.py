@@ -247,7 +247,7 @@ def init_driver():
 
     # 🔥 設定頁面載入超時時間（60秒）和隱式等待（10秒）
     driver.set_page_load_timeout(60)
-    driver.implicitly_wait(10)
+    driver.implicitly_wait(5)
 
 def load_popup_coordinates():
     """載入已儲存的彈窗座標"""
@@ -957,28 +957,6 @@ def get_pdf_page():
         driver.execute_script("arguments[0].scrollIntoView(true);", pdf_button)
         time.sleep(0.5)
 
-        # 🔥 先檢查是否有查詢結果（檢查 landInfo 變數或地圖上的標記）
-        print("[DEBUG] 檢查是否已完成位置查詢...", flush=True)
-        try:
-            has_query_result = driver.execute_script("""
-                // 檢查是否有土地資訊
-                if (typeof landInfo !== 'undefined' && landInfo !== null) {
-                    return 'landInfo exists';
-                }
-                // 檢查是否有地圖標記
-                if (document.querySelector('.gm-style img[src*="marker"]')) {
-                    return 'marker exists';
-                }
-                // 檢查土地資訊面板
-                if (document.querySelector('#landInfoPanel, .land-info-panel')) {
-                    return 'panel exists';
-                }
-                return 'no result';
-            """)
-            print(f"[DEBUG] 查詢狀態: {has_query_result}", flush=True)
-        except Exception as check_err:
-            print(f"[DEBUG] 檢查查詢狀態失敗: {check_err}", flush=True)
-
         # 🔥 直接使用 JavaScript 執行 funPrintBasic(2) 函數
         print("[DEBUG] 嘗試直接執行 funPrintBasic(2) 函數...", flush=True)
         try:
@@ -989,7 +967,7 @@ def get_pdf_page():
             driver.execute_script("arguments[0].click();", pdf_button)
             print("【分區列印】點擊成功", flush=True)
 
-        time.sleep(3)  # 等待新視窗開啟（增加等待時間）
+        time.sleep(1)  # 等待新視窗開啟（增加等待時間）
 
         # 🔥 檢查是否有錯誤彈窗
         try:
@@ -1097,19 +1075,30 @@ def extract_v523_data():
         return None
 
 def save_pdf(file_name: str, save_directory: str):
-    # 🔥 等待新視窗開啟，最多等待15秒
+    # 🔥 等待新視窗開啟，最多等 15 秒（200ms 高頻 poll，比舊的 1 秒快很多）
     print("[DEBUG] 等待新視窗開啟...", flush=True)
-    max_wait = 15
-    for i in range(max_wait):
+    max_wait_sec = 15
+    poll_interval = 0.2
+    deadline = time.time() + max_wait_sec
+    last_progress_print = -3
+    new_window_opened = False
+    all_window_handles = driver.window_handles
+
+    while time.time() < deadline:
         all_window_handles = driver.window_handles
         if len(all_window_handles) >= 2:
-            print(f"[DEBUG] ✓ 新視窗已開啟（共 {len(all_window_handles)} 個視窗）", flush=True)
+            elapsed = max_wait_sec - (deadline - time.time())
+            print(f"[DEBUG] ✓ 新視窗已開啟（{elapsed:.1f} 秒，共 {len(all_window_handles)} 個視窗）", flush=True)
+            new_window_opened = True
             break
-        time.sleep(1)
-        if i % 3 == 0:  # 每3秒顯示一次
-            print(f"[DEBUG] 等待新視窗... ({i+1}/{max_wait}秒)", flush=True)
-    else:
-        print(f"[DEBUG] ❌ 等待 {max_wait} 秒後仍無新視窗", flush=True)
+        elapsed_int = int(max_wait_sec - (deadline - time.time()))
+        if elapsed_int >= last_progress_print + 3:
+            print(f"[DEBUG] 等待新視窗... ({elapsed_int}/{max_wait_sec}秒)", flush=True)
+            last_progress_print = elapsed_int
+        time.sleep(poll_interval)
+
+    if not new_window_opened:
+        print(f"[DEBUG] ❌ 等待 {max_wait_sec} 秒後仍無新視窗", flush=True)
         print("無法找到新視窗，可能該地號無資料", flush=True)
         return False
 

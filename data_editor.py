@@ -8441,25 +8441,38 @@ def open_data_editor():
             with open(data_final_path, 'w', encoding='utf-8') as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
 
-            # 顯示詳細的儲存資訊
-            saved_info = "資料已成功儲存！\n\n"
-            saved_info += f"📍 座標：{data.get('緯度', '')}, {data.get('經度', '')}\n"
-            saved_info += f"🔍 地圖縮放：{data.get('地圖縮放', '')}\n"
-            saved_info += f"🗺️ 地圖圖層：{data.get('地圖圖層', '').split(' - ')[0] if data.get('地圖圖層') else ''}\n"
+            # 🔥 顯示儲存資訊（精簡版 + 案件 + 欄位數，避免大片留白）
+            # 取出案件名（從 data_final_path 倒推案件資料夾）
+            case_name = ""
+            try:
+                # data_final_path 結構：<案件>/4.其他相關/data_final.json
+                case_name = os.path.basename(os.path.dirname(os.path.dirname(data_final_path)))
+            except Exception:
+                pass
 
-            # 檢查截圖狀態
+            # 計算「有值」的欄位數（過濾掉空字串和「【沒得選】」之類預設值）
+            filled_count = sum(
+                1 for v in data.values()
+                if v and v not in ("", "【沒得選】", [], {}, None)
+            )
+
+            saved_info = f"案件：{case_name}\n"
+            saved_info += f"已儲存 {filled_count}/{len(data)} 個欄位\n"
+            saved_info += f"📍 座標：{data.get('緯度', '')}, {data.get('經度', '')}\n"
+            saved_info += f"🔍 縮放 {data.get('地圖縮放', '')}　🗺️ 圖層 {data.get('地圖圖層', '').split(' - ')[0] if data.get('地圖圖層') else ''}\n"
+
+            # 截圖狀態（精簡成一行）
             if os.path.exists("gui_map_screenshot.png"):
-                file_size = os.path.getsize("gui_map_screenshot.png")
+                kb = os.path.getsize("gui_map_screenshot.png") // 1024
                 if screenshot_needed and map_captured:
-                    saved_info += f"\n📸 地圖截圖：自動截取成功 ({file_size} bytes)"
+                    saved_info += f"📸 地圖截圖：自動截取成功 ({kb} KB)"
                 else:
-                    saved_info += f"\n📸 地圖截圖：已存在 ({file_size} bytes)"
+                    saved_info += f"📸 地圖截圖：已存在 ({kb} KB)"
             else:
-                saved_info += f"\n⚠️ 地圖截圖：自動截取失敗\n"
-                saved_info += f"    請手動點擊「截圖」按鈕"
-            
+                saved_info += "⚠️ 地圖截圖：截取失敗，請手動截圖"
+
             update_message("[完成] 資料已儲存")
-            show_large_message("成功", saved_info)
+            show_large_message("資料已儲存", saved_info)
             
         except Exception as e:
             update_message(f"[錯誤] 儲存失敗: {e}")

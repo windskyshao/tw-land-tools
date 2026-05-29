@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.4"
+VERSION = "1.1.5"
 BUILD_DATE = "2026-05-22"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
@@ -1816,19 +1816,8 @@ status_frame = tk.Frame(root, bg='#F0F0F0', relief=tk.SUNKEN, bd=1, height=35)
 status_frame.pack(side=tk.TOP, fill=tk.X)
 status_frame.pack_propagate(False)  # 🔥 防止子元件撐大 frame
 
-json_status_label = tk.Label(
-    status_frame,
-    text="JSON: 未選擇",
-    font=("Microsoft JhengHei", max(8, message_font_size - 2)),  # 🔥 根據訊息框字體動態調整
-    bg='#F0F0F0',
-    fg='#333333',
-    anchor='w',
-    padx=8,  # 🔥 減少內距
-    pady=3   # 🔥 減少內距
-)
-json_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
-
-# 🔥 右上角更新按鈕（小顆，預設藍色；偵測到新版自動轉紅色）
+# 🔥 修正：先 pack 更新按鈕（side=RIGHT），確保它永遠有位置，
+# 不會被左邊的 json_status_label 文字過長擠出畫面
 update_button = tk.Button(
     status_frame,
     text="🔄",
@@ -1840,6 +1829,19 @@ update_button = tk.Button(
     command=lambda: check_for_update(silent=False)
 )
 update_button.pack(side=tk.RIGHT, padx=(0, 6))
+
+# 🔥 後 pack json_status_label，吃掉剩餘空間
+json_status_label = tk.Label(
+    status_frame,
+    text="JSON: 未選擇",
+    font=("Microsoft JhengHei", max(8, message_font_size - 2)),  # 🔥 根據訊息框字體動態調整
+    bg='#F0F0F0',
+    fg='#333333',
+    anchor='w',
+    padx=8,  # 🔥 減少內距
+    pady=3   # 🔥 減少內距
+)
+json_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
 # 滑鼠進去/出去：切換顏色 + 顯示文字提示
 update_button._tooltip = None
 
@@ -1848,18 +1850,27 @@ def _update_btn_enter(_e):
         has_new = getattr(update_button, '_has_new_version', False)
         # 顏色加深
         update_button.config(bg='#D32F2F' if has_new else '#1976D2')
-        # 顯示提示
+        # 顯示提示（多加目前版本資訊，給標題列被切掉的低解析度螢幕看）
         tip = tk.Toplevel(update_button)
         tip.wm_overrideredirect(True)
         tip.attributes('-topmost', True)
-        msg = "有新版可下載 (點擊查看)" if has_new else "無新版 (點擊重新檢查)"
+        if has_new:
+            # 有新版：顯示 目前版本 + 偵測到的新版
+            remote_ver = getattr(update_button, '_remote_version', None)
+            if remote_ver:
+                msg = f"目前 v{VERSION} → 有新版 v{remote_ver}\n(點擊查看)"
+            else:
+                msg = f"目前 v{VERSION} → 有新版可下載\n(點擊查看)"
+        else:
+            msg = f"目前版本：v{VERSION}\n(點擊重新檢查更新)"
         bg_color = '#D32F2F' if has_new else '#333333'
         tk.Label(
             tip, text=msg,
             background=bg_color, foreground='white',
             relief=tk.SOLID, borderwidth=1,
             font=("Microsoft JhengHei", 9),
-            padx=8, pady=3
+            padx=8, pady=3,
+            justify=tk.LEFT,
         ).pack()
         # 位置：按鈕正下方稍偏左
         tip.update_idletasks()
@@ -2433,7 +2444,7 @@ def schedule_next_script():
 
 def load_data_json_from_folder():
     """從資料夾的 4.其他相關 載入 data.json 到程式目錄"""
-    global json_status_label  # 🔥 宣告為全域變數，才能更新狀態列
+    global json_status_label, selected_json_path  # 🔥 宣告為全域變數
     try:
         # 使用檔案對話框選擇 data.json 檔案
         from tkinter import filedialog
@@ -2484,10 +2495,79 @@ def load_data_json_from_folder():
                 # 🔥 更新主視窗標題
                 update_title_from_data_json()
 
+                # 🔥 NEW：同步更新 selected_json_path（指向該案件的結構化 trans_*.json）
+                # 避免下次重啟時還用舊案件的 trans，引發「不同地段警告」
+                _section = first.get('section', '')
+                _lot_raw = (first.get('lot_number', '') or '').replace('-', '')
+                _lot_no_zero = _lot_raw.lstrip('0') or _lot_raw
+
+                # 從 data.json 路徑往回退兩層 = 案件資料夾
+                case_folder = os.path.dirname(os.path.dirname(data_json_path))
+                found_trans = None
+
+                # 1. 先在「案件資料夾的 4.其他相關」找
+                case_other_dir = os.path.join(case_folder, "4.其他相關")
+                trans_in_case = sorted(
+                    glob.glob(os.path.join(case_other_dir, "trans_*.json")) +
+                    glob.glob(os.path.join(case_other_dir, "transcript_data_*.json")),
+                    key=os.path.getmtime,
+                    reverse=True
+                )
+                trans_status_text = ""  # 用來補進對話框
+                if trans_in_case:
+                    found_trans = trans_in_case[0]
+                    update_message(f"  [連動] 案件資料夾內找到 trans：{os.path.basename(found_trans)}")
+                    trans_status_text = f"\n結構化 JSON：✓ {os.path.basename(found_trans)}"
+                else:
+                    # 2. 退而到 output/ 找檔名含「案件地段＋地號」的 trans
+                    trans_in_output = sorted(
+                        glob.glob(os.path.join(JSON_DIR_DEFAULT, "trans_*.json")),
+                        key=os.path.getmtime,
+                        reverse=True
+                    )
+                    for cand in trans_in_output:
+                        cand_name = os.path.basename(cand)
+                        if _section and _section in cand_name:
+                            if _lot_no_zero and _lot_no_zero in cand_name:
+                                found_trans = cand
+                                update_message(f"  [連動] output/ 內找到匹配 trans：{cand_name}")
+                                trans_status_text = f"\n結構化 JSON：✓ {cand_name}（來自 output/）"
+                                break
+                    if not found_trans:
+                        update_message("  [連動] 找不到對應案件的 trans")
+                        update_message("        ① 重新執行【電子謄本結構化】產生並載入新的「結構化 JSON 檔」")
+                        update_message("        ② 或按【讀取結構化JSON】手動選原本的「結構化 JSON 檔」（位於「output」或「4.其他相關」）")
+                        trans_status_text = (
+                            "\n結構化 JSON：⚠ 找不到\n"
+                            "\n建議下一步："
+                            "\n  ① 重新執行【電子謄本結構化】產生並載入新的「結構化 JSON 檔」"
+                            "\n  ② 或按【讀取結構化JSON】手動選原本的「結構化 JSON 檔」"
+                            "\n     （位於「output」或「4.其他相關」）"
+                        )
+
+                # 更新全域變數
+                selected_json_path = found_trans
+
+                # 寫入 config.json 持久化（下次重啟時就會對到正確 trans）
+                try:
+                    config = load_config() or {}
+                    config['selected_json'] = found_trans or ""
+                    config['selected_json_path'] = found_trans or ""
+                    save_config(config, show_message=False)
+                except Exception as _cfg_e:
+                    update_message(f"  [警告] 寫入 config.json 失敗：{_cfg_e}")
+
+                # 如果找到 trans，重新刷新 JSON 狀態列顯示其資訊
+                if found_trans:
+                    try:
+                        update_json_status_display()
+                    except Exception:
+                        pass
+
                 # 🔥 最後才顯示對話框（這樣狀態列已經更新完成）
                 show_large_message(
                     "載入成功",
-                    f"已從資料夾載入 data.json\n\n案件：{info}\n筆數：{len(data_list)}"
+                    f"已從資料夾載入 data.json\n\n案件：{info}\n筆數：{len(data_list)}{trans_status_text}"
                 )
             else:
                 update_message("[警告] data.json 中沒有資料")
@@ -3636,6 +3716,37 @@ def convert_transcript_to_final_data(transcript_json_path):
 
         # 儲存 data_final.json
         data_final_path = get_data_final_path()
+
+        # 🔥 保留使用者輸入欄位：在覆寫前，從既有 data_final.json 把「非系統計算欄位」抓回來
+        # 系統計算欄位（每次轉換都會被新值覆蓋）：
+        SYSTEM_COMPUTED_FIELDS = {
+            "土地標示", "建物門牌",
+            "主建物", "主建物坪數",
+            "附屬建物", "附屬建物坪數",
+            "公共設施", "公共設施坪數",
+            "總地坪", "總建坪", "謄本登記總面積",
+            "公告現值",
+            "地上層數", "地下層數",
+            "車位", "所有權人", "權利範圍",
+            "建築結構", "竣工日期",
+            "非都市土地使用地類別",
+            "設定金額", "設定金額明細", "貸款銀行",
+        }
+        try:
+            if os.path.exists(data_final_path):
+                with open(data_final_path, 'r', encoding='utf-8') as f:
+                    existing_data = json.load(f)
+                preserved_count = 0
+                for k, v in existing_data.items():
+                    if k not in SYSTEM_COMPUTED_FIELDS:
+                        # 使用者輸入欄位 → 保留既有值
+                        data_final[k] = v
+                        preserved_count += 1
+                if preserved_count > 0:
+                    update_message(f"[OK] 保留了 {preserved_count} 個使用者輸入欄位")
+        except Exception as _merge_err:
+            update_message(f"[警告] 讀取既有 data_final.json 失敗：{_merge_err}（將直接覆寫）")
+
         with open(data_final_path, 'w', encoding='utf-8') as f:
             json.dump(data_final, f, ensure_ascii=False, indent=2)
 
@@ -3680,6 +3791,39 @@ def toggle_continuous_mode():
         stop_continuous_mode()
     else:
         start_continuous_mode()
+
+def _copy_trans_to_case_folder(trans_path):
+    """把結構化 JSON 複製到當前 data.json 對應案件的 4.其他相關/。
+
+    回傳：成功時 → 案件資料夾內的新路徑；失敗或無 data.json → None
+    """
+    try:
+        data_json_path = get_data_json_path()
+        if not os.path.exists(data_json_path):
+            return None
+        with open(data_json_path, 'r', encoding='utf-8') as f:
+            data_list = json.load(f)
+        if not data_list:
+            return None
+        first = data_list[0]
+        area = first.get('area', '')
+        section = first.get('section', '')
+        lot_number = first.get('lot_number', '')
+        if not (area and section and lot_number):
+            return None
+        folder_name = f"{area}{section}-{lot_number}"
+        case_other_dir = get_work_folder(os.path.join(folder_name, "4.其他相關"))
+        os.makedirs(case_other_dir, exist_ok=True)
+        import shutil
+        dst = os.path.join(case_other_dir, os.path.basename(trans_path))
+        # 如果同名檔已存在且內容相同就跳過（避免重複複製）
+        if os.path.exists(dst) and os.path.getsize(dst) == os.path.getsize(trans_path):
+            return dst
+        shutil.copy2(trans_path, dst)
+        return dst
+    except Exception:
+        return None
+
 
 def handle_read_json_function():
     """處理讀取結構化JSON功能"""
@@ -3737,7 +3881,14 @@ def handle_read_json_function():
             # 自動確認使用這個檔案（連續模式中）
             if continuous_mode_active:
                 update_message("連續模式中，自動使用此檔案")
-                selected_json_path = latest_json
+
+                # 🔥 NEW：把 trans 複製一份到案件資料夾 4.其他相關/（之後載入案件時找得到）
+                _copied = _copy_trans_to_case_folder(latest_json)
+                if _copied:
+                    update_message(f"  [備份] 已複製 trans 到案件資料夾：{os.path.basename(_copied)}")
+                    selected_json_path = _copied  # 指向案件內的副本，重啟後 fallback 也找得到
+                else:
+                    selected_json_path = latest_json
                 json_dir = os.path.dirname(latest_json)
 
                 # 更新設定
@@ -3811,7 +3962,13 @@ def handle_read_json_function():
                 )
                 result = show_large_yesno("確認", prompt_text)
                 if result:
-                    selected_json_path = latest_json
+                    # 🔥 NEW：使用者點「是」→ 把 trans 複製一份到案件資料夾 4.其他相關/
+                    _copied = _copy_trans_to_case_folder(latest_json)
+                    if _copied:
+                        update_message(f"  [備份] 已複製 trans 到案件資料夾：{os.path.basename(_copied)}")
+                        selected_json_path = _copied  # 指向案件內的副本
+                    else:
+                        selected_json_path = latest_json
                     json_dir = os.path.dirname(latest_json)
 
                     # 同步儲存到 config（與手動載入一致）
@@ -3859,6 +4016,11 @@ def handle_read_json_function():
                         update_message("   • 可執行「土地增值稅」程式計算稅額")
                         update_message("   • 可點擊「編輯物件資料」補充其他資訊")
                         update_divider()
+                        # 🔥 流程結尾統一刷新狀態列（保險：避免重排/全選/過濾各分支漏更新）
+                        try:
+                            update_json_status_display()
+                        except Exception:
+                            pass
                     else:
                         update_message(f"[取消] {_msg2}")
                 else:
@@ -5319,11 +5481,19 @@ def show_large_message(title, message):
     width = int(700 / dpi_scale * 1.2)
 
     # 🔥 根據內容行數自適應高度，設定合理的上下限
-    line_count = message.count('\n') + 1
-    # 每行約 30 像素（含字級間距），加上標題、按鈕、padding 約 220 像素
-    estimated_height = int((line_count * 30 + 220) / dpi_scale * 1.2)
-    min_height = int(380 / dpi_scale * 1.2)
-    max_height = int(800 / dpi_scale * 1.2)  # 最高 800 像素，避免內容被切
+    # 公式變項：
+    #   每行 50 px（考慮中文長行折行 + 字級間距）
+    #   chrome（標題 + 按鈕區 + 兩側 padding）240 px
+    #   長檔名（>30 chars）多算 0.7 行折行緩衝
+    raw_lines = message.split('\n')
+    line_count = len(raw_lines)
+    # 估算因長行折行多出的視覺行數（每多 30 字算多 1 行）
+    extra_wrap_lines = sum(max(0, len(ln) - 30) // 30 for ln in raw_lines)
+    effective_lines = line_count + extra_wrap_lines
+
+    estimated_height = int((effective_lines * 32 + 240) / dpi_scale * 1.2)
+    min_height = int(300 / dpi_scale * 1.2)
+    max_height = int(900 / dpi_scale * 1.2)
     height = max(min_height, min(estimated_height, max_height))
 
     msg_window.geometry(f"{width}x{height}")
@@ -5754,6 +5924,11 @@ def _apply_filter_and_convert(latest_json):
     ):
         update_message(f"[載入] 全部 {kept} 筆記錄、所有權人未過濾")
         convert_transcript_to_final_data(latest_json)
+        # 🔥 全選分支也刷新狀態列（latest_json 可能在前面被重排過）
+        try:
+            update_json_status_display()
+        except Exception:
+            pass
         return True, "全部載入"
 
     # 🔥 有過濾 → 寫到該案件「4.其他相關」資料夾，作為新的選定 JSON
@@ -6149,7 +6324,8 @@ if selected_json_path:
     except:
         json_status_label.config(text=f"JSON: {filename}", fg='#006400')
 else:
-    json_status_label.config(text=f"JSON: 自動選擇（{json_dir}）", fg='#FF8C00')
+    # 🔥 不顯示完整路徑，避免擠掉右邊更新按鈕
+    json_status_label.config(text="JSON: 自動選擇（尚未指定）", fg='#FF8C00')
 
 # 🔥 GitHub Release 版本檢查（多源：主程式 + 兩個附屬工具）
 GITHUB_REPO = "windskyshao/tw-land-tools"  # 主程式 repo（相容用）
@@ -6624,6 +6800,13 @@ def check_for_update(silent=True):
     # 更新按鈕顏色（任何 source 有更新就紅）
     try:
         update_button._has_new_version = bool(updates)
+        # 記下「主程式」的遠端版本給 tooltip 顯示
+        main_remote = next(
+            (r['remote_version'] for r in results
+             if r['source'].get('install_type') == 'zip_replace' and r['remote_version']),
+            None
+        )
+        update_button._remote_version = main_remote
         if updates:
             update_button.config(bg='#F44336', fg='white')
         else:
@@ -6885,7 +7068,7 @@ def check_and_warn_data_consistency():
             json_status_label.config(text="JSON: 尚未產生結構化謄本資料", fg='#FF8C00')
         else:
             # 完全沒有資料
-            json_status_label.config(text=f"JSON: 自動選擇（{json_dir}）", fg='#FF8C00')
+            json_status_label.config(text="JSON: 自動選擇（尚未指定）", fg='#FF8C00')
 
         # 🔥 自動依 data.json 順序重排謄本（不彈窗）
         # 即使一致性檢查 OK 也要 call fix，才能處理「建物排在土地前」這類 layout 問題
@@ -6895,6 +7078,11 @@ def check_and_warn_data_consistency():
                 update_divider()
                 update_message(f"[OK] {message}")
                 update_divider()
+                # 🔥 重排後 trans 第一筆變了，必須刷新狀態列
+                try:
+                    update_json_status_display()
+                except Exception:
+                    pass
             elif not success:
                 update_divider()
                 update_message(f"[警告] 自動重排失敗：{message}")

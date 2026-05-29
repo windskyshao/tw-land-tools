@@ -11,7 +11,7 @@ echo  功能：當你已手動跑過 pyinstaller，只想把 dist 內容
 echo        同步到 dist-0 時用此檔（比 0.bat 快）
 echo ============================================================
 
-set "PROJ=D:\Dropbox\projects\A"
+set "PROJ=D:\projects\A"
 set "SRC=%PROJ%\dist\地籍資料查詢系統"
 set "DST=%PROJ%\dist-0\地籍資料查詢系統"
 

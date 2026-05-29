@@ -11,7 +11,7 @@ echo  功能：執行 pyinstaller 重新打包，並把 dist 同步到 dist-0
 echo        （增量同步，不會刪除 dist-0 中的個人檔案）
 echo ============================================================
 
-set "PROJ=D:\Dropbox\projects\A"
+set "PROJ=D:\projects\A"
 set "SRC=%PROJ%\dist\地籍資料查詢系統"
 set "DST=%PROJ%\dist-0\地籍資料查詢系統"
 

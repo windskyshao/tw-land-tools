@@ -291,6 +291,10 @@ class InteriorPriceSearch:
         except Exception as e:
             print(f"[WARNING] 視窗設定失敗: {e}，繼續執行")
 
+        # 🔥 啟動 Chrome 死亡 watchdog：使用者按 X 關掉 Chrome 時自動觸發退出
+        # 不管子程式正在做什麼（填表、截圖、等輸入...），watchdog 都能偵測
+        self._start_chrome_watchdog()
+
         yprint("瀏覽器驅動已初始化，正在配置瀏覽器...")
         
         # 隱藏 webdriver 痕跡
@@ -678,9 +682,16 @@ class InteriorPriceSearch:
                         gprint(f"您輸入了: {cmd}")
                 return cmd.lower()
             except queue.Empty:
-                # 超時但沒有輸入，繼續等待
-                pass
-        
+                # 超時但沒有輸入，順便檢查瀏覽器是否還活著
+                # （比照 nlma.py 的做法：使用者按 X 關掉 Chrome 時要能偵測到並退出）
+                if self.driver:
+                    try:
+                        _ = self.driver.current_url
+                    except Exception:
+                        yprint("\n偵測到瀏覽器已關閉，程式將退出")
+                        should_exit = True
+                        return "q"
+
         return "q"  # 如果應該退出，返回q
             
     def search_one(self, item: dict, auto_capture=False) -> bool:
@@ -706,6 +717,33 @@ class InteriorPriceSearch:
         self.capture_page()
         return True
     
+    # 🔥 Chrome 死亡 watchdog（背景執行緒）
+    def _start_chrome_watchdog(self):
+        """每 1 秒檢查 self.driver 是否還連得上 Chrome，斷了就觸發退出。
+
+        比照 nlma.py 用 driver.current_url 試讀的方式偵測。
+        當 Chrome 被使用者按 X 關閉時，這個 thread 會：
+          1. 設 should_exit = True 通知所有 while 迴圈退出
+          2. 塞個 'q' 進 input_queue 把可能正在等輸入的 wait_for_input 喚醒
+        """
+        def watchdog():
+            global should_exit, input_queue
+            while not should_exit:
+                time.sleep(1)
+                if should_exit:
+                    return
+                try:
+                    _ = self.driver.current_url
+                except Exception:
+                    yprint("\n[Watchdog] 偵測到 Chrome 視窗已被關閉，程式將退出")
+                    should_exit = True
+                    try:
+                        input_queue.put('q')
+                    except Exception:
+                        pass
+                    return
+        threading.Thread(target=watchdog, daemon=True).start()
+
     # 關閉瀏覽器
     def close_browser(self):
         if self.driver:
@@ -887,31 +925,34 @@ if __name__ == "__main__":
             except Exception:
                 pass  # 靜默處理縮放錯誤
 
-        bprint("\n====== 開始處理數據 ======")
-        for idx, itm in enumerate(items, 1):
-            if should_exit:
-                yprint("主循環檢測到退出標志，準備退出...")
-                break
-                
-            cprint(f"\n[{idx}/{len(items)}] 處理: {itm.get('city', '')} {itm.get('area', '')} {itm.get('section', '')}")
-            if not app.search_one(itm, auto_capture=True):
-                break
-        else:
-            if not should_exit:
-                yprint("⚠ 提醒：若存檔不如預期請手動更改檔名")
+        # 🔥 收到退出訊號就直接跳過後續所有流程（避免 Chrome 被關後還印一堆訊息）
+        if not should_exit:
+            bprint("\n====== 開始處理數據 ======")
+            for idx, itm in enumerate(items, 1):
+                if should_exit:
+                    yprint("主循環檢測到退出標志，準備退出...")
+                    break
+
+                cprint(f"\n[{idx}/{len(items)}] 處理: {itm.get('city', '')} {itm.get('area', '')} {itm.get('section', '')}")
+                if not app.search_one(itm, auto_capture=True):
+                    break
+            else:
+                if not should_exit:
+                    yprint("⚠ 提醒：若存檔不如預期請手動更改檔名")
 
         # 手動延伸查詢循環
-        bprint("\n====== 進入手動查詢模式 ======")
-        cprint("您現在可以手動在網頁上調整查詢條件")
-        cprint("系統將自動偵測區域和地段或社區名稱作為檔名")
-        cprint("例如：偵測到「鼓山區」和「鼎宇美術館」時，存檔為「內政部實價登錄-鼓山區鼎宇美術館.png」")
+        if not should_exit:
+            bprint("\n====== 進入手動查詢模式 ======")
+            cprint("您現在可以手動在網頁上調整查詢條件")
+            cprint("系統將自動偵測區域和地段或社區名稱作為檔名")
+            cprint("例如：偵測到「鼓山區」和「鼎宇美術館」時，存檔為「內政部實價登錄-鼓山區鼎宇美術館.png」")
 
-        while not should_exit:
-            cmd = app.wait_for_input("\n若仍需查詢其它，完成後請按 Enter 截圖存檔，或輸入 Q 結束：")
-            if cmd == "q" or should_exit:
-                break
-            # 在手動模式下，capture_page會使用區域+地段名稱
-            app.capture_page(manual_mode=True)
+            while not should_exit:
+                cmd = app.wait_for_input("\n若仍需查詢其它，完成後請按 Enter 截圖存檔，或輸入 Q 結束：")
+                if cmd == "q" or should_exit:
+                    break
+                # 在手動模式下，capture_page會使用區域+地段名稱
+                app.capture_page(manual_mode=True)
     
     except Exception as e:
         yprint(f"程式執行錯誤: {e}")
