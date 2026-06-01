@@ -244,14 +244,15 @@ def open_nbupic(city_name):
         print("\033[91m[錯誤] 等待 Qry_LICENSING_UNIT 元素超時，頁面可能未正確載入\033[0m", flush=True)
         return False
 
-    # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
-    verify_and_fix_chrome_window(driver)
-
-    # 載入後可能被網站重設視窗大小，再套一次
+    # 載入後可能被網站重設視窗大小，先套用原本的視窗布局
     try:
         _apply_chrome_window_layout()
     except Exception:
         pass
+
+    # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
+    # 注意：要放在 _apply_chrome_window_layout() 之後，否則會被覆蓋掉
+    verify_and_fix_chrome_window(driver)
     return True
 
 

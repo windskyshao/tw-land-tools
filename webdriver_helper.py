@@ -338,14 +338,9 @@ def verify_and_fix_chrome_window(driver, target_ratio=2/3):
 
     特例：只在偵測到 DPI 不同步時才動作。正常 PC（Windows DPI 設定一致）完全不會被影響。
 
-    觸發條件：
-      abs(目前視窗寬度 - 螢幕寬度 × target_ratio) > 50 px
-
-    動作：
-      1. 用 Chrome 自己回報的 screen.width（CSS 邏輯像素）重算目標寬度
-      2. set_window_size + set_window_position
-      3. 若 Chrome 邏輯寬度 < 1200 → 額外按 2 次 Ctrl+- 把頁面縮放到 80%
-         （解決小邏輯寬度下網頁排版被擠的問題）
+    幂等保證：頁面縮放只在「同一個 driver 物件」的第一次呼叫時觸發；
+              後續呼叫（例如重試載入網頁）只重設視窗大小，不會再按 Ctrl+-，
+              避免累積縮放（80% → 64% → 51% → ... → 33%）。
 
     Args:
         driver: Chrome WebDriver（必須在 driver.get(URL) 之後且頁面已載入）
@@ -392,7 +387,9 @@ def verify_and_fix_chrome_window(driver, target_ratio=2/3):
             print(f"[視窗] ✓ 已修正：寬度 {target_logical_width}, 位置 ({new_x}, {current_screen_y})", flush=True)
 
             # 特例：Chrome 邏輯寬度 < 1200 → 同步把頁面縮放到 80%
-            if chrome_screen_width < 1200:
+            # 🔥 用 driver 屬性當旗標，避免重試時累積縮放（80%→64%→51%→...→33%）
+            already_zoomed = getattr(driver, '_dpi_zoom_applied', False)
+            if chrome_screen_width < 1200 and not already_zoomed:
                 try:
                     import keyboard
                     time.sleep(0.5)
@@ -403,8 +400,12 @@ def verify_and_fix_chrome_window(driver, target_ratio=2/3):
                         keyboard.press_and_release('ctrl+-')
                         time.sleep(0.5)
                     print(f"[視窗] ✓ 頁面已縮放至 80%", flush=True)
+                    driver._dpi_zoom_applied = True
                 except Exception as _e:
                     print(f"[視窗] 頁面縮放修正失敗：{_e}", flush=True)
+            elif already_zoomed:
+                # 已縮放過（重試的場合）→ 只重設視窗大小，不再按 Ctrl+-，避免累積
+                pass
 
         return result
     except Exception as _e:
