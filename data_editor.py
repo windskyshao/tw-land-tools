@@ -3887,6 +3887,45 @@ def open_data_editor():
         editor_window.destroy()  # 🔥 關閉視窗
         return
 
+    # 🔥🔥🔥 載入中遮罩 🔥🔥🔥
+    # 物件編輯器 UI 元件多、地圖瓦片非同步載入較慢，會逐步顯示半成品介面。
+    # 用一個 topmost 的遮罩視窗蓋住整個編輯器，等所有 UI 建立完成才移除。
+    # 放在「資料載入成功後」，避開前面資料檢查的提前 return（否則遮罩會變孤兒視窗）。
+    loading_overlay = tk.Toplevel(editor_window)
+    loading_overlay.overrideredirect(True)       # 無邊框
+    loading_overlay.attributes('-topmost', True)  # 永遠在最上層，蓋住陸續建立的 UI
+    loading_overlay.configure(bg='#2c3e50')
+    try:
+        loading_overlay.geometry(f"{available_width}x{available_height}+{editor_x}+{editor_y}")
+    except Exception:
+        pass
+    tk.Label(
+        loading_overlay,
+        text="⏳ 載入中，請稍候...\n\n正在準備物件編輯介面與地圖",
+        font=("Microsoft JhengHei", 18, "bold"),
+        bg='#2c3e50', fg='white', justify='center'
+    ).place(relx=0.5, rely=0.5, anchor='center')
+    try:
+        loading_overlay.update()
+    except Exception:
+        pass
+
+    def _remove_loading_overlay():
+        """移除載入中遮罩（可重複呼叫，安全）"""
+        try:
+            if loading_overlay.winfo_exists():
+                loading_overlay.destroy()
+        except Exception:
+            pass
+
+    # 防呆 1：若編輯器視窗被關閉，遮罩也跟著移除（避免變成孤兒視窗）
+    def _on_editor_destroy(_e):
+        if _e.widget is editor_window:
+            _remove_loading_overlay()
+    editor_window.bind("<Destroy>", _on_editor_destroy, add="+")
+    # 防呆 2：最多 30 秒後強制移除（避免中途出錯遮罩永久卡住）
+    editor_window.after(30000, _remove_loading_overlay)
+
     # 🔥 建立標準子資料夾結構
     try:
         if os.path.exists(get_data_json_path()):
@@ -8548,5 +8587,8 @@ def open_data_editor():
     # 🔥 確保視窗可以接收輸入
     editor_window.focus_force()
     editor_window.update_idletasks()
+
+    # 🔥🔥🔥 所有 UI 建立完成 → 移除載入中遮罩 🔥🔥🔥
+    _remove_loading_overlay()
 
 
