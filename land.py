@@ -340,12 +340,39 @@ def handle_captcha(driver):
             EC.presence_of_element_located((By.ID, "recaptcha_id"))
         )
         if captcha_element.is_displayed():
-            print("\033[93m偵測到驗證碼：請在 Chrome 視窗的驗證碼框中輸入（30 秒內），完成後程式會自動送出，不用自己點確認。\033[0m", flush=True)
+            print("\033[93m偵測到驗證碼：請在 Chrome 視窗的驗證碼框中輸入，打完程式會自動送出（不限時間；關閉瀏覽器即取消）。\033[0m", flush=True)
 
-            # 等待用戶在 Chrome 中輸入驗證碼（30 秒內填入即可，偵測到值非空就立即往下）
-            WebDriverWait(driver, 30).until(
-                lambda d: captcha_element.get_attribute("value") != ""
-            )
+            # 等待用戶在 Chrome 中輸入驗證碼：不限時間，瀏覽器開著就一直等
+            #（每 0.3 秒檢查一次，CPU 負擔極低；要中止就關掉瀏覽器即可）。
+            # 判斷「打好了」的條件（避免慢慢打時被搶先送出）：
+            #   ① 打滿 4 碼（input maxlength=4）→ 立即送出，或
+            #   ② 有輸入但停止打字超過 1.5 秒（可能打了 <4 碼就停）→ 才送出。
+            import time as _t
+            CAPTCHA_LEN = 4
+            SETTLE_SEC = 1.5
+            POLL = 0.3
+            _last_val = None
+            _stable_for = 0.0
+            while True:
+                if not is_browser_open(driver):
+                    print("瀏覽器已關閉，取消驗證碼等待。", flush=True)
+                    return
+                try:
+                    val = (captcha_element.get_attribute("value") or "").strip()
+                except Exception:
+                    # 驗證碼框可能已隨頁面更新而消失，結束等待
+                    return
+                if len(val) >= CAPTCHA_LEN:        # 打滿 4 碼 → 立刻送
+                    break
+                if val:                            # 有值但停止輸入夠久 → 送
+                    if val == _last_val:
+                        _stable_for += POLL
+                        if _stable_for >= SETTLE_SEC:
+                            break
+                    else:
+                        _stable_for = 0.0
+                _last_val = val
+                _t.sleep(POLL)
             print("已偵測到驗證碼輸入，程式即將自動點擊【確認】按鈕...", flush=True)
 
             # 等待確認按鈕可點擊後自動點擊

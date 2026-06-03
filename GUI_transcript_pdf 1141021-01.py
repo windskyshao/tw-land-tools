@@ -487,7 +487,9 @@ def import_original_modules():
         return None, None
 
 # 導入原有模組
-ProcessorClass, ExporterClass = import_original_modules()
+# 🔧 延後到 main() 顯示啟動畫面後再載入（pdf_parser 會帶入 OCR/pandas/fitz，是啟動最耗時的部分），
+#    這樣使用者一開始就看得到「載入中」提示，而不是對著黑畫面乾等。
+ProcessorClass, ExporterClass = None, None
 
 # ==================== 增強處理器 ====================
 class EnhancedTranscriptProcessor:
@@ -1415,8 +1417,9 @@ class ModernTranscriptGUI:
         self.current_folder = None
         self.file_tree = None
 
-        # 🔧 導航前進棧（記錄可以前進的目錄）
-        self.forward_stack = []  # 儲存可以前進的目錄
+        # 🔧 導航歷史（瀏覽器式上一頁/下一頁）
+        self.back_stack = []     # 返回前頁用：記錄離開過的目錄
+        self.forward_stack = []  # 前進下一頁用
 
         # 🔧 新增：慢速雙擊重新命名的變數
         self.last_click_time = 0
@@ -1873,7 +1876,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v1.5b | 電子謄本功能測試版",
+                               text="v1.6 | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2352,7 +2355,20 @@ class ModernTranscriptGUI:
         # 底部狀態列
         self.create_footer()
 
-    
+        # 🔧 視窗排版完成後，把左側與中間調成等寬
+        self.master.after(400, self._balance_left_center)
+
+    def _balance_left_center(self):
+        """把左側檔案管理與中間預覽欄調成一樣寬（分隔線置中）。"""
+        try:
+            self.left_center_paned.update_idletasks()
+            total = self.left_center_paned.winfo_width()
+            if total > 50:
+                self.left_center_paned.sash_place(0, total // 2, 0)
+        except Exception as e:
+            print(f"左右等寬調整失敗: {e}", flush=True)
+
+
     def create_header(self):
         """創建頂部標題欄 - 調細版本"""
         header = tk.Frame(self.master, bg=ModernStyle.PRIMARY, height=50)  # 從80改為50
@@ -2370,7 +2386,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v1.5b | {status_text}",
+                            text=f"v1.6 | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -3134,11 +3150,23 @@ class ModernTranscriptGUI:
             "cursor": "hand2"
         }
         
-        # 返回上層按鈕
-        back_btn = tk.Button(toolbar, text="⬅️", command=self.go_parent_folder, **button_config)
-        back_btn.pack(side="left", padx=(0, 5))
+        # 🔧 本機（所有磁碟機）— 放最左
+        mycomp_btn = tk.Button(toolbar, text="🖥", command=self.go_to_my_computer, **button_config)
+        mycomp_btn.pack(side="left", padx=(0, 5))
 
-        # 🔧 新增：向右鍵（forward）按鈕
+        # 🔧 網路（區網電腦）— 放最左
+        net_btn = tk.Button(toolbar, text="🌐", command=self.go_to_network, **button_config)
+        net_btn.pack(side="left", padx=(0, 5))
+
+        # ⬅️ 返回前頁（瀏覽歷史的上一頁）
+        self.back_btn = tk.Button(toolbar, text="⬅️", command=self.go_back, **button_config, state=tk.DISABLED)
+        self.back_btn.pack(side="left", padx=(0, 5))
+
+        # ⬆️ 返回上層（回上一層資料夾）
+        up_btn = tk.Button(toolbar, text="⬆️", command=self.go_parent_folder, **button_config)
+        up_btn.pack(side="left", padx=(0, 5))
+
+        # ➡️ 前進到下一頁（瀏覽歷史的下一頁）
         self.forward_btn = tk.Button(toolbar, text="➡️", command=self.go_forward, **button_config, state=tk.DISABLED)
         self.forward_btn.pack(side="left", padx=(0, 5))
 
@@ -3155,11 +3183,14 @@ class ModernTranscriptGUI:
         settings_btn.pack(side="left", padx=(0, 5))
 
         # 🔧 修正：改善工具提示位置
-        self.create_tooltip(back_btn, "返回上層資料夾")
-        self.create_tooltip(self.forward_btn, "前進到子目錄")  # 👈 新增提示
+        self.create_tooltip(mycomp_btn, "本機（所有磁碟機）")
+        self.create_tooltip(net_btn, "網路（區網電腦）")
+        self.create_tooltip(self.back_btn, "返回前頁")
+        self.create_tooltip(up_btn, "返回上層資料夾")
+        self.create_tooltip(self.forward_btn, "前進到下一頁")
         self.create_tooltip(refresh_btn, "重新整理檔案列表")
         self.create_tooltip(view_btn, "切換檢視模式")
-        self.create_tooltip(settings_btn, "目錄設定")  # 👈 新增提示
+        self.create_tooltip(settings_btn, "目錄設定")
         
         # 🔧 路徑列
         path_frame = tk.Frame(left_panel, bg=ModernStyle.BG_LIGHT)
@@ -3167,7 +3198,14 @@ class ModernTranscriptGUI:
         
         tk.Label(path_frame, text="位置:", font=("微軟正黑體", 10),
                 bg=ModernStyle.BG_LIGHT, fg=ModernStyle.TEXT_SECONDARY).pack(side="left")
-        
+
+        # 🔧 新增：「前往」按鈕（放在路徑列右側）
+        go_btn = tk.Button(path_frame, text="前往", font=("微軟正黑體", 10),
+                           bg=ModernStyle.PRIMARY, fg=ModernStyle.TEXT_LIGHT,
+                           relief="flat", cursor="hand2",
+                           command=self.navigate_to_path)
+        go_btn.pack(side="right", padx=(4, 0))
+
         self.path_var = tk.StringVar()
         self.path_entry = tk.Entry(path_frame, textvariable=self.path_var,
                                 font=("微軟正黑體", 10), bg="white",
@@ -3210,11 +3248,18 @@ class ModernTranscriptGUI:
         self.file_tree.heading("size", text="📏 大小", anchor="e",
                             command=lambda: self.sort_files("size"))
 
-        # 🔧 修正：按新順序設定欄位寬度（調寬名稱欄位）
-        self.file_tree.column("#0", width=280, minwidth=200, stretch=False)      # 名稱欄位（加寬）
-        self.file_tree.column("modified", width=140, minwidth=120, stretch=False) # 修改日期欄位
-        self.file_tree.column("type", width=60, minwidth=50, stretch=False)      # 類型欄位
-        self.file_tree.column("size", width=80, minwidth=60, stretch=False)      # 大小欄位
+        # 🔧 欄位寬度：名稱欄加大（長檔名一眼看清、會隨面板伸縮）
+        self.file_tree.column("#0", width=420, minwidth=260, stretch=True)        # 名稱欄位（加大、可伸縮）
+        self.file_tree.column("modified", width=150, minwidth=120, stretch=False) # 修改日期欄位
+        self.file_tree.column("type", width=80, minwidth=60, stretch=False)       # 類型欄位
+        self.file_tree.column("size", width=90, minwidth=60, stretch=False)       # 大小欄位
+
+        # 🔧 預設只顯示「修改日期」欄；類型/大小可在欄位標題上按右鍵勾選顯示
+        self.all_value_columns = ("modified", "type", "size")
+        self.visible_columns = ["modified"]
+        self._col_vars = {c: tk.BooleanVar(value=(c in self.visible_columns))
+                          for c in self.all_value_columns}
+        self.file_tree.config(displaycolumns=tuple(self.visible_columns))
         
         # 垂直捲軸
         v_scrollbar = ttk.Scrollbar(list_container, orient="vertical",
@@ -3235,6 +3280,29 @@ class ModernTranscriptGUI:
         self.file_tree.bind('<Double-Button-1>', self.on_file_double_click)
         self.file_tree.bind('<Button-1>', self.on_file_single_click)
         self.file_tree.bind('<Button-3>', self.show_context_menu)  # 右鍵選單
+
+        # 🔧 鍵盤操作（方便不用滑鼠也能瀏覽）
+        #    Enter：開啟選取的資料夾／預覽檔案
+        #    Backspace：回上一層　　Alt+← 返回前頁　Alt+→ 前進下一頁
+        #    上下方向鍵：Treeview 內建，自動移動選取
+        self.file_tree.bind('<Return>', self.on_tree_enter)
+        self.file_tree.bind('<KP_Enter>', self.on_tree_enter)
+        self.file_tree.bind('<BackSpace>', self.on_tree_backspace)
+        self.file_tree.bind('<Alt-Left>', lambda e: self._kb(self.go_back))
+        self.file_tree.bind('<Alt-Right>', lambda e: self._kb(self.go_forward))
+
+        # 🔧 一般檔案操作快捷鍵
+        #    Del 刪除　Ctrl+C 複製　Ctrl+X 剪下　Ctrl+V 貼上　Ctrl+Z 復原　F2 重新命名
+        self.file_tree.bind('<Delete>', lambda e: self._kb(self.delete_selected_files))
+        self.file_tree.bind('<Control-c>', lambda e: self._kb(self.copy_selected_files))
+        self.file_tree.bind('<Control-C>', lambda e: self._kb(self.copy_selected_files))
+        self.file_tree.bind('<Control-x>', lambda e: self._kb(self.cut_selected_files))
+        self.file_tree.bind('<Control-X>', lambda e: self._kb(self.cut_selected_files))
+        self.file_tree.bind('<Control-v>', lambda e: self._kb(self.paste_files))
+        self.file_tree.bind('<Control-V>', lambda e: self._kb(self.paste_files))
+        self.file_tree.bind('<Control-z>', lambda e: self._kb(self.undo_last_action))
+        self.file_tree.bind('<Control-Z>', lambda e: self._kb(self.undo_last_action))
+        self.file_tree.bind('<F2>', lambda e: self._kb(self.rename_selected_file))
 
         # 🔧 底部資訊列
         info_frame = tk.Frame(left_panel, bg=ModernStyle.BG_LIGHT)
@@ -4280,6 +4348,11 @@ class ModernTranscriptGUI:
                     command=self.batch_process,
                     style="primary").pack(fill="x", pady=3)
 
+        # 🔥 跨資料夾掃描批次處理（自動遞迴掃描 + 篩選謄本 + 按案件分組）
+        ModernButton(processing_section, "🔍 跨資料夾掃描",
+                    command=self.open_batch_scan_dialog,
+                    style="warning").pack(fill="x", pady=3)
+
 
     def create_export_section(self, parent):
         # 🔧 臨時修復：如果沒有模板設定就先建立
@@ -4452,7 +4525,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v1.5b | 電子謄本功能測試版",
+                            text="v1.6 | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -4598,11 +4671,31 @@ class ModernTranscriptGUI:
         else:
             ok_btn = ModernButton(button_frame, "確定", command=on_no, style="primary")
             ok_btn.pack(side="right")
-        
+
+        # 🔧 鍵盤操作：
+        #    是/否對話框 → Y 或 Enter = 是，N 或 Esc = 否
+        #    一般對話框   → Enter 或 Esc = 確定（關閉）
+        if msg_type == "yesno":
+            for k in ('<Return>', '<KP_Enter>', '<y>', '<Y>'):
+                dialog.bind(k, lambda e: on_yes())
+            for k in ('<n>', '<N>', '<Escape>'):
+                dialog.bind(k, lambda e: on_no())
+            try:
+                yes_btn.focus_set()  # 預設焦點在「是」
+            except Exception:
+                pass
+        else:
+            for k in ('<Return>', '<KP_Enter>', '<Escape>'):
+                dialog.bind(k, lambda e: on_no())
+            try:
+                ok_btn.focus_set()
+            except Exception:
+                pass
+
         # 🔧 新增：確保對話框大小適合內容
         dialog.update_idletasks()
         dialog.minsize(500, min_height)
-        
+
         dialog.wait_window()
         return result[0]
 
@@ -5009,6 +5102,754 @@ class ModernTranscriptGUI:
             return None
     
 
+
+    def open_batch_scan_dialog(self):
+        """跨資料夾掃描：遞迴掃描多個來源資料夾 → 篩選謄本 → 按案件資料夾分組批次處理。
+
+        設計重點：
+          - 篩選：抽 PDF 第一頁文字，找「土地/建物登記第一/二類謄本」關鍵字（毫秒級，準確）
+          - 分組：按 PDF 所在資料夾（同資料夾 = 同案件）
+          - 處理：每組各呼叫一次 self.processor.process_multiple_pdfs（引擎免改）
+          - 輸出：每組各自 export 到 output 目錄（檔名自動依地號區分）
+          - 安全：背景執行緒只做「處理 + 寫檔」，不碰 tkinter UI；進度用 queue + after 回主執行緒
+        """
+        import os, re, threading, queue
+        from tkinter import filedialog
+        from collections import defaultdict
+
+        dlg = tk.Toplevel(self.master)
+        dlg.title("🔍 跨資料夾批次掃描謄本")
+        dlg.geometry("920x720")
+        try:
+            dlg.configure(bg=ModernStyle.BG_LIGHT)
+        except Exception:
+            pass
+        bg = getattr(ModernStyle, 'BG_LIGHT', '#F5F5F5')
+        font_n = ("Microsoft JhengHei", 11)
+        font_b = ("Microsoft JhengHei", 11, "bold")
+
+        state = {'sources': [], 'found': [], 'stop': False, 'scanning': False}
+
+        # ===== 篩選函式（只抽第一頁，快又準）=====
+        def check_transcript(pdf_path):
+            """回傳 (是否合格謄本, 類型標籤如 '土地·一類')"""
+            try:
+                import fitz
+                doc = fitz.open(pdf_path)
+                txt = doc[0].get_text() if doc.page_count > 0 else ""
+                doc.close()
+                if not re.search(r'[土地建物]+登記第[一二]類謄本', txt):
+                    return (False, "")
+                kind = "建物" if "建物登記" in txt else "土地"
+                cls = "二類" if "第二類" in txt else "一類"
+                return (True, f"{kind}·{cls}")
+            except Exception:
+                return (False, "")
+
+        def mk_btn(parent, text, cmd, color='#E67E22'):
+            return tk.Button(parent, text=text, command=cmd, font=font_n,
+                             bg=color, fg='white', relief="flat", padx=10, pady=4,
+                             cursor="hand2", activebackground=color)
+
+        # ===== 上方：來源資料夾清單 =====
+        top = tk.Frame(dlg, bg=bg); top.pack(fill="x", padx=12, pady=(12, 6))
+        tk.Label(top, text="掃描來源（可加多個資料夾，會自動遞迴往下掃所有層）：",
+                 font=font_b, bg=bg, anchor="w").pack(fill="x")
+        src_listbox = tk.Listbox(top, height=4, font=font_n)
+        src_listbox.pack(fill="x", pady=4)
+
+        def pick_multiple_folders():
+            """自訂多選資料夾對話框（Ctrl / Shift 複選 + 完整磁碟機導覽）。"""
+            import string
+            picker = tk.Toplevel(dlg)
+            picker.title("選擇資料夾（可 Ctrl / Shift 多選，雙擊進入下一層）")
+            # 置中於螢幕
+            _pw, _ph = 760, 580
+            _sw = picker.winfo_screenwidth(); _sh = picker.winfo_screenheight()
+            picker.geometry(f"{_pw}x{_ph}+{(_sw - _pw) // 2}+{(_sh - _ph) // 2}")
+            try:
+                picker.configure(bg=bg)
+            except Exception:
+                pass
+            picker.transient(dlg)
+            picker.grab_set()
+
+            # 預設開在程式所在目錄（BASE_DIR）；若已加過來源則延續上一個
+            start = state['sources'][-1] if state['sources'] else BASE_DIR
+            cur = {'path': start}
+            result = {'folders': []}
+            folder_map = {}         # listbox index -> 完整路徑
+            DRIVES = "::DRIVES::"   # 「本機」層（列磁碟機）
+            NETWORK = "::NETWORK::" # 「網路」層（列網路電腦）
+
+            def list_network_computers():
+                """列出區網內的電腦。優先用 Windows Shell COM（跟檔案總管同一套探索，
+                最可靠）；失敗再退而用 net view。"""
+                comps = []
+                # 方法1：Shell COM 列舉「網路」資料夾（ssfNETWORK = 18）
+                try:
+                    import win32com.client
+                    shell = win32com.client.Dispatch("Shell.Application")
+                    net = shell.NameSpace(18)
+                    if net:
+                        for item in net.Items():
+                            try:
+                                if item.IsFolder:  # 電腦是資料夾，印表機等不是
+                                    nm = str(item.Name).strip()
+                                    if nm:
+                                        comps.append("\\\\" + nm)
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+                # 方法2：net view（後備；新版 Windows 常因服務停用而列不到）
+                if not comps:
+                    import subprocess
+                    try:
+                        r = subprocess.run(
+                            ["net", "view"],
+                            capture_output=True, timeout=20,
+                            creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                        raw = r.stdout or b""
+                        text = ""
+                        for enc in ('cp950', 'utf-8', 'big5', 'cp437', 'mbcs'):
+                            try:
+                                text = raw.decode(enc); break
+                            except Exception:
+                                continue
+                        for line in text.splitlines():
+                            line = line.strip()
+                            if line.startswith("\\\\"):
+                                comps.append(line.split()[0])
+                    except Exception as e:
+                        print(f"net view 失敗: {e}", flush=True)
+                # 去重（保序）
+                seen2, uniq = set(), []
+                for c in comps:
+                    if c not in seen2:
+                        seen2.add(c); uniq.append(c)
+                return uniq
+
+            def _is_unc_computer_root(p):
+                """判斷是不是「電腦根」UNC（如 \\TABLE1，只有電腦名沒有共用名）。
+                這種路徑 os.listdir 會 WinError 67，必須改用 Shell COM 列共用。"""
+                if not p.startswith("\\\\"):
+                    return False
+                parts = [x for x in p[2:].split("\\") if x]
+                return len(parts) == 1
+
+            def list_shell_folders(p):
+                """用 Shell COM 列出某路徑下的子資料夾（共用），回傳 [(名稱, 完整路徑)]。
+                專用於 UNC 電腦根——os.listdir 對它會失敗。"""
+                items = []
+                try:
+                    import win32com.client
+                    shell = win32com.client.Dispatch("Shell.Application")
+                    ns = shell.NameSpace(p)
+                    if ns:
+                        for it in ns.Items():
+                            try:
+                                if it.IsFolder:
+                                    nm = str(it.Name).strip()
+                                    if nm:
+                                        items.append((nm, p.rstrip("\\") + "\\" + nm))
+                            except Exception:
+                                continue
+                except Exception:
+                    pass
+                return items
+
+            def list_net_view_shares(p):
+                """後備：用 net view \\電腦 列共用資料夾名。"""
+                items = []
+                import subprocess
+                try:
+                    r = subprocess.run(
+                        ["net", "view", p],
+                        capture_output=True, timeout=20,
+                        creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                    raw = r.stdout or b""
+                    text = ""
+                    for enc in ('cp950', 'utf-8', 'big5', 'cp437', 'mbcs'):
+                        try:
+                            text = raw.decode(enc); break
+                        except Exception:
+                            continue
+                    for line in text.splitlines():
+                        # 含「Disk / 磁碟」類型的行，第一欄即共用名
+                        if ('Disk' in line) or ('磁碟' in line):
+                            parts = line.split()
+                            if parts:
+                                nm = parts[0]
+                                items.append((nm, p.rstrip("\\") + "\\" + nm))
+                except Exception:
+                    pass
+                return items
+
+            # 路徑列
+            pf = tk.Frame(picker, bg=bg); pf.pack(fill="x", padx=10, pady=8)
+            path_var = tk.StringVar(value=cur['path'])
+
+            def go_up():
+                p = cur['path']
+                if p in (DRIVES, NETWORK):
+                    return
+                stripped = p.rstrip("\\/")
+                # UNC 網路路徑 \\電腦\共用\...
+                if stripped.startswith("\\\\"):
+                    parts = [x for x in stripped[2:].split("\\") if x]
+                    if len(parts) <= 1:
+                        cur['path'] = NETWORK  # \\電腦 → 回網路層
+                    else:
+                        cur['path'] = "\\\\" + "\\".join(parts[:-1])
+                    refresh()
+                    return
+                parent = os.path.dirname(stripped)
+                # 已在磁碟機根（如 C:\）→ 再上一層到「本機」
+                if parent == stripped or parent == "" or (len(stripped) == 2 and stripped[1] == ":"):
+                    cur['path'] = DRIVES
+                else:
+                    cur['path'] = parent
+                refresh()
+
+            def go_to(p):
+                if p in (DRIVES, NETWORK):
+                    cur['path'] = p
+                    refresh()
+                    return
+                # UNC 路徑
+                if p.startswith("\\\\"):
+                    # 電腦根（\\TABLE1）：os.listdir 會 WinError 67，直接交給
+                    # refresh 用 Shell COM 列共用資料夾
+                    if _is_unc_computer_root(p):
+                        cur['path'] = p
+                        refresh()
+                        return
+                    # 更深層（\\電腦\共用\...）：用 listdir 驗證可存取
+                    try:
+                        os.listdir(p)
+                        cur['path'] = p
+                        refresh()
+                    except Exception:
+                        messagebox.showinfo("提示",
+                                            f"無法存取：\n{p}\n\n"
+                                            "請確認：電腦名正確、網路相通、有存取權限。",
+                                            parent=picker)
+                    return
+                if os.path.isdir(p):
+                    cur['path'] = p
+                    refresh()
+                else:
+                    messagebox.showinfo("提示", "路徑不存在", parent=picker)
+
+            def add_current():
+                if cur['path'] in (DRIVES, NETWORK):
+                    messagebox.showinfo("提示", "請先進入一個磁碟機、資料夾或網路共用", parent=picker)
+                    return
+                result['folders'] = [cur['path']]
+                picker.destroy()
+
+            mk_btn(pf, "⬆ 上一層", go_up, '#95A5A6').pack(side="left")
+            path_entry = tk.Entry(pf, textvariable=path_var, font=font_n)
+            path_entry.pack(side="left", fill="x", expand=True, padx=6)
+            mk_btn(pf, "前往", lambda: go_to(path_var.get()), '#3498DB').pack(side="left")
+            # 🔥 「加入此資料夾」移到路徑列、前往右邊，改橘色
+            mk_btn(pf, "✔ 加入此資料夾", add_current, '#E67E22').pack(side="left", padx=4)
+
+            # ===== 常用位置快捷列（含雲端硬碟、網路）=====
+            def detect_quick_locations():
+                import json as _json
+                home = os.path.expanduser("~")
+                locs = []
+                for nm, sub in [("🖥 桌面", "Desktop"), ("📄 文件", "Documents"), ("📥 下載", "Downloads")]:
+                    p = os.path.join(home, sub)
+                    if os.path.isdir(p):
+                        locs.append((nm, p))
+                # === Dropbox（支援多帳號）===
+                seen = set()
+                # 1. 讀 Dropbox info.json（最準，含所有登入帳號的路徑）
+                for base in [os.environ.get("APPDATA"), os.environ.get("LOCALAPPDATA")]:
+                    if not base:
+                        continue
+                    info = os.path.join(base, "Dropbox", "info.json")
+                    if os.path.isfile(info):
+                        try:
+                            with open(info, encoding='utf-8') as f:
+                                data = _json.load(f)
+                            for acc_type, acc in data.items():  # personal / business
+                                p = acc.get("path")
+                                if p and os.path.isdir(p) and p not in seen:
+                                    seen.add(p)
+                                    locs.append((f"☁ Dropbox-{acc_type}", p))
+                        except Exception:
+                            pass
+                # 2. 後備：掃描家目錄下所有 Dropbox* 資料夾
+                try:
+                    for name in sorted(os.listdir(home)):
+                        full = os.path.join(home, name)
+                        if name.lower().startswith("dropbox") and os.path.isdir(full) and full not in seen:
+                            seen.add(full)
+                            locs.append((f"☁ {name}", full))
+                except Exception:
+                    pass
+                # 3. 後備：掃描各磁碟機根的 Dropbox（例如 D:\Dropbox，另一個帳號常放這）
+                for d in string.ascii_uppercase:
+                    cand = f"{d}:\\Dropbox"
+                    if os.path.isdir(cand) and cand not in seen:
+                        seen.add(cand)
+                        locs.append((f"☁ Dropbox({d}:)", cand))
+                # === OneDrive（支援個人 + 公司）===
+                try:
+                    for name in sorted(os.listdir(home)):
+                        full = os.path.join(home, name)
+                        if name.lower().startswith("onedrive") and os.path.isdir(full):
+                            locs.append((f"☁ {name}", full))
+                except Exception:
+                    pass
+                # === Google Drive（虛擬碟 X:\My Drive 或同步資料夾）===
+                gd = None
+                for d in string.ascii_uppercase:
+                    for sub in ["My Drive", "我的雲端硬碟"]:
+                        c = f"{d}:\\{sub}"
+                        if os.path.isdir(c):
+                            gd = c; break
+                    if gd:
+                        break
+                if not gd:
+                    for cand in [os.path.join(home, "Google Drive"), os.path.join(home, "My Drive")]:
+                        if os.path.isdir(cand):
+                            gd = cand; break
+                if gd:
+                    locs.append(("☁ Google雲端", gd))
+                return locs
+
+            # 常用列：放在最上面（路徑列之前），grid 自動換行，按鈕之間不留空白
+            qf = tk.Frame(picker, bg=bg); qf.pack(fill="x", padx=10, pady=(8, 4), before=pf)
+            _quick = [("💻 本機", DRIVES)] + detect_quick_locations() + [("🌐 網路", NETWORK)]
+            _col, _row = 0, 0
+            for _nm, _p in _quick:
+                mk_btn(qf, _nm, (lambda pp=_p: go_to(pp)), '#7F8C8D').grid(
+                    row=_row, column=_col, padx=2, pady=2, sticky="w")
+                _col += 1
+                if _col > 6:   # 每行最多 7 顆快捷鈕，超過換行
+                    _col, _row = 0, _row + 1
+
+            # 資料夾清單（多選）
+            lf = tk.Frame(picker, bg=bg); lf.pack(fill="both", expand=True, padx=10)
+            sb = tk.Scrollbar(lf); sb.pack(side="right", fill="y")
+            folder_lb = tk.Listbox(lf, selectmode="extended", font=font_n, yscrollcommand=sb.set)
+            folder_lb.pack(side="left", fill="both", expand=True)
+            sb.config(command=folder_lb.yview)
+
+            def refresh():
+                folder_lb.delete(0, "end")
+                folder_map.clear()
+                # 「本機」層：列出所有磁碟機
+                if cur['path'] == DRIVES:
+                    path_var.set("💻 本機（所有磁碟機）")
+                    i = 0
+                    for d in string.ascii_uppercase:
+                        root = f"{d}:\\"
+                        if os.path.exists(root):
+                            folder_lb.insert("end", f"💽 {root}")
+                            folder_map[i] = root
+                            i += 1
+                    return
+                # 「網路」層：列出區網電腦
+                if cur['path'] == NETWORK:
+                    path_var.set("🌐 網路（雙擊電腦進入看共用資料夾）")
+                    folder_lb.insert("end", "（正在搜尋網路電腦，請稍候 5~20 秒...）")
+                    picker.update_idletasks()
+                    comps = list_network_computers()
+                    folder_lb.delete(0, "end")
+                    folder_map.clear()
+                    for i2, c in enumerate(comps):
+                        folder_lb.insert("end", f"💻 {c}")
+                        folder_map[i2] = c
+                    if not comps:
+                        folder_lb.insert("end", "（找不到網路電腦；可在路徑列直接輸入 \\\\電腦名 後按前往）")
+                    return
+                path_var.set(cur['path'])
+                # UNC 電腦根（\\TABLE1）：os.listdir 會 WinError 67，改用 Shell COM 列共用
+                if _is_unc_computer_root(cur['path']):
+                    folder_lb.insert("end", "（正在讀取共用資料夾...）")
+                    picker.update_idletasks()
+                    shares = list_shell_folders(cur['path'])
+                    if not shares:
+                        shares = list_net_view_shares(cur['path'])  # 後備
+                    folder_lb.delete(0, "end")
+                    folder_map.clear()
+                    i = 0
+                    for nm, full in shares:
+                        folder_lb.insert("end", f"📁 {nm}")
+                        folder_map[i] = full
+                        i += 1
+                    if i == 0:
+                        folder_lb.insert("end",
+                                         "（無法列出共用資料夾，可在路徑列輸入 \\\\電腦\\共用名 後按前往）")
+                    return
+                try:
+                    names = sorted(os.listdir(cur['path']))
+                    i = 0
+                    for name in names:
+                        full = os.path.join(cur['path'], name)
+                        if os.path.isdir(full):
+                            folder_lb.insert("end", f"📁 {name}")
+                            folder_map[i] = full
+                            i += 1
+                    if i == 0:
+                        folder_lb.insert("end", "（此資料夾沒有子資料夾，可直接按「加入此資料夾」）")
+                except Exception as e:
+                    messagebox.showerror("錯誤", f"無法讀取：{e}", parent=picker)
+
+            def enter_folder(_e):
+                sel = folder_lb.curselection()
+                if len(sel) == 1 and sel[0] in folder_map:
+                    cur['path'] = folder_map[sel[0]]
+                    refresh()
+            folder_lb.bind("<Double-Button-1>", enter_folder)
+
+            def confirm_selected():
+                sel = folder_lb.curselection()
+                picked = [folder_map[i] for i in sel if i in folder_map]
+                if not picked:
+                    messagebox.showinfo("提示", "請先選取一或多個資料夾（可 Ctrl / Shift 複選）", parent=picker)
+                    return
+                result['folders'] = picked
+                picker.destroy()
+
+            bf = tk.Frame(picker, bg=bg); bf.pack(fill="x", padx=10, pady=10)
+            mk_btn(bf, "✔ 加入選取的資料夾", confirm_selected, '#27AE60').pack(side="left")
+            mk_btn(bf, "取消", picker.destroy, '#95A5A6').pack(side="right")
+
+            refresh()
+            picker.wait_window()
+            return result['folders']
+
+        def add_folder():
+            for d in pick_multiple_folders():
+                if d and d not in state['sources']:
+                    state['sources'].append(d)
+                    src_listbox.insert("end", d)
+
+        def remove_folder():
+            for i in reversed(list(src_listbox.curselection())):
+                src_listbox.delete(i)
+                del state['sources'][i]
+
+        def clear_folders():
+            src_listbox.delete(0, "end")
+            state['sources'].clear()
+
+        brow = tk.Frame(top, bg=bg); brow.pack(fill="x")
+        mk_btn(brow, "+ 新增資料夾", add_folder).pack(side="left", padx=2)
+        mk_btn(brow, "移除選取", remove_folder, '#95A5A6').pack(side="left", padx=2)
+        mk_btn(brow, "清空", clear_folders, '#95A5A6').pack(side="left", padx=2)
+
+        # ===== 掃描按鈕 + 進度/狀態 =====
+        srow = tk.Frame(dlg, bg=bg); srow.pack(fill="x", padx=12, pady=6)
+        scan_btn = mk_btn(srow, "🔍 開始掃描", lambda: do_scan(), '#27AE60')
+        scan_btn.pack(side="left")
+        stop_btn = mk_btn(srow, "⏹ 停止", lambda: state.update(stop=True), '#E74C3C')
+        stop_btn.pack(side="left", padx=4)
+        stop_btn.config(state="disabled")  # 初始禁用，掃描時才啟用
+        scan_status = tk.Label(srow, text="尚未掃描", font=font_n, bg=bg, fg='#555')
+        scan_status.pack(side="left", padx=10)
+
+        # ===== 結果勾選清單 =====
+        mid = tk.Frame(dlg, bg=bg); mid.pack(fill="both", expand=True, padx=12, pady=6)
+        tk.Label(mid, text="掃描結果（合格謄本，可用 Ctrl / Shift 複選）：",
+                 font=font_b, bg=bg, anchor="w").pack(fill="x")
+        lframe = tk.Frame(mid); lframe.pack(fill="both", expand=True)
+        scroll = tk.Scrollbar(lframe); scroll.pack(side="right", fill="y")
+        result_listbox = tk.Listbox(lframe, selectmode="extended",
+                                    font=("Microsoft JhengHei", 10),
+                                    yscrollcommand=scroll.set)
+        result_listbox.pack(side="left", fill="both", expand=True)
+        scroll.config(command=result_listbox.yview)
+
+        selrow = tk.Frame(mid, bg=bg); selrow.pack(fill="x", pady=3)
+        mk_btn(selrow, "全選", lambda: result_listbox.select_set(0, "end"), '#3498DB').pack(side="left", padx=2)
+        mk_btn(selrow, "全不選", lambda: result_listbox.select_clear(0, "end"), '#3498DB').pack(side="left", padx=2)
+
+        def sel_invert():
+            cur = set(result_listbox.curselection())
+            for i in range(result_listbox.size()):
+                (result_listbox.select_clear if i in cur else result_listbox.select_set)(i)
+        mk_btn(selrow, "反選", sel_invert, '#3498DB').pack(side="left", padx=2)
+
+        # ===== 輸出選項 =====
+        orow = tk.Frame(dlg, bg=bg); orow.pack(fill="x", padx=12, pady=4)
+        output_mode = tk.StringVar(value="merge")
+        tk.Radiobutton(orow, text="全部合併成一份總表（放 output 目錄）",
+                       variable=output_mode, value="merge", font=font_n, bg=bg).pack(anchor="w")
+        tk.Radiobutton(orow, text="按案件分組：各案件一份，集中放 output 目錄",
+                       variable=output_mode, value="group_central", font=font_n, bg=bg).pack(anchor="w")
+        tk.Radiobutton(orow, text="按案件分組：各案件一份，放回各案件PDF所在的資料夾",
+                       variable=output_mode, value="group_inplace", font=font_n, bg=bg).pack(anchor="w")
+        # 輸出格式複選（對「分組」和「合併」都適用）
+        fmt_row = tk.Frame(orow, bg=bg); fmt_row.pack(fill="x", pady=(4, 0))
+        tk.Label(fmt_row, text="輸出格式：", font=font_n, bg=bg).pack(side="left")
+        fmt_txt = tk.BooleanVar(value=False)
+        fmt_json = tk.BooleanVar(value=False)
+        fmt_xlsx = tk.BooleanVar(value=True)
+        tk.Checkbutton(fmt_row, text="TXT", variable=fmt_txt, font=font_n, bg=bg).pack(side="left", padx=6)
+        tk.Checkbutton(fmt_row, text="JSON", variable=fmt_json, font=font_n, bg=bg).pack(side="left", padx=6)
+        tk.Checkbutton(fmt_row, text="XLSX", variable=fmt_xlsx, font=font_n, bg=bg).pack(side="left", padx=6)
+
+        # ===== 開始處理 =====
+        proc_btn = mk_btn(dlg, "▶ 開始處理選取的謄本", lambda: do_process(), '#E74C3C')
+        proc_btn.pack(fill="x", padx=12, pady=(6, 12))
+
+        # ===== 掃描邏輯（背景執行緒，即時列出 + 可停止）=====
+        def _disp_path(full):
+            for s in state['sources']:
+                if full.startswith(s):
+                    return os.path.relpath(full, os.path.dirname(s))
+            return full
+
+        def do_scan():
+            if state['scanning']:
+                return
+            if not state['sources']:
+                messagebox.showinfo("提示", "請先新增至少一個掃描來源資料夾", parent=dlg)
+                return
+            state['stop'] = False
+            state['scanning'] = True
+            state['found'] = []
+            result_listbox.delete(0, "end")
+            scan_btn.config(state="disabled")
+            stop_btn.config(state="normal")
+            sq = queue.Queue()
+
+            def worker():
+                total = 0
+                for root_folder in list(state['sources']):
+                    if state['stop']:
+                        break
+                    for dirpath, _dirs, files in os.walk(root_folder):
+                        if state['stop']:
+                            break
+                        for fn in files:
+                            if state['stop']:
+                                break
+                            if fn.lower().endswith('.pdf'):
+                                total += 1
+                                full = os.path.join(dirpath, fn)
+                                ok, label = check_transcript(full)
+                                if ok:
+                                    # 🔥 找到就即時回報（邊掃邊列）
+                                    sq.put(('found', full, label, total))
+                                elif total % 5 == 0:
+                                    sq.put(('scanned', total))
+                sq.put(('done', total, state['stop']))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+            def poll():
+                try:
+                    while True:
+                        msg = sq.get_nowait()
+                        if msg[0] == 'found':
+                            full, label, total = msg[1], msg[2], msg[3]
+                            state['found'].append((full, label))
+                            result_listbox.insert("end", f"[{label}] {_disp_path(full)}")
+                            result_listbox.select_set("end")  # 即時加入並預選
+                            scan_status.config(text=f"掃描中... 已掃 {total}，找到 {len(state['found'])} 個謄本")
+                        elif msg[0] == 'scanned':
+                            scan_status.config(text=f"掃描中... 已掃 {msg[1]}，找到 {len(state['found'])} 個謄本")
+                        elif msg[0] == 'done':
+                            total, stopped = msg[1], msg[2]
+                            state['scanning'] = False
+                            skipped = total - len(state['found'])
+                            word = "已停止" if stopped else "完成"
+                            scan_status.config(text=f"{word}：掃描 {total} 個 PDF，找到 {len(state['found'])} 個謄本（已篩掉 {skipped} 個）")
+                            scan_btn.config(state="normal")
+                            stop_btn.config(state="disabled")
+                            return
+                except queue.Empty:
+                    pass
+                dlg.after(100, poll)
+            dlg.after(100, poll)
+
+        # ===== 處理邏輯（背景執行緒只處理+寫檔）=====
+        def do_process():
+            sel = result_listbox.curselection()
+            if not sel:
+                messagebox.showinfo("提示", "請先勾選要處理的謄本", parent=dlg)
+                return
+            if not (hasattr(self, 'processor') and hasattr(self, 'exporter')):
+                messagebox.showerror("錯誤", "處理引擎未就緒", parent=dlg)
+                return
+            # 依勾選決定輸出格式
+            want_fmts = []
+            if fmt_txt.get():
+                want_fmts.append('txt')
+            if fmt_json.get():
+                want_fmts.append('json')
+            if fmt_xlsx.get():
+                want_fmts.append('xlsx')
+            if not want_fmts:
+                messagebox.showinfo("提示", "請至少勾選一種輸出格式（TXT / JSON / XLSX）", parent=dlg)
+                return
+            chosen = [state['found'][i] for i in sel]
+            groups = defaultdict(list)
+            for full, _label in chosen:
+                groups[os.path.dirname(full)].append(full)
+            merge = (output_mode.get() == "merge")
+            _mode_desc = {
+                "merge": "合併成一份總表（放 output 目錄）",
+                "group_central": "按案件分組，集中放 output 目錄",
+                "group_inplace": "按案件分組，放回各案件原資料夾",
+            }.get(output_mode.get(), "按案件分組")
+            if not self.show_custom_messagebox(
+                "確認處理",
+                f"將處理 {len(chosen)} 個謄本，分屬 {len(groups)} 個案件資料夾\n"
+                f"輸出方式：{_mode_desc}\n"
+                f"輸出格式：{'、'.join(f.upper() for f in want_fmts)}\n\n確定開始？",
+                "yesno"):
+                return
+            proc_btn.config(state="disabled")
+            scan_btn.config(state="disabled")
+
+            # 🔥 重用原本程式的完整進度視窗（執行時間計時器、6 階段、整體/單檔進度、取消、暫停、處理記錄）
+            all_pdfs = [p for pdfs in groups.values() for p in pdfs]
+            try:
+                total_size = sum(os.path.getsize(p) / (1024 * 1024) for p in all_pdfs)
+            except Exception:
+                total_size = 0
+            progress_window = self.create_enhanced_batch_progress_window(all_pdfs, total_size)
+            rq = queue.Queue()
+
+            def export_results(results, out_dir=None):
+                # out_dir 不為 None 時，暫時把輸出目錄指到該案件資料夾（放回原處）
+                paths = []
+                old_dir = self.exporter.output_dir
+                if out_dir:
+                    try:
+                        os.makedirs(out_dir, exist_ok=True)
+                        self.exporter.output_dir = out_dir
+                    except Exception as e:
+                        print(f"[批次掃描] 切換輸出目錄失敗: {e}", flush=True)
+                try:
+                    for ext in want_fmts:  # 只輸出使用者勾選的格式
+                        try:
+                            fn = self.exporter._create_flexible_filename(results, ext)
+                            if ext == 'txt':
+                                p = self.exporter.export_to_txt_report(results, fn)
+                            elif ext == 'xlsx':
+                                p = self.exporter.export_to_excel(results, fn)
+                            else:
+                                p = self.exporter.export_to_json(results, fn)
+                            if p:
+                                paths.append(p)
+                        except Exception as e:
+                            print(f"[批次掃描] 匯出 {ext} 失敗: {e}", flush=True)
+                finally:
+                    self.exporter.output_dir = old_dir  # 還原
+                return paths
+
+            def worker():
+                import time as _t
+                try:
+                    out_files, idx = [], 0
+
+                    def process_group(pdfs):
+                        nonlocal idx
+                        gres = []
+                        for pdf in pdfs:
+                            if progress_window.cancelled:
+                                return None
+                            while progress_window.paused and not progress_window.cancelled:
+                                _t.sleep(0.3)
+                            if progress_window.cancelled:
+                                return None
+                            idx += 1
+                            fn = os.path.basename(pdf)
+                            # 用原本進度視窗回報階段（讓 6 階段圖示、整體/單檔進度條都會動）
+                            progress_window.update_progress(idx, fn, "📄 提取文字內容", 2, "讀取 PDF...")
+                            progress_window.update_progress(idx, fn, "🔍 OCR識別處理", 4, "辨識中...")
+                            progress_window.update_progress(idx, fn, "📊 解析謄本結構", 5, "解析中...")
+                            r = self.processor.process_multiple_pdfs([pdf])
+                            progress_window.update_progress(idx, fn, "✨ 完善資料", 6, "完成")
+                            if r:
+                                gres.extend(r)
+                                progress_window.add_history(f"✅ {fn} - 提取 {len(r)} 份謄本")
+                            else:
+                                progress_window.add_history(f"⚠️ {fn} - 未找到有效謄本")
+                        return gres
+
+                    if merge:
+                        all_results = []
+                        for folder, pdfs in groups.items():
+                            gr = process_group(pdfs)
+                            if gr is None:
+                                break
+                            all_results.extend(gr)
+                        if all_results and not progress_window.cancelled:
+                            out_files = export_results(all_results)
+                            progress_window.add_history(f"📦 合併總表 → 輸出 {len(out_files)} 個檔案")
+                    else:
+                        inplace = (output_mode.get() == "group_inplace")
+                        for folder, pdfs in groups.items():
+                            gr = process_group(pdfs)
+                            if gr is None:
+                                break
+                            if gr:
+                                paths = export_results(gr, out_dir=folder if inplace else None)
+                                out_files += paths
+                                where = "原資料夾" if inplace else "output"
+                                progress_window.add_history(
+                                    f"📦 {os.path.basename(folder)} → {where}，輸出 {len(paths)} 個檔案")
+
+                    if progress_window.cancelled:
+                        rq.put(('cancelled', out_files))
+                    else:
+                        rq.put(('done', out_files))
+                except Exception as e:
+                    import traceback
+                    traceback.print_exc()
+                    rq.put(('error', str(e)))
+
+            threading.Thread(target=worker, daemon=True).start()
+
+            def check():
+                try:
+                    status, data = rq.get_nowait()
+                    if status == 'done':
+                        progress_window.show_completion(True, "", len(data))
+
+                        def after_done():
+                            try:
+                                progress_window.close()
+                            except Exception:
+                                pass
+                            proc_btn.config(state="normal")
+                            scan_btn.config(state="normal")
+                            outdir = os.path.dirname(data[0]) if data else getattr(self, 'output_directory', '(無輸出)')
+                            if self.show_custom_messagebox(
+                                "處理完成",
+                                f"完成！共輸出 {len(data)} 個檔案\n\n儲存目錄：\n{outdir}\n\n是否開啟輸出資料夾？",
+                                "yesno"):
+                                try:
+                                    os.startfile(outdir)
+                                except Exception as _e:
+                                    print(f"開啟資料夾失敗: {_e}", flush=True)
+                        self.master.after(800, after_done)
+                    elif status == 'cancelled':
+                        progress_window.show_completion(False, "已取消", len(data))
+                        proc_btn.config(state="normal")
+                        scan_btn.config(state="normal")
+                    elif status == 'error':
+                        progress_window.show_completion(False, data, 0)
+                        proc_btn.config(state="normal")
+                        scan_btn.config(state="normal")
+                        self.show_custom_messagebox("處理失敗", f"處理時發生錯誤：\n{data}", "error")
+                    return
+                except queue.Empty:
+                    pass
+                self.master.after(200, check)
+            self.master.after(200, check)
 
     def batch_process(self):
         """批次處理 - 使用詳細進度視窗"""
@@ -6614,44 +7455,162 @@ class ModernTranscriptGUI:
             print(f"預覽執行錯誤: {e}", flush=True)
             self.show_custom_messagebox("錯誤", f"預覽失敗: {e}")
             
-    def go_parent_folder(self):
-        """返回上層資料夾"""
-        # 🔧 如果已經在 "本機" 視圖，不做任何事
-        if self.current_folder == "本機":
-            return
+    def go_to_folder(self, new_folder, record_history=True):
+        """統一導航入口：切到 new_folder。
+        record_history=True 時把目前位置推入「返回前頁」歷史，並清空前進歷史。"""
+        if record_history and self.current_folder and new_folder != self.current_folder:
+            self.back_stack.append(self.current_folder)
+            self.forward_stack = []  # 新的導航分支，前進歷史失效
+        self.current_folder = new_folder
+        self.load_folder_contents()
+        self._update_navigation_buttons()
 
-        # 檢查是否已經在根目錄（例如 D:\）
+    def go_back(self):
+        """返回前頁（瀏覽歷史的上一頁）"""
+        if self.back_stack:
+            self.forward_stack.append(self.current_folder)
+            self.current_folder = self.back_stack.pop()
+            self.load_folder_contents()
+            self._update_navigation_buttons()
+
+    def go_parent_folder(self):
+        """返回上層資料夾（往上一層）"""
+        # 🔧 已經在 "本機" 或 "網路" 視圖，不做任何事
+        if self.current_folder in ("本機", "網路"):
+            return
+        # 🔧 UNC 電腦根（\\TABLE1）→ 回「網路」視圖
+        if self._is_unc_computer_root(self.current_folder):
+            self.go_to_folder("網路")
+            return
+        # 已在磁碟機根（例如 D:\）→ 上一層顯示「本機」
         parent_dir = os.path.dirname(self.current_folder)
         if parent_dir == self.current_folder:
-            # 已經在根目錄，顯示所有磁碟機
-            self.forward_stack.append(self.current_folder)
-            self.current_folder = "本機"
-            self.load_folder_contents()
-            self._update_navigation_buttons()
+            self.go_to_folder("本機")
         else:
-            # 正常返回上層目錄
-            self.forward_stack.append(self.current_folder)
-            self.current_folder = parent_dir
-            self.load_folder_contents()
-            self._update_navigation_buttons()
+            self.go_to_folder(parent_dir)
 
     def go_forward(self):
-        """前進到下一個目錄（在使用返回鍵後）"""
+        """前進到下一頁（瀏覽歷史的下一頁）"""
         if self.forward_stack:
-            # 🔧 從前進棧彈出目錄
-            next_dir = self.forward_stack.pop()
-            self.current_folder = next_dir
+            self.back_stack.append(self.current_folder)
+            self.current_folder = self.forward_stack.pop()
             self.load_folder_contents()
             self._update_navigation_buttons()
 
     def _update_navigation_buttons(self):
         """更新導航按鈕的啟用/停用狀態"""
         if hasattr(self, 'forward_btn'):
-            # 🔧 如果前進棧有內容，啟用 forward 按鈕
-            if self.forward_stack:
-                self.forward_btn.config(state=tk.NORMAL)
-            else:
-                self.forward_btn.config(state=tk.DISABLED)
+            self.forward_btn.config(state=tk.NORMAL if self.forward_stack else tk.DISABLED)
+        if hasattr(self, 'back_btn'):
+            self.back_btn.config(state=tk.NORMAL if self.back_stack else tk.DISABLED)
+
+    def go_to_my_computer(self):
+        """切到「本機」（顯示所有磁碟機）"""
+        self.go_to_folder("本機")
+
+    def go_to_network(self):
+        """切到「網路」（顯示區網電腦）"""
+        self.go_to_folder("網路")
+
+    def _set_busy(self, busy):
+        """切換忙碌游標並強制刷新畫面，讓「請稍候」提示能立刻顯示。"""
+        try:
+            cursor = "watch" if busy else ""
+            self.master.config(cursor=cursor)
+            self.file_tree.config(cursor=cursor)
+            self.master.update_idletasks()
+        except Exception:
+            pass
+
+    def _is_unc_computer_root(self, p):
+        """是不是「電腦根」UNC（如 \\TABLE1，只有電腦名）。
+        這種路徑 os.listdir 會 WinError 67，要改用 Shell COM 列共用。"""
+        if not p or not p.startswith("\\\\"):
+            return False
+        parts = [x for x in p[2:].split("\\") if x]
+        return len(parts) == 1
+
+    def _net_list_computers(self):
+        """列出區網電腦：優先 Windows Shell COM（檔案總管同一套），後備 net view。"""
+        comps = []
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("Shell.Application")
+            net = shell.NameSpace(18)  # ssfNETWORK
+            if net:
+                for item in net.Items():
+                    try:
+                        if item.IsFolder:
+                            nm = str(item.Name).strip()
+                            if nm:
+                                comps.append("\\\\" + nm)
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        if not comps:
+            import subprocess
+            try:
+                r = subprocess.run(["net", "view"], capture_output=True, timeout=20,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                raw = r.stdout or b""
+                text = ""
+                for enc in ('cp950', 'utf-8', 'big5', 'cp437', 'mbcs'):
+                    try:
+                        text = raw.decode(enc); break
+                    except Exception:
+                        continue
+                for line in text.splitlines():
+                    line = line.strip()
+                    if line.startswith("\\\\"):
+                        comps.append(line.split()[0])
+            except Exception:
+                pass
+        seen, uniq = set(), []
+        for c in comps:
+            if c not in seen:
+                seen.add(c); uniq.append(c)
+        return uniq
+
+    def _net_list_shares(self, p):
+        """列出一台電腦的共用資料夾：優先 Shell COM，後備 net view \\電腦。
+        回傳 [(名稱, 完整路徑)]。"""
+        items = []
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("Shell.Application")
+            ns = shell.NameSpace(p)
+            if ns:
+                for it in ns.Items():
+                    try:
+                        if it.IsFolder:
+                            nm = str(it.Name).strip()
+                            if nm:
+                                items.append((nm, p.rstrip("\\") + "\\" + nm))
+                    except Exception:
+                        continue
+        except Exception:
+            pass
+        if not items:
+            import subprocess
+            try:
+                r = subprocess.run(["net", "view", p], capture_output=True, timeout=20,
+                                   creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                raw = r.stdout or b""
+                text = ""
+                for enc in ('cp950', 'utf-8', 'big5', 'cp437', 'mbcs'):
+                    try:
+                        text = raw.decode(enc); break
+                    except Exception:
+                        continue
+                for line in text.splitlines():
+                    if ('Disk' in line) or ('磁碟' in line):
+                        parts = line.split()
+                        if parts:
+                            items.append((parts[0], p.rstrip("\\") + "\\" + parts[0]))
+            except Exception:
+                pass
+        return items
 
     def refresh_folder(self):
         """重新整理資料夾"""
@@ -6669,14 +7628,13 @@ class ModernTranscriptGUI:
 
     def navigate_to_path(self, event=None):
         """導航到指定路徑"""
-        new_path = self.path_var.get()
+        new_path = self.path_var.get().strip()
+        # 特殊位置：本機 / 網路 / UNC 電腦根（這些 os.path.isdir 會回 False）
+        if new_path in ("本機", "網路") or self._is_unc_computer_root(new_path):
+            self.go_to_folder(new_path)
+            return
         if os.path.exists(new_path) and os.path.isdir(new_path):
-            # 🔧 路徑欄導航時清空前進棧（新的導航分支）
-            if new_path != self.current_folder:
-                self.forward_stack = []
-            self.current_folder = new_path
-            self.load_folder_contents()
-            self._update_navigation_buttons()
+            self.go_to_folder(new_path)
         else:
             messagebox.showerror("錯誤", "路徑不存在或不是資料夾")
             self.path_var.set(self.current_folder)
@@ -6713,6 +7671,57 @@ class ModernTranscriptGUI:
 
         try:
             items = []
+
+            # 🔧 特殊處理：「網路」→ 列出區網電腦（較慢，先給等待提示）
+            if self.current_folder == "網路":
+                self.file_tree.insert("", "end",
+                                      text="🔄 正在搜尋網路電腦，請稍候（約 5～20 秒）...",
+                                      values=("-", "", "-"))
+                if hasattr(self, 'file_count_label'):
+                    self.file_count_label.config(text="搜尋網路中，請稍候...")
+                self._set_busy(True)
+                try:
+                    comps = self._net_list_computers()
+                finally:
+                    self._set_busy(False)
+                for _it in self.file_tree.get_children():  # 清掉等待提示
+                    self.file_tree.delete(_it)
+                for comp in comps:
+                    self.file_tree.insert("", "end", text=f"💻 {comp}",
+                                          values=("-", "電腦", "-"), tags=("netcomp", comp))
+                if not comps:
+                    self.file_tree.insert("", "end",
+                                          text="（找不到網路電腦，可在位置列輸入 \\\\電腦名 後按前往）",
+                                          values=("-", "", "-"))
+                if hasattr(self, 'file_count_label'):
+                    self.file_count_label.config(text=f"{len(comps)} 台電腦")
+                return
+
+            # 🔧 特殊處理：UNC 電腦根（\\TABLE1）→ 用 Shell COM 列共用資料夾
+            #    （os.listdir 對電腦根會 WinError 67；連線也較慢，先給等待提示）
+            if self._is_unc_computer_root(self.current_folder):
+                self.file_tree.insert("", "end",
+                                      text="🔄 正在連線並讀取共用資料夾，請稍候...",
+                                      values=("-", "", "-"))
+                if hasattr(self, 'file_count_label'):
+                    self.file_count_label.config(text="連線網路電腦中，請稍候...")
+                self._set_busy(True)
+                try:
+                    shares = self._net_list_shares(self.current_folder)
+                finally:
+                    self._set_busy(False)
+                for _it in self.file_tree.get_children():  # 清掉等待提示
+                    self.file_tree.delete(_it)
+                for nm, _full in shares:
+                    self.file_tree.insert("", "end", text=f"📁 {nm}",
+                                          values=("-", "共用資料夾", "-"))
+                if not shares:
+                    self.file_tree.insert("", "end",
+                                          text="（無法列出共用資料夾，可輸入 \\\\電腦\\共用名 後按前往）",
+                                          values=("-", "", "-"))
+                if hasattr(self, 'file_count_label'):
+                    self.file_count_label.config(text=f"{len(shares)} 個共用資料夾")
+                return
 
             # 🔧 特殊處理：如果是 "本機"，顯示所有磁碟機
             if self.current_folder == "本機":
@@ -6835,6 +7844,24 @@ class ModernTranscriptGUI:
             size /= 1024
         return f"{size:.1f} TB"
 
+    def _kb(self, func):
+        """鍵盤快捷鍵共用：執行 func 並吃掉事件（避免 Treeview 預設行為）。"""
+        try:
+            func()
+        except Exception as e:
+            print(f"鍵盤操作失敗: {e}", flush=True)
+        return "break"
+
+    def on_tree_enter(self, event=None):
+        """Enter：開啟選取項目（資料夾→進入；檔案→預覽），等同雙擊。"""
+        self.on_file_double_click(event)
+        return "break"
+
+    def on_tree_backspace(self, event=None):
+        """Backspace：回上一層資料夾。"""
+        self.go_parent_folder()
+        return "break"
+
     def on_file_double_click(self, event):
         """雙擊事件"""
         selection = self.file_tree.selection()
@@ -6847,28 +7874,18 @@ class ModernTranscriptGUI:
 
         # 🔧 處理磁碟機點擊（從「本機」視圖進入磁碟機）
         if 'drive' in item_tags:
-            drive_path = item_tags[1]  # tags=("drive", drive_path)
-            # 進入磁碟機時清空前進棧（新的導航分支）
-            self.forward_stack = []
-            self.current_folder = drive_path
-            self.load_folder_contents()
-            self._update_navigation_buttons()
-        # 🔧 新增：處理「..」回上層目錄
+            self.go_to_folder(item_tags[1])  # tags=("drive", drive_path)
+        # 🔧 處理網路電腦點擊（從「網路」視圖進入電腦看共用資料夾）
+        elif 'netcomp' in item_tags:
+            self.go_to_folder(item_tags[1])  # tags=("netcomp", \\電腦)
+        # 🔧 處理「..」回上層目錄
         elif 'parent' in item_tags or item_text == "📂 ..":
             parent_path = os.path.dirname(self.current_folder)
             if parent_path and parent_path != self.current_folder:
-                self.forward_stack = []
-                self.current_folder = parent_path
-                self.load_folder_contents()
-                self._update_navigation_buttons()
+                self.go_to_folder(parent_path)
         elif item_text.startswith("📁"):
             folder_name = item_text[2:]
-            new_path = os.path.join(self.current_folder, folder_name)
-            # 🔧 進入子目錄時清空前進棧（新的導航分支）
-            self.forward_stack = []
-            self.current_folder = new_path
-            self.load_folder_contents()
-            self._update_navigation_buttons()
+            self.go_to_folder(os.path.join(self.current_folder, folder_name))
         elif item_text.startswith("📄"):
             self.on_file_single_click(event)
 
@@ -6917,8 +7934,40 @@ class ModernTranscriptGUI:
         # 延遲執行
         self.master.after(50, delayed_action)
 
+    def _show_column_menu(self, event):
+        """在欄位標題上按右鍵：勾選要顯示的欄位（類型／大小）。"""
+        menu = tk.Menu(self.master, tearoff=0, font=("微軟正黑體", 11),
+                       bg="white", fg="black", activebackground="#E3F2FD")
+        labels = {"modified": "📅 修改日期", "type": "📁 類型", "size": "📏 大小"}
+        for col in self.all_value_columns:
+            menu.add_checkbutton(label=labels.get(col, col),
+                                 variable=self._col_vars[col],
+                                 command=lambda c=col: self.toggle_column(c))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def toggle_column(self, col):
+        """依固定順序重建顯示欄位。"""
+        visible = [c for c in self.all_value_columns if self._col_vars[c].get()]
+        self.visible_columns = visible
+        try:
+            self.file_tree.config(displaycolumns=tuple(visible))
+        except Exception as e:
+            print(f"切換欄位失敗: {e}", flush=True)
+
     def show_context_menu(self, event):
-        """顯示右鍵選單"""
+        """顯示右鍵選單（在欄位標題上→欄位顯示選單；在檔案上→操作選單）"""
+        # 🔧 在欄位標題列按右鍵 → 顯示「顯示欄位」勾選選單
+        try:
+            region = self.file_tree.identify_region(event.x, event.y)
+        except Exception:
+            region = ""
+        if region in ("heading", "separator"):
+            self._show_column_menu(event)
+            return
+
         context_menu = tk.Menu(self.master, tearoff=0)
         
         context_menu.configure(
@@ -6969,6 +8018,114 @@ class ModernTranscriptGUI:
         """預覽選中的檔案"""
         self.smart_preview()
 
+    def _push_undo(self, action):
+        """把可復原的動作推入復原堆疊（最多保留 20 筆）。"""
+        if not hasattr(self, 'undo_stack'):
+            self.undo_stack = []
+        self.undo_stack.append(action)
+        if len(self.undo_stack) > 20:
+            self.undo_stack.pop(0)
+
+    def undo_last_action(self):
+        """Ctrl+Z：復原上一個檔案動作（貼上／剪下／重新命名）。"""
+        if not getattr(self, 'undo_stack', None):
+            self.show_custom_messagebox("復原", "沒有可復原的動作")
+            return
+        action = self.undo_stack.pop()
+        import shutil
+        try:
+            if action['type'] == 'rename':
+                # 把新檔名改回舊檔名
+                if os.path.exists(action['new']):
+                    os.rename(action['new'], action['old'])
+            elif action['type'] == 'paste':
+                # 反向處理：複製的刪掉、剪下的搬回原處
+                for op in reversed(action['ops']):
+                    if op[0] == 'copy':
+                        p = op[1]
+                        if os.path.isdir(p):
+                            shutil.rmtree(p, ignore_errors=True)
+                        elif os.path.exists(p):
+                            os.remove(p)
+                    elif op[0] == 'move':
+                        src, dst = op[1], op[2]
+                        if os.path.exists(dst):
+                            shutil.move(dst, src)
+            elif action['type'] == 'delete':
+                paths = action.get('paths', [])
+                restored = self._restore_from_recycle_bin(paths)
+                if restored > 0:
+                    self.load_folder_contents()
+                    self.show_custom_messagebox("復原", f"已從資源回收筒還原 {restored} 個項目")
+                else:
+                    if self.show_custom_messagebox(
+                            "復原",
+                            "無法自動還原（項目可能已不在資源回收筒）。\n\n是否開啟資源回收筒手動還原？",
+                            "yesno"):
+                        self.open_recycle_bin()
+                return
+            self.load_folder_contents()
+            self.show_custom_messagebox("復原", "已復原上一個動作")
+        except Exception as e:
+            self.show_custom_messagebox("錯誤", f"復原失敗: {e}")
+
+    def _restore_from_recycle_bin(self, original_paths):
+        """用 Windows Shell COM 從資源回收筒還原指定原始路徑的項目，回傳還原數量。"""
+        restored = 0
+        try:
+            import win32com.client
+            shell = win32com.client.Dispatch("Shell.Application")
+            recycle = shell.NameSpace(10)  # ssfBITBUCKET = 資源回收筒
+            if not recycle:
+                return 0
+            targets_full = set(os.path.normcase(os.path.abspath(p)) for p in original_paths)
+            targets_base = set(os.path.normcase(os.path.basename(p)) for p in original_paths)
+
+            def do_restore(it):
+                # 找「還原 / Restore」動作並執行
+                for verb in it.Verbs():
+                    try:
+                        nm = str(verb.Name).replace('&', '')
+                    except Exception:
+                        continue
+                    if ('還原' in nm) or ('復原' in nm) or (nm.lower() == 'restore'):
+                        verb.DoIt()
+                        return True
+                return False
+
+            # 先用「完整原始路徑」精準比對（GetDetailsOf 第 1 欄＝原始位置）
+            for it in list(recycle.Items()):
+                try:
+                    name = str(it.Name)
+                    try:
+                        orig_folder = recycle.GetDetailsOf(it, 1)
+                    except Exception:
+                        orig_folder = ""
+                    if orig_folder:
+                        full = os.path.normcase(os.path.abspath(os.path.join(orig_folder, name)))
+                        if full in targets_full and do_restore(it):
+                            restored += 1
+                except Exception:
+                    continue
+            # 後備：完整路徑都沒中時，改用「檔名」比對（只還原剛剛刪掉的那些名字）
+            if restored == 0:
+                for it in list(recycle.Items()):
+                    try:
+                        if os.path.normcase(str(it.Name)) in targets_base and do_restore(it):
+                            restored += 1
+                    except Exception:
+                        continue
+        except Exception as e:
+            print(f"還原資源回收筒失敗: {e}", flush=True)
+        return restored
+
+    def open_recycle_bin(self):
+        """開啟資源回收筒。"""
+        try:
+            os.startfile("shell:RecycleBinFolder")
+        except Exception as e:
+            self.show_custom_messagebox("錯誤", f"無法開啟資源回收筒：{e}")
+
     def copy_selected_files(self):
         """複製選中的檔案"""
         selection = self.file_tree.selection()
@@ -6984,8 +8141,10 @@ class ModernTranscriptGUI:
                 filename = item_text[2:]  # 移除前綴
                 file_path = os.path.join(self.current_folder, filename)
                 self.clipboard_files.append(file_path)
-        
-        self.show_custom_messagebox("複製", f"已複製 {len(self.clipboard_files)} 個項目")
+
+        # 一般檔案總管複製是無聲的，不跳彈窗；用底部狀態列輕提示即可
+        if hasattr(self, 'file_count_label'):
+            self.file_count_label.config(text=f"已複製 {len(self.clipboard_files)} 個項目")
 
     def cut_selected_files(self):
         """剪下選中的檔案"""
@@ -7002,8 +8161,10 @@ class ModernTranscriptGUI:
                 filename = item_text[2:]  # 移除前綴
                 file_path = os.path.join(self.current_folder, filename)
                 self.clipboard_files.append(file_path)
-        
-        self.show_custom_messagebox("剪下", f"已剪下 {len(self.clipboard_files)} 個項目")
+
+        # 剪下也不跳彈窗，僅在底部狀態列輕提示
+        if hasattr(self, 'file_count_label'):
+            self.file_count_label.config(text=f"已剪下 {len(self.clipboard_files)} 個項目（貼上後生效）")
 
     def paste_files(self):
         """貼上檔案 - 加入完整的檔案處理邏輯"""
@@ -7012,39 +8173,48 @@ class ModernTranscriptGUI:
             return
         
         import shutil
-        
+
+        undo_ops = []  # 記錄本次操作，供 Ctrl+Z 復原
         try:
             for file_path in self.clipboard_files:
                 filename = os.path.basename(file_path)
                 target_path = os.path.join(self.current_folder, filename)
-                
+                overwrote = False
+
                 if os.path.exists(target_path):
                     # 🔧 檔案已存在，顯示處理選項
                     choice = self.show_file_conflict_dialog(filename)
-                    
+
                     if choice == "skip":
                         continue
                     elif choice == "rename":
                         target_path = self.get_unique_filename(target_path)
                     elif choice == "overwrite":
-                        pass  # 繼續覆蓋
+                        overwrote = True  # 覆蓋過的目標不納入復原（避免誤刪原檔）
                     elif choice == "cancel":
                         return  # 取消整個操作
                     else:
                         continue  # 預設跳過
-                
+
                 # 執行檔案操作
                 if self.clipboard_operation == "copy":
                     if os.path.isdir(file_path):
                         shutil.copytree(file_path, target_path, dirs_exist_ok=True)
                     else:
                         shutil.copy2(file_path, target_path)
+                    if not overwrote:
+                        undo_ops.append(('copy', target_path))
                 elif self.clipboard_operation == "cut":
                     shutil.move(file_path, target_path)
-            
+                    if not overwrote:
+                        undo_ops.append(('move', file_path, target_path))
+
             if self.clipboard_operation == "cut":
                 self.clipboard_files = []
-            
+
+            if undo_ops:
+                self._push_undo({'type': 'paste', 'ops': undo_ops})
+
             self.load_folder_contents()
             self.show_custom_messagebox("完成", "貼上操作完成")
             
@@ -7055,87 +8225,91 @@ class ModernTranscriptGUI:
         """顯示檔案衝突處理對話框"""
         dialog = tk.Toplevel(self.master)
         dialog.title("檔案已存在")
-        dialog.geometry("450x250")
+        _dw, _dh = 640, 460
+        dialog.geometry(f"{_dw}x{_dh}")
         dialog.transient(self.master)
         dialog.grab_set()
         dialog.resizable(False, False)
-        
+
         # 居中顯示
         dialog.update_idletasks()
-        x = (dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (dialog.winfo_screenheight() // 2) - (250 // 2)
-        dialog.geometry(f"450x250+{x}+{y}")
+        x = (dialog.winfo_screenwidth() // 2) - (_dw // 2)
+        y = (dialog.winfo_screenheight() // 2) - (_dh // 2)
+        dialog.geometry(f"{_dw}x{_dh}+{x}+{y}")
         
         result = {"choice": "skip"}
         
         # 標題
-        title_label = tk.Label(dialog, 
-                            text="檔案已存在", 
-                            font=("微軟正黑體", 14, "bold"),
+        title_label = tk.Label(dialog,
+                            text="檔案已存在",
+                            font=("微軟正黑體", 20, "bold"),
                             fg="#e74c3c")
-        title_label.pack(pady=(15, 10))
-        
+        title_label.pack(pady=(22, 14))
+
         # 檔案名稱
-        file_label = tk.Label(dialog, 
-                            text=f"檔案名稱：{filename}", 
-                            font=("微軟正黑體", 11),
-                            wraplength=400)
-        file_label.pack(pady=(0, 15))
-        
+        file_label = tk.Label(dialog,
+                            text=f"檔案名稱：{filename}",
+                            font=("微軟正黑體", 15),
+                            wraplength=580)
+        file_label.pack(pady=(0, 18))
+
         # 詢問文字
-        question_label = tk.Label(dialog, 
-                                text="目標資料夾中已經有同名檔案，請選擇處理方式：", 
-                                font=("微軟正黑體", 10))
-        question_label.pack(pady=(0, 20))
-        
+        question_label = tk.Label(dialog,
+                                text="目標資料夾中已經有同名檔案，請選擇處理方式：",
+                                font=("微軟正黑體", 13))
+        question_label.pack(pady=(0, 24))
+
         # 按鈕框架
         button_frame = tk.Frame(dialog)
         button_frame.pack(pady=10)
-        
+
         # 🔧 四個選項按鈕
         def set_choice(choice):
             result["choice"] = choice
             dialog.destroy()
-        
+
+        _bfont = ("微軟正黑體", 14, "bold")
         # 覆蓋按鈕
-        overwrite_btn = tk.Button(button_frame, 
-                                text="🔄 覆蓋檔案", 
+        overwrite_btn = tk.Button(button_frame,
+                                text="🔄 覆蓋檔案",
                                 command=lambda: set_choice("overwrite"),
-                                font=("微軟正黑體", 10),
+                                font=_bfont,
                                 bg="#e74c3c", fg="white",
-                                width=12, height=2)
-        overwrite_btn.grid(row=0, column=0, padx=5, pady=5)
-        
+                                width=15, height=2, cursor="hand2")
+        overwrite_btn.grid(row=0, column=0, padx=10, pady=10)
+
         # 重新命名按鈕
-        rename_btn = tk.Button(button_frame, 
-                            text="📝 自動重新命名", 
+        rename_btn = tk.Button(button_frame,
+                            text="📝 自動重新命名",
                             command=lambda: set_choice("rename"),
-                            font=("微軟正黑體", 10),
+                            font=_bfont,
                             bg="#3498db", fg="white",
-                            width=12, height=2)
-        rename_btn.grid(row=0, column=1, padx=5, pady=5)
-        
+                            width=15, height=2, cursor="hand2")
+        rename_btn.grid(row=0, column=1, padx=10, pady=10)
+
         # 跳過按鈕
-        skip_btn = tk.Button(button_frame, 
-                            text="⏭️ 跳過此檔案", 
+        skip_btn = tk.Button(button_frame,
+                            text="⏭️ 跳過此檔案",
                             command=lambda: set_choice("skip"),
-                            font=("微軟正黑體", 10),
+                            font=_bfont,
                             bg="#95a5a6", fg="white",
-                            width=12, height=2)
-        skip_btn.grid(row=1, column=0, padx=5, pady=5)
-        
+                            width=15, height=2, cursor="hand2")
+        skip_btn.grid(row=1, column=0, padx=10, pady=10)
+
         # 取消按鈕
-        cancel_btn = tk.Button(button_frame, 
-                            text="❌ 取消操作", 
+        cancel_btn = tk.Button(button_frame,
+                            text="❌ 取消操作",
                             command=lambda: set_choice("cancel"),
-                            font=("微軟正黑體", 10),
+                            font=_bfont,
                             bg="#7f8c8d", fg="white",
-                            width=12, height=2)
-        cancel_btn.grid(row=1, column=1, padx=5, pady=5)
-        
-        # 預設選擇重新命名
-        rename_btn.focus()
-        
+                            width=15, height=2, cursor="hand2")
+        cancel_btn.grid(row=1, column=1, padx=10, pady=10)
+
+        # 預設選擇重新命名 + 鍵盤：Enter=重新命名，Esc=取消
+        rename_btn.focus_set()
+        dialog.bind('<Return>', lambda e: set_choice("rename"))
+        dialog.bind('<Escape>', lambda e: set_choice("cancel"))
+
         # 處理關閉視窗
         dialog.protocol("WM_DELETE_WINDOW", lambda: set_choice("cancel"))
         
@@ -7242,6 +8416,7 @@ class ModernTranscriptGUI:
             
             try:
                 os.rename(old_path, new_path)
+                self._push_undo({'type': 'rename', 'old': old_path, 'new': new_path})
                 dialog.destroy()
                 self.load_folder_contents()
                 self.show_custom_messagebox("完成", f"已重新命名為:\n{new_name}")
@@ -7307,6 +8482,8 @@ class ModernTranscriptGUI:
                     else:
                         os.remove(file_path)
             
+            if HAS_SEND2TRASH:
+                self._push_undo({'type': 'delete', 'paths': file_paths})
             self.load_folder_contents()
             action = "移至回收桶" if HAS_SEND2TRASH else "永久刪除"
             self.show_custom_messagebox("完成", f"已{action} {len(file_paths)} 個項目")
@@ -7503,25 +8680,46 @@ A: 點擊「📂 開啟輸出」按鈕或查看底部狀態列顯示的路徑
                     style="primary").pack(pady=10)
 
 # ==================== 主程式入口 ====================
+def _make_splash(root):
+    """建立置中的「載入中」啟動畫面，回傳 (splash 視窗, 狀態文字 Label)。"""
+    try:
+        splash = tk.Toplevel(root)
+        splash.overrideredirect(True)  # 無邊框
+        sw, sh = 460, 200
+        scrw = splash.winfo_screenwidth()
+        scrh = splash.winfo_screenheight()
+        splash.geometry(f"{sw}x{sh}+{(scrw - sw) // 2}+{(scrh - sh) // 2}")
+        splash.configure(bg="#2C3E50")
+        # 外框線
+        border = tk.Frame(splash, bg="#1ABC9C")
+        border.pack(fill="both", expand=True, padx=2, pady=2)
+        inner = tk.Frame(border, bg="#2C3E50")
+        inner.pack(fill="both", expand=True, padx=2, pady=2)
+
+        tk.Label(inner, text="🏛  不動產登記謄本智慧處理工具",
+                 font=("微軟正黑體", 16, "bold"),
+                 bg="#2C3E50", fg="white").pack(pady=(38, 6))
+        status = tk.Label(inner, text="正在啟動，請稍候...",
+                          font=("微軟正黑體", 12),
+                          bg="#2C3E50", fg="#ECF0F1")
+        status.pack(pady=(6, 4))
+        tk.Label(inner, text="（初次啟動載入辨識引擎較久，屬正常現象）",
+                 font=("微軟正黑體", 9),
+                 bg="#2C3E50", fg="#95A5A6").pack(pady=(2, 0))
+        splash.update()
+        return splash, status
+    except Exception as e:
+        print(f"啟動畫面建立失敗: {e}", flush=True)
+        return None, None
+
+
 def main():
     """主程式入口"""
     
     freeze_support()  # PyInstaller 打包支援
     print("🚀 啟動不動產登記謄本智慧處理系統（美化版GUI）", flush=True)
     print("="*60, flush=True)
-    
-    # 檢查必要模組
-    try:
-        import pandas as pd
-        print("✅ pandas: 已安裝", flush=True)
-    except ImportError:
-        print("❌ pandas: 未安裝", flush=True)
-        messagebox.showerror("缺少模組", "缺少 pandas 模組\n請執行: pip install pandas")
-        return
-    
-    print(f"📁 工作目錄: {PDF_DIR}", flush=True)
-    print(f"📁 輸出目錄: {OUT_DIR}", flush=True)
-    
+
     # 啟動美化版GUI
     try:
         # 🔧 修復工作列圖示問題：必須在建立視窗之前設定 AppUserModelID
@@ -7532,23 +8730,63 @@ def main():
         except Exception:
             pass
 
+        # 🔧 先建立主視窗但隱藏，立刻顯示「載入中」啟動畫面，給使用者即時回饋
         root = tk.Tk()
-        
-        # 設置應用程式圖示（可選）
+        root.withdraw()
+        splash, splash_status = _make_splash(root)
+
+        def _boot(msg):
+            print(msg, flush=True)
+            try:
+                if splash_status:
+                    splash_status.config(text=msg)
+                    splash.update()
+            except Exception:
+                pass
+
+        # 檢查必要模組
         try:
-            # root.iconbitmap("icon.ico")  # 如果有圖示檔案
-            pass
-        except:
-            pass
-        
+            import pandas as pd
+            _boot("正在準備資料元件...")
+        except ImportError:
+            print("❌ pandas: 未安裝", flush=True)
+            try:
+                splash.destroy()
+            except Exception:
+                pass
+            messagebox.showerror("缺少模組", "缺少 pandas 模組\n請執行: pip install pandas")
+            return
+
+        print(f"📁 工作目錄: {PDF_DIR}", flush=True)
+        print(f"📁 輸出目錄: {OUT_DIR}", flush=True)
+
+        # 🔧 載入最耗時的處理引擎（OCR / 解析模組）——在啟動畫面底下進行
+        global ProcessorClass, ExporterClass
+        _boot("正在載入謄本辨識與解析引擎，請稍候...")
+        ProcessorClass, ExporterClass = import_original_modules()
+
+        # 建立主介面
+        _boot("正在建立操作介面...")
         app = ModernTranscriptGUI(root)
-        
+
+        # 🔧 載入完成 → 關閉啟動畫面、顯示主視窗
+        try:
+            splash.destroy()
+        except Exception:
+            pass
+        root.deiconify()
+        try:
+            root.lift()
+            root.focus_force()
+        except Exception:
+            pass
+
         print("🎯 美化版GUI介面已啟動", flush=True)
         print("🎨 享受全新的現代化使用體驗！", flush=True)
         print("="*60, flush=True)
-        
+
         root.mainloop()
-        
+
     except Exception as e:
         print(f"❌ GUI啟動失敗: {e}", flush=True)
         messagebox.showerror("啟動失敗", f"GUI介面啟動失敗:\n{e}")
