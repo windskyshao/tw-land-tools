@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.6a"
+VERSION = "1.1.6b"
 BUILD_DATE = "2026-06-03"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題

@@ -151,14 +151,14 @@ def get_or_prompt_credentials(service, label):
 
 # 已知的服務清單（service_key, 顯示名稱）
 # hinet 的自然人憑證另外用 _cert 後綴，username 欄存身分證號、password 欄存憑證 PIN
-# 註：qpt_hinet 程式碼雖支援第一類謄本（含憑證），但實務上只用第二類，故未列入管理介面
+# 註：「全國地政電子謄本」(hinet.py) 與「全功能地籍資料查詢」(qpt_hinet.py) 共用同一組
+#     HiNet 帳密與自然人憑證，故合併成一筆 hinet / hinet_cert 管理（qpt_hinet 已改讀 hinet）。
 KNOWN_SERVICES = [
     ("V523_KH", "V523 高雄市"),
     ("V523_PT", "V523 屏東縣"),
     ("104woo", "104實價網"),
-    ("hinet", "全國地政電子謄本"),
-    ("hinet_cert", "全國地政電子謄本（自然人憑證）"),
-    ("qpt_hinet", "全功能地籍資料查詢"),
+    ("hinet", "全國地政電子謄本／全功能查詢"),
+    ("hinet_cert", "↳ 自然人憑證（上列帳號共用）"),
 ]
 
 
@@ -178,9 +178,9 @@ def open_credential_manager(parent=None):
         owns_root = False
 
     dlg.title("帳密管理")
-    dlg.geometry("720x500")
+    dlg.geometry("820x500")
     dlg.update_idletasks()
-    x = (dlg.winfo_screenwidth() - 720) // 2
+    x = (dlg.winfo_screenwidth() - 820) // 2
     y = (dlg.winfo_screenheight() - 500) // 2
     dlg.geometry(f"+{x}+{y}")
 
@@ -224,7 +224,7 @@ def open_credential_manager(parent=None):
         status_color = '#000' if u else '#999'
 
         lbl1 = tk.Label(list_frame, text=label, font=("Microsoft JhengHei", 11),
-                        anchor='w', width=22)
+                        anchor='w', width=30)
         lbl1.grid(row=row_idx, column=0, sticky='w', pady=4)
         widgets.append(lbl1)
 

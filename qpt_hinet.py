@@ -47,6 +47,23 @@ from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
+# 🔥 使用者本次選擇的 PDF 儲存目錄（批次模式：一開始問一次，全程沿用）。
+#    所有列印函式存檔時都以它為預設，確保建物/土地/他項…全部存到同一個地方。
+_SELECTED_SAVE_DIR = None
+
+def _default_save_dir():
+    """回傳本次選定的存檔目錄；未設定時退回「下載的謄本」。"""
+    return _SELECTED_SAVE_DIR or get_work_folder("下載的謄本")
+
+# 🔥 是否一併調閱「建物坐落土地所有權部（持分）」。
+#    一開始 get_user_input 就問好（選到建物所有權部時），處理時直接讀，不再中途停下來問。
+#    None=未設定(視同要調閱), True=調閱, False=略過。
+_QUERY_LAND_SHARE = None
+
+# 🔥 是否一併抓「土地相關他項權利部」：當有調閱土地、且查詢含他項（完整登記謄本）時為 True。
+#    依土地所有權部裡的「相關他項登記次序」精準逐筆調閱，不抓整塊土地的他項列表。
+_QUERY_LAND_MORTGAGE = False
+
 # 🔥 顏色輸出函數
 def cprint(text):
     """亮藍色輸出"""
@@ -1368,21 +1385,14 @@ def load_or_create_config():
         print(f"❌ 載入 credential_helper 失敗：{_ie}", flush=True)
         return None
 
-    # 🔥 1. 嘗試從 keyring 讀
-    user, pwd = get_credentials("qpt_hinet")
-    cert_id, cert_pin = get_credentials("qpt_hinet_cert")
+    # 🔥 1. 從 keyring 讀（與「全國地政電子謄本」共用同一組 hinet 帳密與自然人憑證）
+    user, pwd = get_credentials("hinet")
+    cert_id, cert_pin = get_credentials("hinet_cert")
     if user and pwd:
         config = {"username": user, "password": pwd}
         config["card_cert"] = ({"id_no": cert_id, "pin": cert_pin}
                                 if cert_id and cert_pin else None)
-        print("已從 Windows 認證管理員載入帳密", flush=True)
-        return config
-
-    # 🔥 1.5 fallback：qpt_hinet 沒設時，借用 hinet 的（兩者通常共用同組 HiNet 帳密）
-    user, pwd = get_credentials("hinet")
-    if user and pwd:
-        config = {"username": user, "password": pwd, "card_cert": None}
-        print("ℹ 全功能地籍資料查詢未獨立設定，自動使用「全國地政電子謄本」的帳密", flush=True)
+        print("已從 Windows 認證管理員載入帳密（與全國地政電子謄本共用）", flush=True)
         return config
 
     # 🔥 2. 嘗試從舊 config.json 遷移
@@ -1393,10 +1403,10 @@ def load_or_create_config():
                 old = json.load(f)
             if old.get("username") and old.get("password"):
                 print(f"偵測到舊版 config.json，自動遷移到 Windows 認證管理員...", flush=True)
-                ch_save("qpt_hinet", old["username"], old["password"])
+                ch_save("hinet", old["username"], old["password"])
                 cc = old.get("card_cert")
                 if isinstance(cc, dict) and cc.get("id_no") and cc.get("pin"):
-                    ch_save("qpt_hinet_cert", cc["id_no"], cc["pin"])
+                    ch_save("hinet_cert", cc["id_no"], cc["pin"])
                 try:
                     os.remove(config_file)
                     print(f"已刪除舊憑證檔：{config_file}", flush=True)
@@ -1507,12 +1517,12 @@ def load_or_create_config():
         print("用戶取消設定", flush=True)
         return None
 
-    # 🔥 儲存到 Windows 認證管理員（不再寫 config.json）
+    # 🔥 儲存到 Windows 認證管理員（與「全國地政電子謄本」共用 hinet 帳密）
     try:
-        ch_save("qpt_hinet", config["username"], config["password"])
+        ch_save("hinet", config["username"], config["password"])
         cc = config.get("card_cert")
         if isinstance(cc, dict) and cc.get("id_no") and cc.get("pin"):
-            ch_save("qpt_hinet_cert", cc["id_no"], cc["pin"])
+            ch_save("hinet_cert", cc["id_no"], cc["pin"])
         print("帳密已加密儲存到 Windows 認證管理員", flush=True)
     except Exception as e:
         print(f"儲存帳密時出錯: {e}", flush=True)
@@ -1861,8 +1871,12 @@ def main():
         pdf_save_dir = get_work_folder("下載的謄本")
         print(f"\033[92m使用預設目錄：{pdf_save_dir}\033[0m", flush=True)
 
+    # 🔥 記住本次選擇的存檔目錄，讓所有列印函式（建物/土地/他項…）都存到同一處
+    global _SELECTED_SAVE_DIR
+    _SELECTED_SAVE_DIR = pdf_save_dir
+
     driver = setup_driver(pdf_save_dir)
-    
+
     # 顯示列印功能說明
     add_print_keyboard_shortcut(driver)
     
@@ -1873,7 +1887,9 @@ def main():
             after_login_success(
                 driver, county, district, section, land_number_list,
                 gland_number, ID_number, register_type, register_options,
-                scenario, custom_dir_path, ownership_only, gland_number_list, mortgage_only
+                # 🔥 傳「使用者實際選擇的目錄」pdf_save_dir，而非原始 custom_dir_path，
+                #    否則土地調閱會無視使用者選擇、硬存到案件資料夾（與建物謄本不一致）
+                scenario, pdf_save_dir, ownership_only, gland_number_list, mortgage_only
             )
     
     # 在查詢完成後不要退出，而是等待用戶按鍵
@@ -1963,6 +1979,9 @@ def get_user_input():
     print(f"您輸入的地段是: {section}", flush=True)
 
     # 提示輸入地號 - 更新提示訊息
+    print("\033[93m⚠️ 提醒：若為大樓/公寓的「持分土地」，第二類會列出全部持分所有權人(可能上百筆)。\033[0m", flush=True)
+    print("\033[93m   建議改用『建物優先』(改填建號)，系統會依坐落土地的登記次序只調該筆；\033[0m", flush=True)
+    print("\033[93m   若仍直接查土地地號，屆時偵測到多筆會再讓你選擇，請勿一律全選。\033[0m", flush=True)
     print("請輸入地號 (以逗號','分隔為不同地號批次調閱):", flush=True)
     land_number_input = input()
     # 處理空字符串情況，確保即使沒有輸入也要建立一個列表
@@ -1992,13 +2011,13 @@ def get_user_input():
     gland_number = gland_number_list[0] if gland_number_list else ""
 
     # 提示輸入統一編號
-    print("請輸入統一編號(本項尚未開放，勿填，請ENTER略過):", flush=True)
+    print("請輸入統一編號(可不填，直接按 ENTER 略過):", flush=True)
     ID_number = input()
     # print(f"您輸入的統一編號是: {ID_number}", flush=True)
 
-    # 提示選擇謄本類型
+    # 提示選擇謄本類型（第一類需自然人憑證，已與「全國地政電子謄本」共用同一張卡）
     register_type = validate_input(
-        "請選擇謄本類型：(\033[093m １.第一類謄本(尚未開放，勿選)  ２.第二類謄本\033[0m ): ",
+        "請選擇謄本類型：(\033[093m １.第一類謄本(需自然人憑證)  ２.第二類謄本\033[0m ): ",
         ["1", "2"]
     )
     print(f"您選擇的謄本類型是: {register_type}", flush=True)
@@ -2101,7 +2120,7 @@ def get_user_input():
             print(f"已更新統一編號為: {ID_number}", flush=True)
         elif choice == '7':
             register_type = validate_input(
-                "請重新選擇謄本類型：(\033[093m １.第一類謄本(尚未開放，勿選)   ２.第二類謄本\033[0m ): ",
+                "請重新選擇謄本類型：(\033[093m １.第一類謄本(需自然人憑證)   ２.第二類謄本\033[0m ): ",
                 ["1", "2"]
             )
             print(f"已更新謄本類型為: {register_type}", flush=True)
@@ -2146,6 +2165,26 @@ def get_user_input():
             print(f"已更新謄本項目為: {', '.join(option_names)}", flush=True)
         else:
             print("\033[91m無效的選項，請輸入0-8之間的數字\033[0m", flush=True)
+
+    # 🔥 一開始就問：若此查詢含「建物所有權部」，順便問要不要一併調閱土地（持分），
+    #    之後流程就不會中途停下來等輸入（多筆建物也都依此設定處理）。
+    global _QUERY_LAND_SHARE, _QUERY_LAND_MORTGAGE
+    _is_building = bool(gland_number_list) or bool(gland_number and str(gland_number).strip())
+    _queries_ownership = ("1" in register_options) and (not mortgage_only)
+    # 完整登記謄本（標示部+所有權部+他項權利部）→ 土地也調三分部；僅所有權部 → 土地只調所有權部
+    _is_full_query = (not ownership_only) and (not mortgage_only) and ("1" in register_options)
+    if _is_building and _queries_ownership:
+        _land_parts_desc = ("建物坐落土地所有權部(持分)、土地標示部、土地他項權利部"
+                            if _is_full_query else "建物坐落土地所有權部(持分)")
+        print("\n\033[93m此查詢包含【建物所有權部】。大樓建物常坐落於「持分土地」。\033[0m", flush=True)
+        _ans = input(f"\033[93m是否一併調閱「{_land_parts_desc}」？[Y/N，預設 Y]: \033[0m").strip().upper()
+        _QUERY_LAND_SHARE = (_ans != 'N')
+        print(f"\033[92m✓ 已設定：{'會' if _QUERY_LAND_SHARE else '不'}一併調閱土地\033[0m", flush=True)
+    else:
+        _QUERY_LAND_SHARE = False  # 沒有建物所有權部，無持分土地可調閱
+
+    # 🔥 有調閱土地 + 完整登記謄本 → 土地一併調「標示部 + 他項權利部」（他項依相關他項登記次序）
+    _QUERY_LAND_MORTGAGE = bool(_QUERY_LAND_SHARE) and _is_full_query
 
     return county, district, section, land_number_list, gland_number, ID_number, register_type, register_options, ownership_only, gland_number_list, mortgage_only
 
@@ -2244,21 +2283,22 @@ def handle_multiple_owners(driver, item_type, item_value, number, county, distri
                 print(f"  {i}. 登記次序={owner['registration_order']}, 姓名={owner['owner_name']}", flush=True)
 
             print(f"\n\033[93m請選擇操作：\033[0m", flush=True)
-            print(f"\033[093m  [Enter] = 全部調閱（預設）\033[0m", flush=True)
-            print(f"\033[093m  [N] = 略過全部（不調閱任何人）\033[0m", flush=True)
-            print(f"\033[093m  [序號] = 只調閱指定序號（例如：1,3,5 或 1-3,5 或 2-4）\033[0m", flush=True)
+            print(f"\033[093m  [序號] = 只調閱指定序號（建議，例如：1,3,5 或 1-3,5 或 2-4）\033[0m", flush=True)
+            print(f"\033[093m  [A]    = 全部調閱（共 {len(owners_data)} 筆，將產生約 {len(owners_data)} 筆付費查詢！）\033[0m", flush=True)
+            print(f"\033[093m  [Enter 或 N] = 略過全部（不調閱任何人）\033[0m", flush=True)
+            print(f"\033[91m  ⚠️ 為避免誤調大量資料，預設為「略過」；要全部調閱請明確輸入 A。\033[0m", flush=True)
             print(f"\033[93m========================================\033[0m", flush=True)
 
             user_input = input("\033[93m請輸入選擇: \033[0m").strip()
 
-            # 🔥 處理輸入
-            if not user_input:
-                # 直接按 Enter，調閱全部
-                print("\033[92m✓ 將調閱全部所有權人\033[0m", flush=True)
-            elif user_input.upper() == 'N':
-                # 輸入 N，略過全部
+            # 🔥 處理輸入（安全預設：Enter/N=略過；A=全部；數字=指定序號）
+            if not user_input or user_input.upper() == 'N':
+                # 預設或 N → 略過全部（安全，避免手滑誤調大量資料）
                 skip_all_owners = True
-                print("\033[92m✓ 已選擇略過全部所有權人\033[0m", flush=True)
+                print("\033[92m✓ 已略過全部所有權人（預設安全選項）\033[0m", flush=True)
+            elif user_input.upper() in ('A', 'ALL', '全部'):
+                # 明確選擇全部調閱
+                print(f"\033[92m✓ 將調閱全部 {len(owners_data)} 個所有權人\033[0m", flush=True)
             elif user_input:  # 如果有輸入序號，解析序號
                 selected_indices = set()
                 parts = user_input.split(',')
@@ -2524,14 +2564,83 @@ def custom_modify_pdf(driver, item_type, item_value, number, county, district, s
         file_name = file_name.replace(":", "").replace("/", "").replace("\\", "")
         file_name = file_name.replace("*", "").replace("?", "").replace("\"", "")
         file_name = file_name.replace("<", "").replace(">", "").replace("|", "")
-        
-        save_dir = get_work_folder("下載的謄本")
+
+        save_dir = _default_save_dir()
         os.makedirs(save_dir, exist_ok=True)
-        
+
         # 記錄查詢前目錄中的文件
         files_before = set(os.listdir(save_dir))
-        
-        # 使用JavaScript點擊列印按鈕
+
+        # 🔥 列印 PDF：完全複製網頁 printContent 的做法
+        #    （$('.content').print({prepend:.print_head, noPrintSelector:"script,.TabbedPanels,#search_div"})）
+        #    只取 .content（謄本內容，一類為完整資料）+ 前置 .print_head（標題），
+        #    去掉 .TabbedPanels（分頁列）/script/#search_div。
+        #    做法：非破壞性地把 body 其他元素暫時藏起、附加只含乾淨謄本的容器，
+        #    用 CDP 擷取成 PDF 後再還原（不呼叫 printContent，故不會印到實體印表機）。
+        _BUILD_JS = r"""
+            return (function(){
+              try{
+                var content=document.querySelector('.content');
+                if(!content) return 'NO_CONTENT';
+                var ph=document.querySelector('.print_head');
+                var kids=document.body.children;
+                for(var i=0;i<kids.length;i++){
+                  kids[i].setAttribute('data-pdfhide', kids[i].style.display||'');
+                  kids[i].style.display='none';
+                }
+                var clone=content.cloneNode(true);
+                clone.style.overflow='visible'; clone.style.height='auto'; clone.style.width='auto';
+                var rm=clone.querySelectorAll('.TabbedPanels, #search_div, script');
+                for(var j=0;j<rm.length;j++){ rm[j].parentNode.removeChild(rm[j]); }
+                var box=document.createElement('div');
+                box.id='__pdfbox';
+                box.style.cssText='background:#fff;padding:12px;';
+                var head=(ph&&ph.innerHTML)?ph.innerHTML:'';
+                box.innerHTML=(head?('<div class="print_head" style="display:block;text-align:center;margin-bottom:8px;">'+head+'</div>'):'')+clone.outerHTML;
+                document.body.appendChild(box);
+                return 'OK';
+              }catch(e){ return 'ERR:'+e; }
+            })();
+        """
+        _RESTORE_JS = r"""
+            (function(){
+              var box=document.getElementById('__pdfbox'); if(box) box.parentNode.removeChild(box);
+              var hid=document.querySelectorAll('[data-pdfhide]');
+              for(var i=0;i<hid.length;i++){ hid[i].style.display=hid[i].getAttribute('data-pdfhide')||''; hid[i].removeAttribute('data-pdfhide'); }
+            })();
+        """
+        try:
+            pdf_file_path = os.path.join(save_dir, file_name + ".pdf")
+            if os.path.exists(pdf_file_path):
+                timestamp = time.strftime("%Y%m%d%H%M%S")
+                file_name = f"{file_name}_{timestamp}"
+                pdf_file_path = os.path.join(save_dir, file_name + ".pdf")
+            _st = driver.execute_script(_BUILD_JS)
+            if _st != 'OK':
+                raise Exception(f"建立列印內容失敗: {_st}")
+            time.sleep(0.3)
+            print("使用 CDP 擷取謄本內容為 PDF...", flush=True)
+            result = driver.execute_cdp_cmd('Page.printToPDF', {
+                'landscape': False,
+                'displayHeaderFooter': False,
+                'printBackground': True,
+                'preferCSSPageSize': False,
+            })
+            import base64
+            with open(pdf_file_path, 'wb') as _f:
+                _f.write(base64.b64decode(result['data']))
+            driver.execute_script(_RESTORE_JS)
+            yprint(f"✓ PDF 已成功儲存: {file_name}.pdf")
+            print(f"   存檔路徑: {pdf_file_path}", flush=True)
+            return True
+        except Exception as cdp_e:
+            print(f"\033[91mCDP 擷取失敗，改用傳統列印: {cdp_e}\033[0m", flush=True)
+            try:
+                driver.execute_script(_RESTORE_JS)
+            except Exception:
+                pass
+
+        # 使用JavaScript點擊列印按鈕（後備）
         try:
             print("執行點擊列印按鈕的JavaScript...", flush=True)
             driver.execute_script("printContent();")
@@ -2684,7 +2793,7 @@ def download_pdf_from_popup(driver, file_name_prefix):
                                     try:
                                         response = requests.get(src, timeout=30)
                                         if response.status_code == 200:
-                                            save_dir = get_work_folder("下載的謄本")
+                                            save_dir = _default_save_dir()
                                             os.makedirs(save_dir, exist_ok=True)
                                             
                                             save_path = os.path.join(save_dir, file_name_prefix + ".pdf")
@@ -2733,7 +2842,7 @@ def download_pdf_from_popup(driver, file_name_prefix):
                             try:
                                 response = requests.get(current_url, timeout=30)
                                 if response.status_code == 200:
-                                    save_dir = get_work_folder("下載的謄本")
+                                    save_dir = _default_save_dir()
                                     os.makedirs(save_dir, exist_ok=True)
                                     
                                     save_path = os.path.join(save_dir, file_name_prefix + ".pdf")
@@ -2769,7 +2878,7 @@ def download_pdf_from_popup(driver, file_name_prefix):
                                 try:
                                     response = requests.get(src, timeout=30)
                                     if response.status_code == 200:
-                                        save_dir = get_work_folder("下載的謄本")
+                                        save_dir = _default_save_dir()
                                         os.makedirs(save_dir, exist_ok=True)
                                         
                                         save_path = os.path.join(save_dir, file_name_prefix + ".pdf")
@@ -2844,7 +2953,7 @@ def handle_building_map_download_button(driver, item_type, item_value, number, c
             print(f"處理頁籤時出錯: {e}", flush=True)
         
         # 記錄下載前的文件列表
-        save_dir = get_work_folder("下載的謄本")
+        save_dir = _default_save_dir()
         os.makedirs(save_dir, exist_ok=True)
         files_before = set(os.listdir(save_dir))
         downloads_dir = os.path.expanduser("~/Downloads")  # 用戶下載目錄
@@ -3532,41 +3641,27 @@ def after_login_success(driver, county, district, section, land_number_list, gla
                 except Exception as je:
                     print(f"jQuery設置值時出錯: {je}", flush=True)
             
-            # 如果有統一編號且查詢所有權部，輸入統一編號
-            if ID_number and ID_number.strip() and ('03' in item_value or '09' in item_value):
+            # 🔥 他項權利部（或其他非所有權部）一律改用第二類：
+            #    第一類他項需要「權利人」統編（權利人≠所有權人，使用者通常沒有），
+            #    且類別 radio 可能殘留上一個所有權部查詢的第一類，送出時會跳
+            #    「選擇一類時需輸入統編」。所以非所有權部時，若類別欄可見就切回第二類。
+            _is_ownership = ('03' in item_value or '09' in item_value)
+            if not _is_ownership:
                 try:
-                    # 檢查統一編號區塊是否顯示
-                    owner_div = driver.find_element(By.ID, "owner_div")
-                    owner_display_style = owner_div.get_attribute("style")
-                    
-                    if "display: none" in owner_display_style:
-                        print("統一編號區塊未顯示，嘗試啟用...", flush=True)
-                        # 嘗試使用JavaScript顯示
-                        driver.execute_script("$('#owner_div').show();")
-                        print("已嘗試顯示統一編號區塊", flush=True)
-                    
-                    # 確保選擇「統一編號」選項
-                    owner_radio = WebDriverWait(driver, 10).until(
-                        EC.element_to_be_clickable((By.ID, "onwer"))
-                    )
-                    if not owner_radio.is_selected():
-                        owner_radio.click()
-                        print("已選擇【統一編號】選項", flush=True)
-                    
-                    # 輸入統一編號
-                    owner_code_input = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.ID, "onwer_code"))
-                    )
-                    owner_code_input.clear()
-                    owner_code_input.send_keys(ID_number.strip())
-                    # 使用JavaScript再次確認值
-                    driver.execute_script(f"document.getElementById('onwer_code').value = '{ID_number.strip()}';")
-                    print(f"已輸入統一編號: {ID_number.strip()}", flush=True)
-                except Exception as e:
-                    print(f"輸入統一編號時出錯: {e}", flush=True)# 增加點擊查詢按鈕前的等待時間，確保輸入完成
-            time.sleep(2)
-            
-            # 如果是第一類謄本，可能需要選擇謄本類型
+                    _cltype = driver.find_element(By.ID, "cltype_div")
+                    if "display: none" not in _cltype.get_attribute("style"):
+                        _radio2 = driver.find_element(By.ID, "RadioGroup2_1")
+                        if not _radio2.is_selected():
+                            _radio2.click()
+                            print("他項權利部：已改用第二類謄本（不需權利人統編）", flush=True)
+                            time.sleep(1)
+                except Exception:
+                    pass
+
+            # 🔥 順序很重要：必須「先選第一類謄本，再填統一編號」。
+            #    選第一類會顯示統編欄位並設定 qry_cl='1'；若先填統編再選第一類，
+            #    網頁的 ch_cltype 會把統編欄位清空，導致送出時跳「選擇一類時需輸入統編」。
+            # 步驟 1：先選第一類謄本（若適用）
             if register_type == '1' and ('03' in item_value or '09' in item_value):
                 try:
                     # 嘗試查找並選擇第一類謄本
@@ -3579,6 +3674,40 @@ def after_login_success(driver, county, district, section, land_number_list, gla
                             time.sleep(1)
                 except Exception as e:
                     print(f"選擇謄本類型時出錯: {e}", flush=True)
+
+            # 步驟 2：選好第一類後，再輸入統一編號（此時欄位已顯示且不會被清空）
+            if ID_number and ID_number.strip() and ('03' in item_value or '09' in item_value):
+                try:
+                    # 檢查統一編號區塊是否顯示
+                    owner_div = driver.find_element(By.ID, "owner_div")
+                    owner_display_style = owner_div.get_attribute("style")
+
+                    if "display: none" in owner_display_style:
+                        print("統一編號區塊未顯示，嘗試啟用...", flush=True)
+                        # 嘗試使用JavaScript顯示
+                        driver.execute_script("$('#owner_div').show();")
+                        print("已嘗試顯示統一編號區塊", flush=True)
+
+                    # 確保選擇「統一編號」選項
+                    owner_radio = WebDriverWait(driver, 10).until(
+                        EC.element_to_be_clickable((By.ID, "onwer"))
+                    )
+                    if not owner_radio.is_selected():
+                        owner_radio.click()
+                        print("已選擇【統一編號】選項", flush=True)
+
+                    # 輸入統一編號
+                    owner_code_input = WebDriverWait(driver, 10).until(
+                        EC.presence_of_element_located((By.ID, "onwer_code"))
+                    )
+                    owner_code_input.clear()
+                    owner_code_input.send_keys(ID_number.strip())
+                    # 使用JavaScript再次確認值
+                    driver.execute_script(f"document.getElementById('onwer_code').value = '{ID_number.strip()}';")
+                    print(f"已輸入統一編號: {ID_number.strip()}", flush=True)
+                except Exception as e:
+                    print(f"輸入統一編號時出錯: {e}", flush=True)# 增加點擊查詢按鈕前的等待時間，確保輸入完成
+            time.sleep(2)
             
             # 等待可能的遮罩消失
             try:
@@ -3825,56 +3954,85 @@ def click_print_and_save_pdf(driver, item_type, item_value, number, county, dist
         file_name = file_name.replace("*", "").replace("?", "").replace("\"", "")
         file_name = file_name.replace("<", "").replace(">", "").replace("|", "")
 
-        # 🔥 使用自訂目錄或預設目錄
+        # 🔥 使用自訂目錄或本次選定目錄
         if custom_save_dir:
             save_dir = custom_save_dir
             print(f"📁 使用自訂目錄: {save_dir}", flush=True)
         else:
-            save_dir = get_work_folder("下載的謄本")
+            save_dir = _default_save_dir()
         os.makedirs(save_dir, exist_ok=True)
         
         # 記錄查詢前目錄中的文件
         files_before = set(os.listdir(save_dir))
         print(f"📁 列印前資料夾中有 {len(files_before)} 個檔案", flush=True)
 
-        # 🔥 先執行 printContent() 準備列印內容，然後用 CDP 列印
+        # 🔥 列印 PDF：複製網頁 printContent 的內容挑選（只取 .content 謄本 + .print_head，
+        #    去掉 .TabbedPanels/script/#search_div），非破壞性隔離後用 CDP 擷取成 PDF；
+        #    不呼叫 printContent，故不會在 --kiosk-printing 下被靜默送到實體印表機。
+        _BUILD_JS = r"""
+            return (function(){
+              try{
+                var content=document.querySelector('.content');
+                if(!content) return 'NO_CONTENT';
+                var ph=document.querySelector('.print_head');
+                var kids=document.body.children;
+                for(var i=0;i<kids.length;i++){
+                  kids[i].setAttribute('data-pdfhide', kids[i].style.display||'');
+                  kids[i].style.display='none';
+                }
+                var clone=content.cloneNode(true);
+                clone.style.overflow='visible'; clone.style.height='auto'; clone.style.width='auto';
+                var rm=clone.querySelectorAll('.TabbedPanels, #search_div, script');
+                for(var j=0;j<rm.length;j++){ rm[j].parentNode.removeChild(rm[j]); }
+                var box=document.createElement('div');
+                box.id='__pdfbox';
+                box.style.cssText='background:#fff;padding:12px;';
+                var head=(ph&&ph.innerHTML)?ph.innerHTML:'';
+                box.innerHTML=(head?('<div class="print_head" style="display:block;text-align:center;margin-bottom:8px;">'+head+'</div>'):'')+clone.outerHTML;
+                document.body.appendChild(box);
+                return 'OK';
+              }catch(e){ return 'ERR:'+e; }
+            })();
+        """
+        _RESTORE_JS = r"""
+            (function(){
+              var box=document.getElementById('__pdfbox'); if(box) box.parentNode.removeChild(box);
+              var hid=document.querySelectorAll('[data-pdfhide]');
+              for(var i=0;i<hid.length;i++){ hid[i].style.display=hid[i].getAttribute('data-pdfhide')||''; hid[i].removeAttribute('data-pdfhide'); }
+            })();
+        """
         try:
-            print("準備列印內容...", flush=True)
-
-            # 先執行 printContent() 讓網頁準備好列印內容
-            driver.execute_script("printContent();")
-            time.sleep(2)  # 等待列印內容準備完成
-
-            print("使用 CDP 強制列印為 PDF...", flush=True)
-
-            # 構建完整的檔案路徑
+            print("準備謄本列印內容...", flush=True)
             pdf_file_path = os.path.join(save_dir, file_name + ".pdf")
-
-            # 使用 CDP 的 Page.printToPDF 命令
-            print_options = {
+            if os.path.exists(pdf_file_path):
+                timestamp = time.strftime("%Y%m%d%H%M%S")
+                file_name = f"{file_name}_{timestamp}"
+                pdf_file_path = os.path.join(save_dir, file_name + ".pdf")
+            _st = driver.execute_script(_BUILD_JS)
+            if _st != 'OK':
+                raise Exception(f"建立列印內容失敗: {_st}")
+            time.sleep(0.3)
+            print("使用 CDP 擷取謄本內容為 PDF...", flush=True)
+            result = driver.execute_cdp_cmd('Page.printToPDF', {
                 'landscape': False,
                 'displayHeaderFooter': False,
                 'printBackground': True,
-                'preferCSSPageSize': True,
-            }
-
-            # 執行列印
-            result = driver.execute_cdp_cmd('Page.printToPDF', print_options)
-
-            # 解碼 base64 的 PDF 數據
+                'preferCSSPageSize': False,
+            })
             import base64
-            pdf_data = base64.b64decode(result['data'])
-
-            # 寫入檔案
             with open(pdf_file_path, 'wb') as f:
-                f.write(pdf_data)
-
+                f.write(base64.b64decode(result['data']))
+            driver.execute_script(_RESTORE_JS)
             print(f"\033[92m✓ PDF 已成功儲存: {file_name}.pdf\033[0m", flush=True)
             print(f"   存檔路徑: {pdf_file_path}", flush=True)
             return True
 
         except Exception as cdp_e:
             print(f"\033[91mCDP 列印失敗: {cdp_e}\033[0m", flush=True)
+            try:
+                driver.execute_script(_RESTORE_JS)
+            except Exception:
+                pass
             print("嘗試使用傳統方式列印...", flush=True)
 
             # 備用方案：使用JavaScript點擊列印按鈕
@@ -4990,7 +5148,7 @@ def extract_and_query_land_registration(driver, county, district, section, custo
             print("未找到有效的土地登記次序", flush=True)
             return
 
-        # 詢問使用者是否要調閱這些土地
+        # 顯示找到的土地（仍列出方便對照）
         print(f"\n\033[93m========================================\033[0m", flush=True)
         print(f"\033[93m發現 {len(land_data)} 筆建物坐落土地\033[0m", flush=True)
         print(f"\033[93m========================================\033[0m", flush=True)
@@ -4998,48 +5156,87 @@ def extract_and_query_land_registration(driver, county, district, section, custo
         for i, land in enumerate(land_data, 1):
             print(f"  {i}. 地號: {land['land_number']}, 登記次序: {land['registration_order']}", flush=True)
 
-        print(f"\n\033[93m是否要調閱這些土地的所有權部？\033[0m", flush=True)
-        print(f"\033[093m  [Y] = 是，調閱這些土地（預設）\033[0m", flush=True)
-        print(f"\033[093m  [N] = 否，略過\033[0m", flush=True)
-        print(f"\033[93m========================================\033[0m", flush=True)
-
-        user_input = input("\033[93m請輸入選擇 [Y/N]: \033[0m").strip().upper()
-
-        if user_input == 'N':
-            print("\033[92m✓ 已略過土地調閱\033[0m", flush=True)
+        # 🔥 改讀一開始 get_user_input 的設定，不再中途停下來等輸入
+        #    （None=未設定，視同要調閱；False=一開始選擇略過）
+        if _QUERY_LAND_SHARE is False:
+            print("\033[92m✓ 依一開始的選擇，略過土地調閱\033[0m", flush=True)
             return
 
         # 調閱每筆土地
-        print("\033[92m✓ 開始調閱土地所有權部\033[0m", flush=True)
+        print("\033[92m✓ 開始調閱土地所有權部（依一開始的選擇）\033[0m", flush=True)
 
         for i, land in enumerate(land_data, 1):
             print(f"\n調閱第 {i}/{len(land_data)} 筆土地: {land['land_number']} (登記次序: {land['registration_order']})", flush=True)
 
             try:
-                # 執行 onclick
-                driver.execute_script(land['onclick'])
+                # 🔥 土地各部分（所有權部/他項/標示部）皆為 linkLandQry / 頁籤 treeQuery
+                #    以 AJAX 載入 Home 頁的 #content，頁面一直停在 Home。
+                #    因此「全程不使用 driver.back()」——下一個動作直接執行對應 onclick 即可切換，
+                #    用 back 會把整個 Home 退回上一個真實頁（切結頁 person.jsp / 登入頁）造成閃跳。
 
-                # 🔥 等待頁面完全加載,確認不是列表頁面
+                # ① 土地所有權部
+                driver.execute_script(land['onclick'])
                 print("等待土地所有權部頁面加載...", flush=True)
                 time.sleep(3)
-
-                # 確認已經離開列表頁面
                 try:
                     WebDriverWait(driver, 5).until_not(
                         EC.presence_of_element_located((By.XPATH, "//h4[contains(text(), '建物坐落土地所有權登記次序')]"))
                     )
-                    print("✓ 已離開列表頁面,進入土地所有權部詳細頁面", flush=True)
+                    print("✓ 已進入土地所有權部詳細頁面", flush=True)
                 except:
                     print("確認頁面轉換...", flush=True)
-
-                time.sleep(2)  # 額外等待確保內容完全載入
-
-                # 列印土地所有權部
+                time.sleep(2)
                 click_print_and_save_pdf(driver, 'L', '03', land['land_number'], county, district, section, suffix=f"_登記次序{land['registration_order']}", custom_save_dir=custom_save_dir)
 
-                # 返回建物頁面
-                driver.back()
-                time.sleep(2)
+                # ② 先解析「相關他項登記次序」連結（趁 #content 還是所有權部，切到別部分後就不見了）
+                _orders = []
+                if _QUERY_LAND_MORTGAGE:
+                    try:
+                        _mlinks = driver.find_elements(
+                            By.XPATH,
+                            "//td[contains(text(),'相關他項登記次序')]/following-sibling::td//a")
+                        for _a in _mlinks:
+                            _txt = (_a.text or "").strip()
+                            if _txt:
+                                _orders.append((_txt, _a.get_attribute("onclick")))
+                    except Exception as _be:
+                        print(f"  解析相關他項登記次序時出錯: {_be}", flush=True)
+
+                # ③ 土地他項權利部（依相關他項登記次序逐筆；linkLandQry 為 AJAX，逐筆直接切換不需 back）
+                if _orders:
+                    print(f"  發現 {len(_orders)} 筆相關他項登記次序：{[o[0] for o in _orders]}", flush=True)
+                    for _otext, _oc in _orders:
+                        try:
+                            print(f"  調閱土地他項權利部（登記次序 {_otext}）...", flush=True)
+                            if _oc:
+                                driver.execute_script(_oc)
+                            else:
+                                driver.find_element(
+                                    By.XPATH,
+                                    f"//td[contains(text(),'相關他項登記次序')]/following-sibling::td//a[normalize-space(text())='{_otext}']").click()
+                            time.sleep(3)
+                            click_print_and_save_pdf(
+                                driver, 'L', '05', land['land_number'], county, district, section,
+                                suffix=f"_登記次序{_otext}", custom_save_dir=custom_save_dir)
+                        except Exception as _me:
+                            print(f"  調閱土地他項 {_otext} 時出錯: {_me}", flush=True)
+                elif _QUERY_LAND_MORTGAGE:
+                    print("  此筆土地所有權部無相關他項登記次序（略過土地他項）", flush=True)
+
+                # ④ 土地標示部（只在「完整登記謄本」時調；點上方「標示部」頁籤，treeQuery 為 AJAX）
+                if _QUERY_LAND_MORTGAGE:
+                    try:
+                        print("  調閱土地標示部...", flush=True)
+                        _tab = WebDriverWait(driver, 5).until(
+                            EC.element_to_be_clickable(
+                                (By.XPATH, "//li[contains(@class,'TabbedPanelsTab') and normalize-space(text())='標示部']")))
+                        _tab.click()
+                        time.sleep(3)
+                        click_print_and_save_pdf(driver, 'L', '1', land['land_number'], county, district, section,
+                                                 custom_save_dir=custom_save_dir)
+                    except Exception as _se:
+                        print(f"  調閱土地標示部時出錯: {_se}", flush=True)
+                # （刻意不 driver.back()：下一筆土地直接執行其 onclick 即可切換）
 
             except Exception as e:
                 print(f"調閱土地 {land['land_number']} 時發生錯誤: {e}", flush=True)
