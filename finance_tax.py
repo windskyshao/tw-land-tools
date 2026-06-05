@@ -1277,18 +1277,25 @@ def determine_land_type(payload):
     
     use_zone = land_info.get("使用分區", "").strip()
     use_type = land_info.get("使用地類別", "").strip()
-    
+
     flush_print(f"使用分區: '{use_zone}', 使用地類別: '{use_type}'")
-    
-    # 如果都是"（空白）"就是都市土地
-    if use_zone == "（空白）" and use_type == "（空白）":
-        return "urban", "都市土地"
-    # 如果有其他資料就是非都市土地
-    elif use_zone or use_type:
+
+    def _is_blank(v):
+        """判斷欄位是否為空白（容錯：電傳用半形「(空白)」、電子用全形「（空白）」皆視為空）。"""
+        v = (v or "").strip()
+        if v in ("", "(空白)", "（空白）", "-", "─"):
+            return True
+        return "空白" in v
+
+    use_zone_blank = _is_blank(use_zone)
+    use_type_blank = _is_blank(use_type)
+
+    # 判別關鍵：「使用地類別」（甲種建築用地、農牧用地…）只存在於「非都市土地」，
+    # 都市土地的使用地類別一律空白。故以使用地類別是否有實質內容為主判據。
+    if not use_type_blank:
         return "rural", "非都市土地"
-    else:
-        # 預設為都市土地
-        return "urban", "都市土地"
+    # 使用地類別空白 → 都市土地（含「使用分區、使用地類別皆空白」的情況）
+    return "urban", "都市土地"
 
 def extract_form_data_from_json(payload, owner_index=None):
     """從JSON解析表單所需的實際資料 - 支援多組歷次移轉
@@ -1638,7 +1645,7 @@ def select_radio_with_scroll(driver, selector, option_name):
         
    
         if filled_pdf_path:
-            final_filled_pdf = os.path.join(transcript_dir, f"filled_{sequence_num:03d}_{district}_{lot_display}_{owner_name}_with_header.pdf")
+            final_filled_pdf = os.path.join(transcript_dir, _safe_filename(f"filled_{sequence_num:03d}_{district}_{lot_display}_{owner_name}_with_header") + ".pdf")
             if add_header_to_pdf_centered_middle(filled_pdf_path, header_text, final_filled_pdf):
                 if os.path.exists(filled_pdf_path):
                     os.remove(filled_pdf_path)
@@ -2051,28 +2058,79 @@ def label_for_lot_dir(district: str, section: str, lot8: str) -> str:
     label = f"{district}{section}-{lot_clean}"
     return label
 
+def _safe_filename(name):
+    """把 Windows 檔名不允許的字元（\\ / : * ? " < > |）換成底線。
+
+    所有權人常是遮罩姓名（如「邵**」），其中的 * 會讓 open()/儲存因
+    [Errno 22] Invalid argument 失敗。顯示用名稱不變，只清理「檔名」用途。
+    """
+    s = str(name or "")
+    for ch in '\\/:*?"<>|':
+        s = s.replace(ch, '_')
+    # 去除控制字元與結尾的點/空白（Windows 不允許）
+    s = ''.join(c for c in s if ord(c) >= 32).rstrip(' .')
+    return s or "_"
+
+
 def save_page_as_pdf(driver, transcript_dir, filename):
-    """保存頁面為PDF"""
+    """保存頁面為PDF。
+
+    主方法用 Chrome CDP 的 Page.printToPDF（向量、檔案小）；
+    若失敗（有頭模式某些 Chrome 不回傳 data 或拋例外），改用整頁截圖轉 PDF 備援，
+    確保結果頁一定有 PDF 紀錄。診斷訊息均為 important，方便在主程式畫面看到。
+    """
+    import base64, io
+    os.makedirs(transcript_dir, exist_ok=True)
+    pdf_path = os.path.join(transcript_dir, f"{_safe_filename(filename)}.pdf")
+
+    # 方法1：CDP printToPDF（首選）
     try:
-        os.makedirs(transcript_dir, exist_ok=True)
-        pdf_path = os.path.join(transcript_dir, f"{filename}.pdf")
-        
         result = driver.execute_cdp_cmd("Page.printToPDF", {
             "landscape": False,
             "printBackground": True,
             "scale": 0.8
         })
-        
-        if 'data' in result:
-            import base64
-            pdf_data = base64.b64decode(result['data'])
+        if isinstance(result, dict) and result.get('data'):
             with open(pdf_path, 'wb') as f:
-                f.write(pdf_data)
+                f.write(base64.b64decode(result['data']))
             flush_print(f"PDF已保存：{pdf_path}")
             return pdf_path
-        
+        keys = list(result.keys()) if isinstance(result, dict) else type(result).__name__
+        flush_print(f"printToPDF 未回傳 data（keys={keys}），改用截圖備援", "important")
     except Exception as e:
-        flush_print(f"保存PDF失敗：{e}")
+        flush_print(f"printToPDF 失敗（{e}），改用截圖備援", "important")
+
+    # 方法2：整頁截圖 → PDF（備援）
+    try:
+        from PIL import Image
+        png = None
+        try:
+            metrics = driver.execute_cdp_cmd("Page.getLayoutMetrics", {})
+            css = metrics.get("cssContentSize") or metrics.get("contentSize") or {}
+            width = int(css.get("width", 0)) or 1024
+            height = min(int(css.get("height", 0)) or 1400, 20000)  # 限高避免記憶體爆掉
+            shot = driver.execute_cdp_cmd("Page.captureScreenshot", {
+                "format": "png",
+                "captureBeyondViewport": True,
+                "clip": {"x": 0, "y": 0, "width": width, "height": height, "scale": 1}
+            })
+            if isinstance(shot, dict) and shot.get('data'):
+                png = base64.b64decode(shot['data'])
+        except Exception as e:
+            flush_print(f"整頁截圖失敗（{e}），改用視窗截圖", "important")
+
+        if png is None:
+            # 最後保底：標準視窗截圖（一定可用）
+            png = driver.get_screenshot_as_png()
+
+        img = Image.open(io.BytesIO(png))
+        if img.mode in ("RGBA", "P"):
+            img = img.convert("RGB")
+        img.save(pdf_path, "PDF", resolution=100.0)
+        flush_print(f"PDF已保存（截圖備援）：{pdf_path}", "important")
+        return pdf_path
+    except Exception as e:
+        flush_print(f"保存PDF失敗（截圖備援也失敗）：{e}", "important")
         return None
 
 #==================================
@@ -2978,23 +3036,25 @@ def fill_form_interactive_finance_fixed(driver, payload, owner, transcript_dir, 
         header_text = f"編號{sequence_num:03d} | {owner_name} | {district}{section} {lot_display}"
         result_pdf_path = save_page_as_pdf(driver, transcript_dir, f"result_{sequence_num:03d}_{district}_{lot_display}_{owner_name}")
         
+        # PDF 只是結果頁快照，存檔成功就加頁首；失敗也不影響「表單已填寫成功」的判定
         if result_pdf_path:
-            final_result_pdf = os.path.join(transcript_dir, f"result_{sequence_num:03d}_{district}_{lot_display}_{owner_name}_with_header.pdf")
-            
+            final_result_pdf = os.path.join(transcript_dir, _safe_filename(f"result_{sequence_num:03d}_{district}_{lot_display}_{owner_name}_with_header") + ".pdf")
+
             if add_header_to_pdf_at_specific_location(result_pdf_path, header_text, final_result_pdf):
                 if os.path.exists(result_pdf_path):
                     os.remove(result_pdf_path)
                 result_pdf_path = final_result_pdf
-            
+
             flush_print(f"PDF已保存", "important")
-            
-            if success_count >= 5:
-                return "filled", result_pdf_path, form_data
-            else:
-                flush_print(f"填寫成功率過低: {success_count}/7", "important")
-                return "partial", result_pdf_path, form_data
         else:
-            return "failed", None, {}
+            flush_print(f"⚠️ 結果頁 PDF 存檔失敗，但表單已填寫，稅額仍會由後續提交流程取得", "important")
+
+        # 🔥 結果以「填寫成功率」為準，PDF 存檔失敗不再讓整筆被當成失敗/跳過
+        if success_count >= 5:
+            return "filled", result_pdf_path, form_data
+        else:
+            flush_print(f"填寫成功率過低: {success_count}/7", "important")
+            return "partial", result_pdf_path, form_data
                     
     except Exception as e:
         flush_print(f"填寫表單錯誤: {e}", "important")

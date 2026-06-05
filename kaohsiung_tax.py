@@ -2048,6 +2048,71 @@ def add_owner_total_row(sheet, owner_key):
     except Exception as e:
         print(f"添加所有權人總計行失敗: {e}")
 
+def _wrap_cjk(text, width=24):
+    """以「字元數」換行，避免 tkinter 的 wraplength 在中文夾雜的空白處亂折行。
+
+    保留原有的換行；全形字約算 1 格、半形字約算 0.6 格，每行約 width 個全形字寬。
+    """
+    out = []
+    for para in str(text).split('\n'):
+        if not para:
+            out.append('')
+            continue
+        cur, w = '', 0.0
+        for ch in para:
+            cw = 1.0 if ord(ch) > 0x2E7F else 0.6  # 全形 vs 半形概略寬度
+            if w + cw > width and cur:
+                out.append(cur)
+                cur, w = ch, cw
+            else:
+                cur += ch
+                w += cw
+        if cur:
+            out.append(cur)
+    return '\n'.join(out)
+
+
+def show_skip_popup(title, message):
+    """以較大字體的彈窗顯示「無法查詢」的原因，讓使用者清楚易讀。
+
+    優先用 tkinter 自訂彈窗（字體可放大）；失敗才退回 Windows 原生 MessageBox。
+    """
+    try:
+        import tkinter as tk
+
+        root = tk.Tk()
+        root.title(title)
+        root.configure(bg="white")
+        root.attributes("-topmost", True)
+        root.resizable(False, False)
+
+        frm = tk.Frame(root, padx=28, pady=22, bg="white")
+        frm.pack(fill="both", expand=True)
+
+        tk.Label(frm, text="⚠ " + title, font=("微軟正黑體", 18, "bold"),
+                 fg="#C0392B", bg="white").pack(anchor="w", pady=(0, 14))
+        tk.Label(frm, text=_wrap_cjk(message, 24), font=("微軟正黑體", 14), justify="left",
+                 bg="white", wraplength=900).pack(anchor="w")
+        tk.Button(frm, text="確定", font=("微軟正黑體", 14, "bold"), width=12,
+                  bg="#1976D2", fg="white", activebackground="#1565C0",
+                  activeforeground="white", relief="flat",
+                  command=root.destroy).pack(pady=(22, 0))
+
+        root.update_idletasks()
+        w, h = root.winfo_width(), root.winfo_height()
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        root.geometry(f"+{(sw - w) // 2}+{(sh - h) // 3}")
+        root.lift()
+        root.focus_force()
+        root.mainloop()
+    except Exception:
+        # 退回 Windows 原生彈窗（MB_OK | MB_ICONWARNING | MB_SETFOREGROUND | MB_TOPMOST）
+        try:
+            ctypes.windll.user32.MessageBoxW(0, str(message), str(title), 0x30 | 0x10000 | 0x40000)
+        except Exception:
+            pass
+
+
 def fill_one_owner_with_complete_features(driver, payload, owner, wait, outdir_root, excel_wb, excel_sheet, is_last_record_for_owner=False):
     """
     完整功能版本的所有權人處理流程
@@ -2065,8 +2130,29 @@ def fill_one_owner_with_complete_features(driver, payload, owner, wait, outdir_r
 
     if not district or not (uid or bday7):
         print("資料不足，跳過。")
+        show_skip_popup(
+            "無法查詢－資料不足",
+            f"標的：{district}{section} 地號 {lot_display}\n"
+            f"所有權人：{name}\n\n"
+            f"缺少『行政區』或『統一編號／出生日期』，無法查詢高雄市土地增值稅，已跳過此筆。"
+        )
         error_data = {'行政區': district, '地號': lot_display, '移轉記錄': []}
         add_vertical_rows_to_excel_with_owner_total(excel_wb, excel_sheet, error_data, owner, '資料不足', district, section, is_last_record_for_owner, '缺少行政區或身分資料')
+        return None, False
+
+    # 🔥 統一編號／身分證為遮罩（含 *，如電傳謄本的「N121*****6」）無法線上查詢，直接跳過
+    if '*' in uid or '＊' in uid:
+        print(f"⚠️ 統一編號為遮罩（{uid}），高雄地政無法以遮罩身分查詢，已跳過此所有權人。", flush=True)
+        show_skip_popup(
+            "無法查詢－統一編號為遮罩",
+            f"標的：{district}{section} 地號 {lot_display}\n"
+            f"所有權人：{name}\n"
+            f"統一編號：{uid}\n\n"
+            f"此統一編號是遮罩的（含 * 號），高雄市地政系統無法以遮罩身分查詢，已自動跳過此所有權人。\n\n"
+            f"若需查詢高雄市土地增值稅，請改以『電子謄本第一類』（含完整統一編號）的謄本資料執行。"
+        )
+        error_data = {'行政區': district, '地號': lot_display, '移轉記錄': []}
+        add_vertical_rows_to_excel_with_owner_total(excel_wb, excel_sheet, error_data, owner, '統編遮罩', district, section, is_last_record_for_owner, '統一編號為遮罩（含*），無法線上查詢')
         return None, False
 
     zoom_applied = False  # 🔥 標記是否已經執行過縮放，避免重複縮放
@@ -2872,8 +2958,22 @@ def run_with_complete_features(args):
     excel_wb, excel_sheet = create_vertical_excel_workbook_final()
 
     show_gui = bool(args.show)
-    driver = start_driver(show_gui=show_gui)
-    
+
+    # 🔥 預檢：若沒有任何「可查詢」的所有權人（統一編號遮罩含*、或缺統編/出生日期），
+    #     就不開啟 Chrome——後面 fill_one_owner 會在用到 driver 前就跳過並彈窗說明原因。
+    def _owner_queryable(ow):
+        u = (ow.get("id_no", "") or "").strip().upper()
+        if '*' in u or '＊' in u:
+            return False
+        return bool(u or (ow.get("birthday", "") or "").strip())
+
+    any_queryable = any(_owner_queryable(ow) for p in payloads for ow in (p.get("owners") or []))
+    if any_queryable:
+        driver = start_driver(show_gui=show_gui)
+    else:
+        driver = None
+        print("ℹ️ 所有所有權人皆無法查詢（統一編號遮罩或缺身分資料），略過開啟瀏覽器，直接產生標記報表並彈窗說明。", flush=True)
+
     pdf_data_list = []
     owner_names = []
     
@@ -2942,7 +3042,6 @@ def run_with_complete_features(args):
                 year_roc = int(match.group(1))
                 month = int(match.group(2))
                 year_ad = year_roc + 1911
-                from datetime import datetime
                 transfer_date = datetime(year_ad, month, 1)
                 current_date = datetime.now()
                 years_diff = (current_date - transfer_date).days / 365.25
@@ -2958,9 +3057,13 @@ def run_with_complete_features(args):
                     warning_cell.alignment = Alignment(horizontal='center', vertical='center')
                     excel_sheet.row_dimensions[2].height = 20
 
-        save_excel_file(excel_wb, excel_path)
+        # 🔥 沒有任何成功查詢（全部統編遮罩/跳過）就不產生 Excel 報表，避免誤導
+        if success_count > 0:
+            save_excel_file(excel_wb, excel_path)
+        else:
+            print("ℹ️ 本次無成功查詢之資料（原因已於彈窗說明），不產生 Excel 報表。", flush=True)
 
-        # 將稅額結果寫入 JSON 供主程式使用
+        # 將稅額結果寫入 JSON 供主程式使用（同樣，全跳過就不寫，避免帶空結果回主程式）
         try:
             # 建立 "4.其他相關" 資料夾
             other_dir = os.path.join(outdir_root, "4.其他相關")
@@ -3004,10 +3107,10 @@ def run_with_complete_features(args):
                     }
                     tax_summary["詳細資料"].append(owner_detail)
 
-            with open(tax_result_file, 'w', encoding='utf-8') as f:
-                json.dump(tax_summary, f, ensure_ascii=False, indent=2)
-
-            print(f"\n✓ 稅額結果已儲存：{tax_result_file}")
+            if success_count > 0:
+                with open(tax_result_file, 'w', encoding='utf-8') as f:
+                    json.dump(tax_summary, f, ensure_ascii=False, indent=2)
+                print(f"\n✓ 稅額結果已儲存：{tax_result_file}")
 
             # 🔥 檢查是否超過20年並顯示提示
             if first_transfer_date:
@@ -3017,7 +3120,6 @@ def run_with_complete_features(args):
                     year_roc = int(match.group(1))
                     month = int(match.group(2))
                     year_ad = year_roc + 1911
-                    from datetime import datetime
                     transfer_date = datetime(year_ad, month, 1)
                     current_date = datetime.now()
                     years_diff = (current_date - transfer_date).days / 365.25
@@ -3044,7 +3146,8 @@ def run_with_complete_features(args):
 
         print(f"\n程式執行完成", flush=True)
         print(f"成功處理：{success_count}/{total_count}", flush=True)
-        print(f"\033[93mExcel結果檔案：{excel_path}\033[0m", flush=True)  # 亮黃色
+        if success_count > 0:
+            print(f"\033[93mExcel結果檔案：{excel_path}\033[0m", flush=True)  # 亮黃色
         if pdf_data_list:
             print(f"\033[93m合併PDF檔案：{merged_pdf_path}\033[0m", flush=True)  # 亮黃色
 
@@ -3056,7 +3159,6 @@ def run_with_complete_features(args):
                 year_roc = int(match.group(1))
                 month = int(match.group(2))
                 year_ad = year_roc + 1911
-                from datetime import datetime
                 transfer_date = datetime(year_ad, month, 1)
                 current_date = datetime.now()
                 years_diff = (current_date - transfer_date).days / 365.25

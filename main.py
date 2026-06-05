@@ -1950,7 +1950,7 @@ frame_middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=10)  # 🔥 改�
 # 不要 pack_propagate(False)，讓它可以自動調整
 
 message_box = scrolledtext.ScrolledText(
-    frame_middle, wrap=tk.WORD, state=tk.DISABLED,
+    frame_middle, wrap=tk.CHAR, state=tk.DISABLED,  # 🔥 逐字換行：中文夾雜空白時不會在空白處亂折
     font=("Microsoft JhengHei", message_font_size),  # 🔥 使用動態字體大小
     bg='black', fg='white', insertbackground='white'
 )
@@ -4889,11 +4889,11 @@ def launch_cadastral_map_tool():
         update_message(f"[錯誤] 啟動地籍圖處理工具失敗：{e}")
         messagebox.showerror("錯誤", f"啟動地籍圖處理工具失敗：\n{e}")
 
-# 🔥 地籍圖處理工具按鈕（青色/藍綠色）
+# 🔥 地籍圖處理工具按鈕（深紫色）— 與「電傳謄本結構化」的青色明顯區隔
 cadastral_map_tool_button_style = {
     'font': sub_page_font, 'width': SUB_PAGE_BUTTON_WIDTH, 'height': 1, 'relief': tk.RAISED,
-    'borderwidth': 2, 'bg': '#00897B', 'fg': 'white',  # 青色/藍綠色
-    'activebackground': '#00695C', 'activeforeground': 'white'
+    'borderwidth': 2, 'bg': '#7B1FA2', 'fg': 'white',  # 深紫色
+    'activebackground': '#6A1B9A', 'activeforeground': 'white'
 }
 cadastral_map_tool_button = tk.Button(
     transcript_right_frame,
@@ -5607,7 +5607,7 @@ def show_large_message(title, message):
     text_widget = scrolledtext.ScrolledText(
         content_frame,
         font=("Microsoft JhengHei", content_font_size),
-        wrap=tk.WORD,
+        wrap=tk.CHAR,  # 🔥 逐字換行，中文不在空白處亂折
         bg="#F5F5F5",
         relief=tk.FLAT,
         padx=15,  # 🔥 從 10 改為 15
@@ -5675,7 +5675,7 @@ def show_large_yesno(title, message):
 
         text_widget = tk.Text(msg_frame,
                               font=("Microsoft JhengHei", 14),
-                              wrap=tk.WORD,
+                              wrap=tk.CHAR,  # 🔥 逐字換行，中文不在空白處亂折
                               yscrollcommand=scrollbar.set,
                               borderwidth=0,
                               highlightthickness=0,
