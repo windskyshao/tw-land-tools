@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.6b"
+VERSION = "1.1.7"
 BUILD_DATE = "2026-06-03"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
@@ -1517,10 +1517,10 @@ def read_output(process):
                                 original_text = button.cget("text").replace("關閉 ", "")
                                 button.config(text=original_text)
 
-                    # 🔥 電子謄本結構化 結束且成功 → 自動觸發讀取 JSON（兩種模式皆然）
+                    # 🔥 電子謄本結構化 / 電傳謄本結構化 結束且成功 → 自動觸發讀取 JSON（兩種模式皆然）
                     # 連續模式下 handle_read_json_function 會自行呼叫 schedule_next_script，
                     # 所以本處需用 auto_trigger_json 旗標避免下一支腳本被跑兩次
-                    auto_trigger_json = (current_running_button == structured_transcript_button
+                    auto_trigger_json = (current_running_button in (structured_transcript_button, telereport_structured_button)
                                          and poll_result == 0)
                     if auto_trigger_json:
                         root.after(500, handle_read_json_function)
@@ -1988,12 +1988,11 @@ real_estate_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
 
 # 謄本專區頁面
 transcript_page = tk.Frame(frame_top)
+# 兩欄式：左欄＝調閱來源＋對應結構化工具；右欄＝土增稅／地籍圖／返回
 transcript_left_frame = tk.Frame(transcript_page)
-transcript_middle_frame = tk.Frame(transcript_page)
 transcript_right_frame = tk.Frame(transcript_page)
-transcript_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-transcript_middle_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-transcript_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+transcript_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="n")
+transcript_right_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="n")
 
 # 🔥 功能分頁（案件管理相關功能）
 utility_page = tk.Frame(frame_top)
@@ -2072,6 +2071,7 @@ def select_continuous_mode_scripts():
         ("【謄本與土增稅】全國地政電子謄本", "hinet.py"),
         ("【謄本與土增稅】全功能地籍資料查詢", "qpt_hinet.py"),
         ("【謄本與土增稅】電子謄本結構化", "GUI_transcript_pdf 1141021-01.py"),
+        ("【謄本與土增稅】電傳謄本結構化", "GUI_telereport.py"),
         ("【功能】讀取結構化JSON", "read_json"),
         ("【謄本與土增稅】財政部土增稅", "finance_tax.py"),
         ("【謄本與土增稅】高雄市土增稅估算", "kaohsiung_tax.py"),
@@ -4126,18 +4126,18 @@ def start_subprocess_internal(script_name):
         original_text = button.cget("text")
         button.config(text=f"關閉 {original_text}", state=tk.NORMAL)
 
-    # 🔥 尋找最新版本的電子謄本結構化
-    def find_latest_transcript_exe(base_dir):
-        """在指定目錄尋找最新版本的電子謄本結構化.exe"""
+    # 🔥 尋找最新版本的結構化工具 exe（電子謄本結構化 / 電傳謄本結構化 共用）
+    def find_latest_transcript_exe(base_dir, prefix="電子謄本結構化"):
+        """在指定目錄尋找最新版本的 {prefix}.exe"""
         import glob
         import re
 
-        # 搜尋所有版本（支援 電子謄本結構化.exe 和 電子謄本結構化v*.exe）
-        pattern = os.path.join(base_dir, "電子謄本結構化*.exe")
+        # 搜尋所有版本（支援 {prefix}.exe 和 {prefix}v*.exe）
+        pattern = os.path.join(base_dir, f"{prefix}*.exe")
         exe_files = glob.glob(pattern)
 
         # 也搜尋子資料夾中的 exe（onedir 模式）
-        pattern_subdir = os.path.join(base_dir, "電子謄本結構化*", "電子謄本結構化*.exe")
+        pattern_subdir = os.path.join(base_dir, f"{prefix}*", f"{prefix}*.exe")
         exe_files += glob.glob(pattern_subdir)
 
         if not exe_files:
@@ -4165,18 +4165,25 @@ def start_subprocess_internal(script_name):
         # 🔥 取得腳本的正確路徑（支援 PyInstaller 打包）
         script_path = get_resource_path(script_name)
 
+        # 🔥 電傳謄本結構化在子資料夾，開發模式需修正路徑（打包模式走獨立 exe，不經此處）
+        if script_name == "GUI_telereport.py" and not getattr(sys, 'frozen', False):
+            _tele_dev = os.path.join(os.path.dirname(os.path.abspath(__file__)), '電傳謄本系統', '程式碼', 'GUI_telereport.py')
+            if os.path.isfile(_tele_dev):
+                script_path = _tele_dev
+
         # 🔥 修正：在打包環境中使用嵌入式 Python 執行子程式
         if getattr(sys, 'frozen', False):
-            # 🔥 特殊處理：GUI_transcript_pdf 是獨立的 exe（自動尋找最新版本）
-            if script_name == "GUI_transcript_pdf 1141021-01.py":
+            # 🔥 特殊處理：電子謄本結構化 / 電傳謄本結構化 都是獨立 exe（自動尋找最新版本）
+            if script_name in ("GUI_transcript_pdf 1141021-01.py", "GUI_telereport.py"):
                 base_dir = os.path.dirname(sys.executable)
-                latest_exe = find_latest_transcript_exe(base_dir)
+                tool_name = "電傳謄本結構化" if script_name == "GUI_telereport.py" else "電子謄本結構化"
+                latest_exe = find_latest_transcript_exe(base_dir, tool_name)
 
                 if latest_exe:
                     cmd = [latest_exe, '--base-dir', base_dir]
-                    update_message(f"啟動電子謄本結構化：{os.path.basename(latest_exe)}")
+                    update_message(f"啟動{tool_name}：{os.path.basename(latest_exe)}")
                 else:
-                    update_message("[錯誤] 找不到電子謄本結構化.exe")
+                    update_message(f"[錯誤] 找不到{tool_name}.exe")
                     is_running = False
                     if button and continuous_mode_active:
                         button.config(text=original_text, state=tk.DISABLED)
@@ -4769,6 +4776,18 @@ structured_transcript_button = tk.Button(
     **structured_transcript_button_style
 )
 
+# 🔥 電傳謄本結構化按鈕（藍綠色，與電子謄本結構化同屬「PDF 結構化」群）
+telereport_structured_button_style = {
+    'font': sub_page_font, 'width': SUB_PAGE_BUTTON_WIDTH, 'height': 1, 'relief': tk.RAISED,
+    'borderwidth': 2, 'bg': '#00838F', 'fg': 'white',  # 藍綠色（Teal）
+    'activebackground': '#006064', 'activeforeground': 'white'
+}
+telereport_structured_button = tk.Button(
+    transcript_left_frame, text="電傳謄本結構化",
+    command=lambda: toggle_buttons(telereport_structured_button, "電傳謄本結構化", "GUI_telereport.py"),
+    **telereport_structured_button_style
+)
+
 # 【中欄 - 資料處理與土增稅】
 # 🔥 讀取結構化JSON 已移到「功能分頁」左欄
 # 🔥 財政部土增稅：淡金色按鈕
@@ -4777,9 +4796,9 @@ finance_button_style = {
     'borderwidth': 2, 'bg': '#E6C547', 'fg': 'black',  # 淡金色
     'activebackground': '#D4B237', 'activeforeground': 'black'
 }
-finance_button = tk.Button(transcript_middle_frame, text="財政部土增稅",
+finance_button = tk.Button(transcript_right_frame, text="財政部土增稅",
     command=lambda: toggle_buttons(finance_button, "財政部土增稅", "finance_tax.py"), **finance_button_style)
-kaohsiung_tax_button = tk.Button(transcript_middle_frame, text="高雄土增稅估算",
+kaohsiung_tax_button = tk.Button(transcript_right_frame, text="高雄土增稅估算",
     command=lambda: toggle_buttons(kaohsiung_tax_button, "高雄土增稅估算", "kaohsiung_tax.py"), **sub_page_button_style)
 
 # 【右欄 - 設定/編輯/返回】
@@ -4887,7 +4906,7 @@ main_page_buttons = [
 ]
 real_estate_page_buttons = [interior_button, price104_button, real_estate_back_button]
 transcript_page_buttons = [
-    hinet_button, qpt_hinet_button, structured_transcript_button,
+    hinet_button, qpt_hinet_button, structured_transcript_button, telereport_structured_button,
     finance_button, kaohsiung_tax_button,
     # config_manage_button,  # 🔥 已註釋
     cadastral_map_tool_button, transcript_back_button
@@ -4910,6 +4929,7 @@ script_to_button_map = {
     "hinet.py": hinet_button,
     "qpt_hinet.py": qpt_hinet_button,
     "GUI_transcript_pdf 1141021-01.py": structured_transcript_button,
+    "GUI_telereport.py": telereport_structured_button,
     "read_json": read_json_button,
     "finance_tax.py": finance_button,
     "kaohsiung_tax.py": kaohsiung_tax_button,
@@ -4924,6 +4944,7 @@ script_to_page_map = {
     "hinet.py": "transcript",
     "qpt_hinet.py": "transcript",
     "GUI_transcript_pdf 1141021-01.py": "transcript",
+    "GUI_telereport.py": "transcript",
     "read_json": "transcript",
     "finance_tax.py": "transcript",
     "kaohsiung_tax.py": "transcript",
@@ -4991,21 +5012,22 @@ building_license_tn_button.pack(pady=3, anchor="center")
 # 右欄：回主選單
 building_license_back_button.pack(pady=3, anchor="w")
 
-# 謄本專區頁面排列
-# 【左欄 - 資料來源】
+# 謄本專區頁面排列（兩欄）
+# 【左欄】調閱來源 + 其對應的結構化工具，分上下兩組
+# ── 左上：全國地政電子謄本（調閱）＋ 電子謄本結構化 ──
 hinet_button.pack(pady=3, anchor="w")
-qpt_hinet_button.pack(pady=3, anchor="w")
 structured_transcript_button.pack(pady=3, anchor="w")
+# ── 分隔線：區隔上下兩組 ──
+tk.Frame(transcript_left_frame, height=2, bg="#90A4AE").pack(fill="x", padx=10, pady=(8, 6))
+# ── 左下：全功能地籍資料查詢（調閱）＋ 電傳謄本結構化 ──
+qpt_hinet_button.pack(pady=3, anchor="w")
+telereport_structured_button.pack(pady=3, anchor="w")
 
-# 【中欄 - 資料處理與土增稅】
-# 🔥 讀取結構化JSON 已移到「功能分頁」左欄
-finance_button.pack(pady=3, anchor="center")
-kaohsiung_tax_button.pack(pady=3, anchor="center")
-
-# 【右欄 - 設定/編輯/返回】
-# config_manage_button.pack(pady=3, anchor="e")  # 🔥 已註釋
-cadastral_map_tool_button.pack(pady=3, anchor="e")  # 🔥 地籍圖處理工具
-transcript_back_button.pack(pady=3, anchor="e")
+# 【右欄】由上至下：財政部土增稅、高雄土增稅、地籍圖處理工具、回主頁
+finance_button.pack(pady=3, anchor="w")
+kaohsiung_tax_button.pack(pady=3, anchor="w")
+cadastral_map_tool_button.pack(pady=3, anchor="w")  # 🔥 地籍圖處理工具
+transcript_back_button.pack(pady=3, anchor="w")
 
 def start_subprocess(button, script_name):
     global is_running, process, selected_json_path, json_dir, current_running_button
@@ -5017,15 +5039,21 @@ def start_subprocess(button, script_name):
         # 🔥 取得腳本的正確路徑（支援 PyInstaller 打包）
         script_path = get_resource_path(script_name)
 
-        # 🔥 尋找最新版本的電子謄本結構化（與連續模式共用邏輯）
-        def find_latest_transcript_exe_local(base_dir):
-            """在指定目錄尋找最新版本的電子謄本結構化.exe"""
+        # 🔥 電傳謄本結構化在子資料夾，開發模式需修正路徑（打包模式走獨立 exe，不經此處）
+        if script_name == "GUI_telereport.py" and not getattr(sys, 'frozen', False):
+            _tele_dev = os.path.join(os.path.dirname(os.path.abspath(__file__)), '電傳謄本系統', '程式碼', 'GUI_telereport.py')
+            if os.path.isfile(_tele_dev):
+                script_path = _tele_dev
+
+        # 🔥 尋找最新版本的結構化工具 exe（電子謄本 / 電傳 共用，與連續模式共用邏輯）
+        def find_latest_transcript_exe_local(base_dir, prefix="電子謄本結構化"):
+            """在指定目錄尋找最新版本的 {prefix}.exe"""
             import glob
             import re
 
-            pattern = os.path.join(base_dir, "電子謄本結構化*.exe")
+            pattern = os.path.join(base_dir, f"{prefix}*.exe")
             exe_files = glob.glob(pattern)
-            pattern_subdir = os.path.join(base_dir, "電子謄本結構化*", "電子謄本結構化*.exe")
+            pattern_subdir = os.path.join(base_dir, f"{prefix}*", f"{prefix}*.exe")
             exe_files += glob.glob(pattern_subdir)
 
             if not exe_files:
@@ -5048,16 +5076,17 @@ def start_subprocess(button, script_name):
 
         # 🔥 修正：在打包環境中使用嵌入式 Python 執行子程式
         if getattr(sys, 'frozen', False):
-            # 🔥 特殊處理：GUI_transcript_pdf 是獨立的 exe（自動尋找最新版本）
-            if script_name == "GUI_transcript_pdf 1141021-01.py":
+            # 🔥 特殊處理：電子謄本結構化 / 電傳謄本結構化 都是獨立 exe（自動尋找最新版本）
+            if script_name in ("GUI_transcript_pdf 1141021-01.py", "GUI_telereport.py"):
                 base_dir = os.path.dirname(sys.executable)
-                latest_exe = find_latest_transcript_exe_local(base_dir)
+                tool_name = "電傳謄本結構化" if script_name == "GUI_telereport.py" else "電子謄本結構化"
+                latest_exe = find_latest_transcript_exe_local(base_dir, tool_name)
 
                 if latest_exe:
                     cmd = [latest_exe]
-                    update_message(f"啟動電子謄本結構化：{os.path.basename(latest_exe)}")
+                    update_message(f"啟動{tool_name}：{os.path.basename(latest_exe)}")
                 else:
-                    update_message("[錯誤] 找不到電子謄本結構化.exe")
+                    update_message(f"[錯誤] 找不到{tool_name}.exe")
                     is_running = False
                     enable_all_buttons()
                     return
@@ -6417,6 +6446,15 @@ UPDATE_SOURCES = [
         'install_type': 'exe_replace',
         'rename_to_format': '電子謄本結構化v{ver}.exe',
     },
+    {
+        'name': '電傳謄本結構化',
+        'repo': 'windskyshao/tw-telereport-structurer',
+        'local_version_fn': lambda: _find_local_version('電傳謄本結構化v*.exe'),
+        'asset_name_prefix': 'telereport-tool_v',
+        'asset_ext': '.exe',
+        'install_type': 'exe_replace',
+        'rename_to_format': '電傳謄本結構化v{ver}.exe',
+    },
 ]
 
 
@@ -6523,9 +6561,13 @@ def _check_one_source(source):
 
     # 比較版本
     local_v = result['local_version']
-    if local_v is not None:
-        if _ver_tuple(remote_tag) > _ver_tuple(local_v):
-            result['has_update'] = True
+    if local_v is None:
+        # 🔥 本機沒有這個工具 exe（例如不隨主程式附帶、改由更新下載的電傳謄本結構化）
+        #    → 只要遠端有發行版就視為「需要下載」，讓首次取得也能自動補上。
+        #    （主程式自身 local_version_fn 回傳 VERSION，永遠不為 None，不受影響）
+        result['has_update'] = True
+    elif _ver_tuple(remote_tag) > _ver_tuple(local_v):
+        result['has_update'] = True
 
     return result
 
