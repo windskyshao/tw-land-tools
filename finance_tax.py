@@ -885,13 +885,13 @@ def latest_json_in(folder: str):
     return sorted(cands)[-1][1]
 
 def validate_transcript_type(block):
-    """驗證謄本類型：接受一類或二類謄本"""
+    """驗證謄本類型：接受土地謄本（一類 / 二類 / 電傳）"""
     transcript_type = (block or {}).get("謄本類型", "").strip()
-    
-    if ("土地謄本" in transcript_type and 
-        ("第一類" in transcript_type or "第二類" in transcript_type)):
+
+    if ("土地謄本" in transcript_type and
+        ("第一類" in transcript_type or "第二類" in transcript_type or "電傳" in transcript_type)):
         return True, transcript_type
-    
+
     return False, transcript_type
 
 def parse_geo_from_title(title: str):
@@ -1324,12 +1324,12 @@ def extract_form_data_from_json(payload, owner_index=None):
 
         if target_owner:
             
-            # 解析公告土地現值
+            # 解析公告土地現值（電傳格式數字與「元」間可能有空格，如「59,900 元/平方公尺」）
             current_land_value = land_info.get("公告土地現值", "")
             current_value = ""
             if current_land_value:
                 import re
-                match = re.search(r'([\d,]+)元/平方公尺', current_land_value)
+                match = re.search(r'([\d,]+)\s*元/平方公尺', current_land_value)
                 if match:
                     current_value = match.group(1).replace(',', '')
             

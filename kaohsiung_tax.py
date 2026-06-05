@@ -365,6 +365,10 @@ def validate_transcript_type(block):
     if "土地謄本" in transcript_type and "第一類" in transcript_type:
         return True, transcript_type, "第一類"
 
+    # 🔥 電傳謄本：比照第一類放行（電傳的一/二類由姓名遮蔽決定，這裡一律接受）
+    if "土地謄本" in transcript_type and "電傳" in transcript_type:
+        return True, transcript_type, "電傳"
+
     # 🔥 檢查是否為土地謄本 - 第二類（需要額外檢查是否為法人）
     if "土地謄本" in transcript_type and "第二類" in transcript_type:
         # 檢查是否有所有權人資訊

@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7"
-BUILD_DATE = "2026-06-03"
+VERSION = "1.1.7a"
+BUILD_DATE = "2026-06-05"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -991,10 +991,22 @@ def check_data_consistency(transcript_file=None):
                 except (ValueError, IndexError):
                     return str(lot)
 
+            def area_match(a, b):
+                """
+                行政區比對，容許縣市前綴差異。
+                謄本地號常含縣市（如「高雄市左營區」），data.json 多半只有行政區
+                （如「左營區」）。只要一方是另一方的結尾即視為相同行政區。
+                """
+                a = (a or '').strip()
+                b = (b or '').strip()
+                if not a or not b:
+                    return a == b
+                return a == b or a.endswith(b) or b.endswith(a)
+
             data_lot = normalize_lot(data_json_info['lot_number'])
             transcript_lot = normalize_lot(transcript_info['lot_number'])
 
-            if (data_json_info['area'] == transcript_info['area'] and
+            if (area_match(data_json_info['area'], transcript_info['area']) and
                 data_json_info['section'] == transcript_info['section'] and
                 data_lot == transcript_lot):
                 return (True, None, data_json_info, transcript_info, None)
@@ -1009,7 +1021,7 @@ def check_data_consistency(transcript_file=None):
 
                     for item in data_list:
                         item_lot = normalize_lot(item.get('lot_number', ''))
-                        if (item.get('area') == transcript_info['area'] and
+                        if (area_match(item.get('area'), transcript_info['area']) and
                             item.get('section') == transcript_info['section'] and
                             item_lot == transcript_lot):
                             is_order_issue = True
@@ -5013,21 +5025,27 @@ building_license_tn_button.pack(pady=3, anchor="center")
 building_license_back_button.pack(pady=3, anchor="w")
 
 # 謄本專區頁面排列（兩欄）
+# 兩欄後左右空間較大 → 把按鈕加寬（只針對此分頁，不動共用 style），並填滿欄寬使其等長
+_TRANSCRIPT_BTN_W = SUB_PAGE_BUTTON_WIDTH + 12
+for _b in (hinet_button, structured_transcript_button, qpt_hinet_button, telereport_structured_button,
+           finance_button, kaohsiung_tax_button, cadastral_map_tool_button, transcript_back_button):
+    _b.config(width=_TRANSCRIPT_BTN_W)
+
 # 【左欄】調閱來源 + 其對應的結構化工具，分上下兩組
 # ── 左上：全國地政電子謄本（調閱）＋ 電子謄本結構化 ──
-hinet_button.pack(pady=3, anchor="w")
-structured_transcript_button.pack(pady=3, anchor="w")
+hinet_button.pack(fill=tk.X, pady=3)
+structured_transcript_button.pack(fill=tk.X, pady=3)
 # ── 分隔線：區隔上下兩組 ──
 tk.Frame(transcript_left_frame, height=2, bg="#90A4AE").pack(fill="x", padx=10, pady=(8, 6))
 # ── 左下：全功能地籍資料查詢（調閱）＋ 電傳謄本結構化 ──
-qpt_hinet_button.pack(pady=3, anchor="w")
-telereport_structured_button.pack(pady=3, anchor="w")
+qpt_hinet_button.pack(fill=tk.X, pady=3)
+telereport_structured_button.pack(fill=tk.X, pady=3)
 
 # 【右欄】由上至下：財政部土增稅、高雄土增稅、地籍圖處理工具、回主頁
-finance_button.pack(pady=3, anchor="w")
-kaohsiung_tax_button.pack(pady=3, anchor="w")
-cadastral_map_tool_button.pack(pady=3, anchor="w")  # 🔥 地籍圖處理工具
-transcript_back_button.pack(pady=3, anchor="w")
+finance_button.pack(fill=tk.X, pady=3)
+kaohsiung_tax_button.pack(fill=tk.X, pady=3)
+cadastral_map_tool_button.pack(fill=tk.X, pady=3)  # 🔥 地籍圖處理工具
+transcript_back_button.pack(fill=tk.X, pady=3)
 
 def start_subprocess(button, script_name):
     global is_running, process, selected_json_path, json_dir, current_running_button

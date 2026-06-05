@@ -3757,6 +3757,8 @@ def open_data_editor():
         entry_widget.bind('<Button-1>', on_click)
         entry_widget.bind('<KeyPress>', on_key)
         entry_widget.bind('<FocusOut>', on_focus_out)
+        # 🔥 滑鼠右鍵文字選單（剪下/複製/貼上/全選/清除）
+        entry_widget.bind('<Button-3>', _show_text_menu)
         return entry_widget
 
     # 🔥 宣告全域變數
@@ -3767,7 +3769,163 @@ def open_data_editor():
     # 🔥 先建立視窗，再檢查資料
     editor_window = tk.Toplevel(root)
     editor_window.title("物件資料編輯器")
-    
+
+    # 🔥 文字輸入欄的滑鼠右鍵選單（復原/剪下/複製/貼上/全選/清除）+ 快速鍵提示
+    # 復原：Text 用原生 undo；Entry/Combobox 無原生 undo，改用自訂快照堆疊。
+    _text_menu = tk.Menu(editor_window, tearoff=0)
+
+    def _tm_is_text(w):
+        try:
+            return w.winfo_class() == 'Text'
+        except Exception:
+            return False
+
+    def _tm_get(w):
+        try:
+            return w.get('1.0', 'end-1c') if _tm_is_text(w) else w.get()
+        except Exception:
+            return None
+
+    def _tm_set(w, val):
+        try:
+            if _tm_is_text(w):
+                w.delete('1.0', 'end'); w.insert('1.0', val)
+            else:
+                w.delete(0, 'end'); w.insert(0, val)
+        except Exception:
+            pass
+
+    def _tm_push_undo(w):
+        """改變內容前，把目前值存入快照堆疊（Entry/Combobox 用；Text 走原生 undo）"""
+        if _tm_is_text(w):
+            return
+        cur = _tm_get(w)
+        if cur is None:
+            return
+        stk = getattr(w, '_undo_stack', None)
+        if stk is None:
+            stk = w._undo_stack = []
+        if not stk or stk[-1] != cur:
+            stk.append(cur)
+            if len(stk) > 100:
+                del stk[0]
+
+    def _tm_undo(w):
+        try:
+            if _tm_is_text(w):
+                try:
+                    w.edit_undo()
+                except Exception:
+                    pass
+                return
+            stk = getattr(w, '_undo_stack', None)
+            if stk:
+                _tm_set(w, stk.pop())
+        except Exception:
+            pass
+
+    def _text_menu_action(action):
+        w = getattr(_text_menu, '_target', None)
+        if not w:
+            return
+        try:
+            if action == 'undo':
+                _tm_undo(w)
+            elif action == 'cut':
+                _tm_push_undo(w); w.event_generate('<<Cut>>')
+            elif action == 'copy':
+                w.event_generate('<<Copy>>')
+            elif action == 'paste':
+                _tm_push_undo(w); w.event_generate('<<Paste>>')
+            elif action == 'all':
+                if _tm_is_text(w):
+                    w.tag_add('sel', '1.0', 'end-1c')
+                else:
+                    w.selection_range(0, tk.END); w.icursor(tk.END)
+            elif action == 'clear':
+                _tm_push_undo(w)
+                if _tm_is_text(w):
+                    w.delete('1.0', tk.END)
+                else:
+                    w.delete(0, tk.END)
+        except Exception:
+            pass
+
+    _text_menu.add_command(label="復原", accelerator="Ctrl+Z", command=lambda: _text_menu_action('undo'))
+    _text_menu.add_separator()
+    _text_menu.add_command(label="剪下", accelerator="Ctrl+X", command=lambda: _text_menu_action('cut'))
+    _text_menu.add_command(label="複製", accelerator="Ctrl+C", command=lambda: _text_menu_action('copy'))
+    _text_menu.add_command(label="貼上", accelerator="Ctrl+V", command=lambda: _text_menu_action('paste'))
+    _text_menu.add_separator()
+    _text_menu.add_command(label="全選", accelerator="Ctrl+A", command=lambda: _text_menu_action('all'))
+    _text_menu.add_command(label="清除", command=lambda: _text_menu_action('clear'))
+
+    # 會改變內容、唯讀欄位需停用的項目索引：復原0、剪下2、貼上4、清除7
+    _editable_idx = (0, 2, 4, 7)
+
+    def _show_text_menu(event):
+        """在被點的文字欄上彈出右鍵選單"""
+        w = event.widget
+        try:
+            w.focus_set()
+            _text_menu._target = w
+            try:
+                editable = str(w.cget('state')) not in ('disabled', 'readonly')
+            except Exception:
+                editable = True
+            for idx in _editable_idx:
+                _text_menu.entryconfig(idx, state=(tk.NORMAL if editable else tk.DISABLED))
+            _text_menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            _text_menu.grab_release()
+
+    def _ctrl_a_select_all(event):
+        """Ctrl+A 改為全選（tkinter 預設是移到行首）"""
+        w = event.widget
+        try:
+            if _tm_is_text(w):
+                w.tag_add('sel', '1.0', 'end-1c')
+            else:
+                w.selection_range(0, tk.END); w.icursor(tk.END)
+        except Exception:
+            pass
+        return 'break'
+
+    def _ctrl_z_undo(event):
+        _tm_undo(event.widget)
+        return 'break'
+
+    def _snapshot_undo(event):
+        """進入欄位時存快照（Entry/Combobox 復原用）"""
+        _tm_push_undo(event.widget)
+
+    def _bind_text_menu_recursive(w):
+        """遞迴把右鍵文字選單 + 快速鍵綁到所有可輸入文字的元件（Entry / Text / 可輸入 Combobox）"""
+        try:
+            cls = w.winfo_class()
+            if cls in ('Entry', 'TEntry', 'Text', 'TCombobox'):
+                w.bind('<Button-3>', _show_text_menu)      # 右鍵選單
+                w.bind('<Control-a>', _ctrl_a_select_all)  # 全選
+                w.bind('<Control-A>', _ctrl_a_select_all)
+                w.bind('<Control-z>', _ctrl_z_undo)        # 復原
+                w.bind('<Control-Z>', _ctrl_z_undo)
+                if cls == 'Text':
+                    try:
+                        w.config(undo=True, autoseparators=True, maxundo=-1)  # 原生 undo
+                    except Exception:
+                        pass
+                else:
+                    w.bind('<FocusIn>', _snapshot_undo, add='+')  # 進欄位存快照供復原
+        except Exception:
+            pass
+        try:
+            for child in w.winfo_children():
+                _bind_text_menu_recursive(child)
+        except Exception:
+            pass
+
+    # （右鍵選單的綁定改在所有 UI 建好後、函式結尾統一遞迴掃描，較可靠）
+
     # 🔥 計算可用寬度和高度（佔滿左側螢幕）
     screen_width = editor_window.winfo_screenwidth()
     screen_height = editor_window.winfo_screenheight()
@@ -6965,6 +7123,7 @@ def open_data_editor():
     selling_text = tk.Text(text_row, font=entry_font, width=60, height=5, wrap=tk.WORD)
     selling_text.insert("1.0", data.get("訴求重點", ""))
     selling_text.pack(side=tk.LEFT, padx=5)
+    selling_text.bind('<Button-3>', _show_text_menu)  # 🔥 右鍵文字選單
     entries["訴求重點"] = selling_text
 
     # === 另顯示於後台內容（文字框）===
@@ -6975,6 +7134,7 @@ def open_data_editor():
     backend_text = tk.Text(backend_text_row, font=entry_font, width=60, height=5, wrap=tk.WORD)
     backend_text.insert("1.0", data.get("另顯示於後台內容", ""))
     backend_text.pack(side=tk.LEFT, padx=5)
+    backend_text.bind('<Button-3>', _show_text_menu)  # 🔥 右鍵文字選單
     entries["另顯示於後台內容"] = backend_text
 
     # === 其他條件（租件專用）===
@@ -8587,6 +8747,10 @@ def open_data_editor():
     # 🔥 確保視窗可以接收輸入
     editor_window.focus_force()
     editor_window.update_idletasks()
+
+    # 🔥 所有 UI 已建立 → 一次掃描所有可輸入文字的元件，補上滑鼠右鍵選單
+    #    （此時全部 Entry/Text/Combobox 都已建好，同步綁定最可靠）
+    _bind_text_menu_recursive(editor_window)
 
     # 🔥🔥🔥 所有 UI 建立完成 → 移除載入中遮罩 🔥🔥🔥
     _remove_loading_overlay()
