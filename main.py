@@ -891,6 +891,18 @@ def save_final_data(data):
     except Exception as e:
         update_message(f"[錯誤] 儲存資料失敗: {e}")
 
+def _area_match(a, b):
+    """行政區比對，容許縣市前綴差異。
+
+    謄本地號常含縣市（如「高雄市左營區」），data.json 多半只有行政區
+    （如「左營區」）。只要一方是另一方的結尾即視為相同行政區。
+    """
+    a = (a or '').strip()
+    b = (b or '').strip()
+    if not a or not b:
+        return a == b
+    return a == b or a.endswith(b) or b.endswith(a)
+
 def check_data_consistency(transcript_file=None):
     """
     檢查 data.json 和 transcript_data 的資料一致性
@@ -1111,7 +1123,7 @@ def fix_data_json_order(transcript_info):
         target_idx = None
         for i, item in enumerate(data_list):
             item_lot = normalize_lot(item.get('lot_number', ''))
-            if (item.get('area') == transcript_info['area'] and
+            if (_area_match(item.get('area'), transcript_info['area']) and
                 item.get('section') == transcript_info['section'] and
                 item_lot == target_lot):
                 target_idx = i
@@ -1185,6 +1197,14 @@ def fix_transcript_json_order(data_info, transcript_info):
             except (ValueError, IndexError):
                 return lot
 
+        def area_match(a, b):
+            """行政區比對，容許縣市前綴差異（謄本常含縣市，data.json 多半只有行政區）。"""
+            a = (a or '').strip()
+            b = (b or '').strip()
+            if not a or not b:
+                return a == b
+            return a == b or a.endswith(b) or b.endswith(a)
+
         # 1. data.json 的 key 序列（依 data.json 順序）
         data_keys = []
         for d in data_list:
@@ -1234,7 +1254,7 @@ def fix_transcript_json_order(data_info, transcript_info):
             for i, tk in enumerate(transcript_keys):
                 if used[i] or tk is None or tk[0] != 'land':
                     continue
-                if tk[1] == d_area and tk[2] == d_section and tk[3] == d_norm_lot:
+                if area_match(tk[1], d_area) and tk[2] == d_section and tk[3] == d_norm_lot:
                     land_order.append(i)
                     used[i] = True
                     break
@@ -7021,7 +7041,7 @@ def check_and_warn_data_consistency():
                                 data_lot = normalize_lot(data_info['lot_number'])
                                 transcript_lot = normalize_lot(transcript_info['lot_number'])
 
-                                if not (data_info['area'] == transcript_info['area'] and
+                                if not (_area_match(data_info['area'], transcript_info['area']) and
                                         data_info['section'] == transcript_info['section'] and
                                         data_lot == transcript_lot):
                                     # 不一致！判斷是順序問題還是完全不同地段
@@ -7031,7 +7051,7 @@ def check_and_warn_data_consistency():
                                             data_list = json.load(f)
                                         for item in data_list:
                                             item_lot = normalize_lot(item.get('lot_number', ''))
-                                            if (item.get('area') == transcript_info['area'] and
+                                            if (_area_match(item.get('area'), transcript_info['area']) and
                                                 item.get('section') == transcript_info['section'] and
                                                 item_lot == transcript_lot):
                                                 is_order_issue_new = True

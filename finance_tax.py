@@ -2992,13 +2992,13 @@ def fill_form_interactive_finance_fixed(driver, payload, owner, transcript_dir, 
                 return "filled", result_pdf_path, form_data
             else:
                 flush_print(f"填寫成功率過低: {success_count}/7", "important")
-                return "partial", result_pdf_path
+                return "partial", result_pdf_path, form_data
         else:
-            return "failed", None
+            return "failed", None, {}
                     
     except Exception as e:
         flush_print(f"填寫表單錯誤: {e}", "important")
-        return "failed", None
+        return "failed", None, {}
 
 #=========================================================
 
