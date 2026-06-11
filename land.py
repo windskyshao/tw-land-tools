@@ -140,6 +140,10 @@ options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKi
 # 隱藏 "Chrome 正在受到自動化測試軟體控制" 的訊息
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
+# 🔥 自動允許地理位置，避免 easymap.moi.gov.tw 跳出「存取您的位置資訊」權限詢問擋住自動化（1=允許, 2=封鎖）
+options.add_experimental_option("prefs", {
+    "profile.default_content_setting_values.geolocation": 1,
+})
 # 每次執行時使用唯一的時間戳建立獨立的用戶資料目錄
 user_data_dir = os.path.join(tempfile.gettempdir(), f"chrome_land_{int(time.time())}_{random.randint(1000, 9999)}")
 options.add_argument(f"--user-data-dir={user_data_dir}")
@@ -543,6 +547,8 @@ def wait_for_enter():
     print("繼續執行後續操作...", flush=True)
 
 def get_land_info():
+    # 🔥 保險提醒：萬一 Chrome 仍跳出地理位置權限窗，告訴使用者怎麼點
+    print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
     driver.get('https://easymap.land.moi.gov.tw/Index')
     # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
     try:
@@ -990,6 +996,13 @@ if __name__ == "__main__":
             driver.set_window_position(chrome_x, chrome_y)
         except Exception as e:
             print(f"[WARNING] 視窗設定失敗: {e}，繼續執行", flush=True)
+
+        # 🔥 用 CDP 直接授予地理位置權限（比 prefs 可靠；避免 easymap 跳原生「存取您的位置資訊」窗擋住自動化）
+        try:
+            driver.execute_cdp_cmd("Browser.grantPermissions", {"permissions": ["geolocation"]})
+            print("[權限] 已自動授予地理位置權限", flush=True)
+        except Exception as _perm_e:
+            print(f"[權限] 自動授予地理位置失敗（不影響流程）: {_perm_e}", flush=True)
 
         # 子程式主邏輯
         # print("歡迎使用【地籍便民】自動化小程式，模組載入中...", flush=True)

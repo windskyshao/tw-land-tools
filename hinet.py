@@ -148,7 +148,7 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='surro
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='surrogateescape')
 sys.stdout.reconfigure(line_buffering=True)
 
-print("歡迎使用【地籍電子謄本】小程式，模組加載中...", flush=True)
+print("✓ 模組載入完成", flush=True)  # 🔥 主程式已先顯示「模組加載中」，這裡改為完成訊息避免重複
 
 # 添加程序結束標記
 program_should_exit = False
@@ -295,6 +295,7 @@ def get_captcha_image_from_canvas(driver):
 
 def handle_captcha(driver, register_type, retry_count=0):
     max_retries = 3
+    captcha_image_path = None  # 🔥 驗證碼改記憶體處理後不一定有檔案，先給預設值避免 referenced before assignment
     try:
         # 檢查退出命令
         if check_for_quit_command():
@@ -421,7 +422,7 @@ def handle_captcha(driver, register_type, retry_count=0):
 
             # 刪除暫存的驗證碼圖片
             try:
-                if os.path.exists(captcha_image_path):
+                if captcha_image_path and os.path.exists(captcha_image_path):
                     os.remove(captcha_image_path)
                     print("已刪除暫存驗證碼圖片", flush=True)
             except Exception as del_error:
@@ -433,7 +434,7 @@ def handle_captcha(driver, register_type, retry_count=0):
 
             # 即使失敗也嘗試刪除圖片
             try:
-                if os.path.exists(captcha_image_path):
+                if captcha_image_path and os.path.exists(captcha_image_path):
                     os.remove(captcha_image_path)
             except:
                 pass
@@ -1808,7 +1809,7 @@ def main():
 
         if scenario == 4:
             # 退出程式選項
-            print("\033[92m感謝使用！程式即將退出...\033[0m", flush=True)
+            print("\033[38;5;46m感謝使用！程式即將退出...\033[0m", flush=True)
             return
 
         # 🔥 帳密來源已改為 Windows 認證管理員，正常情況下這裡不會缺少
@@ -2672,7 +2673,9 @@ def check_confirmation(driver, scenario):
     import time
 
     while True:
-        print("請輸入[Y]來確認或[N]來取消(或輸入 [A] 代表之後都自動同意, 或輸入【Q】可退出程式):", flush=True)
+        print("請輸入  [Y]確認本筆  /  [N]取消  /  [A]全部自動同意  /  [Q]退出程式：", flush=True)
+        print("\033[93m  ※[A]＝整個程式執行期間，後續所有確認(含送件的其餘筆數、之後領件作業的詢問)一律自動同意、不再詢問；\033[0m", flush=True)
+        print("\033[93m    只想確認「這一筆」請按[Y]；按[A]後若要恢復詢問，需關閉再重新開啟程式。\033[0m", flush=True)
         user_input = input().strip().lower()
 
         if not user_input:
@@ -2750,41 +2753,75 @@ def download_document(driver, scenario, custom_dir_options=None):
             print("請選取日期...", flush=True)
             select_date(driver)
 
-            # 選擇起始頁數
-            start_page = 1
-            print("請輸入起始頁數（預設為1）：", flush=True)
-            start_page_input = input().strip()
-            if start_page_input.isdigit():
-                start_page = int(start_page_input)
-            if start_page > 1:
-                try:
-                    page_link = driver.find_element(
-                        By.XPATH, f"//li[@class='page-number' and text()='{start_page}']"
-                    )
-                    page_link.click()
-                    print(f"跳轉至第 {start_page} 頁", flush=True)
-                except NoSuchElementException:
-                    print(f"無法跳轉至第 {start_page} 頁，可能不存在", flush=True)
+            # 🔥 檢查點：選完日期後、進入下載前，先確認資料是否已出現
+            #   （謄本可能仍在調閱中、需要時間；使用者沒送件成功；或日期選錯了 → 可重新整理、重選日期或退出）
+            _ITEM_XPATH = "//tr[contains(., '/') and .//a[contains(text(), '預覽列印')] and not(contains(., '申請日期時間'))]"
+            _reselect_date = False
+            while True:
+                # 🔥 等清單載入後再判定：資料可能晚幾秒才渲染，避免「其實有資料卻誤判尚未出現」
+                _item_count = 0
+                for _i in range(10):
+                    try:
+                        _item_count = len(driver.find_elements(By.XPATH, _ITEM_XPATH))
+                    except Exception:
+                        _item_count = 0
+                    if _item_count > 0:
+                        break
+                    # 給約 2 秒渲染後，若頁面已明確「查無記錄」就不再空等（加速真的沒資料的情況）
+                    if _i >= 2:
+                        try:
+                            _body = driver.find_element(By.TAG_NAME, 'body').text
+                            if ('查無記錄' in _body) or ('共有 0 筆' in _body) or ('共有0筆' in _body):
+                                break
+                        except Exception:
+                            pass
+                    time.sleep(1)
 
-            # 處理每頁的「預覽列印」連結
-            print("是否自動下載所選擇的檔案？(Y/N，預設：Y)：", flush=True)
-            auto_download_input = input().strip().lower()
-            if not auto_download_input:
-                auto_download_input = 'y'
-            auto_download = auto_download_input == 'y'
+                # ✅ 有資料：不必多按 Enter，直接進入下載流程（後面會問起始頁）
+                if _item_count > 0:
+                    print(f"\033[38;5;46m✓ 此日期偵測到 {_item_count} 筆可領取謄本，直接進入下載...\033[0m", flush=True)
+                    break
 
-            # 只在選擇自動下載時，才詢問是否只問一次存儲目錄
-            # 注意：新的選擇流程中，已經統一在選擇項目後只詢問一次目錄
-            # 所以這個詢問已經不再需要，但保留以兼容舊流程
-            auto_confirm = False
+                # 📭 沒資料：列出選項（各自獨立一行、加顏色好辨識）
+                print("", flush=True)
+                print("\033[93m📭 此日期目前『尚未』出現可領取的謄本。\033[0m", flush=True)
+                print("\033[90m   可能：謄本仍在調閱中、未送件成功，或日期選錯了。\033[0m", flush=True)
+                print("請選擇：", flush=True)
+                print("\033[38;5;46m   [R]　重新整理再查　—　謄本還在調閱中，稍候再查\033[0m", flush=True)
+                print("\033[94m   [D]　重新選擇日期　—　日期可能選錯了\033[0m", flush=True)
+                print("\033[91m   [Q]　退出領件　　　—　回主選單\033[0m", flush=True)
+                _chk = input().strip().lower()
+                if _chk in ('r', ''):  # R 或直接 Enter → 重新整理再查
+                    print("重新整理頁面，重新查詢中...", flush=True)
+                    driver.refresh()
+                    time.sleep(3)
+                    continue
+                elif _chk == 'd':
+                    print("重新選擇日期...", flush=True)
+                    # 重載領件區頁面，確保回到乾淨的日期選擇狀態（與系統重選日期一致）
+                    try:
+                        driver.get("https://ep.land.nat.gov.tw/EpaperDoc/DocQuery")
+                        WebDriverWait(driver, 10).until(EC.url_contains("/EpaperDoc/DocQuery"))
+                    except Exception:
+                        pass
+                    _reselect_date = True
+                    break  # 跳出檢查點 → 由外層 while 重新選日期
+                elif _chk == 'q':
+                    print("已退出領件作業，返回主選單。", flush=True)
+                    return  # 結束 download_document，回到主選單
+                else:
+                    print("\033[90m（請按 R 重查、D 換日期 或 Q 退出）\033[0m", flush=True)
+                    continue
+
+            if _reselect_date:
+                continue  # 回到外層 while 迴圈頂端 → 重新 select_date 選日期
+
+            # 🔥 起始頁、是否自動下載、是否只問一次目錄 → 已移除（精簡流程）
+            #   清單已含所有頁，不需起始頁；點領件本來就是要下載；
+            #   目錄改為「下載前統一確認」一次決定（見 handle_preview_print）
+            auto_download = True
+            auto_confirm = True
             selected_output_dir = {'dir': None}
-
-            if auto_download:
-                print("是否只詢問一次存儲目錄？(Y/N，預設：Y)：", flush=True)
-                auto_confirm_input = input().strip().lower()
-                if not auto_confirm_input:
-                    auto_confirm_input = 'y'
-                auto_confirm = auto_confirm_input == 'y'
 
             result = handle_preview_print(
                 driver,
@@ -3079,8 +3116,9 @@ def collect_all_preview_items(driver, debug_mode=False, skip_diagnosis=False):
     return all_items
 
 
-def display_items_and_get_selection(items):
-    """顯示所有項目並讓使用者複選"""
+def display_items_and_get_selection(items, downloaded=None):
+    """顯示所有項目並讓使用者複選（downloaded：已下載過的 index 會標記）"""
+    downloaded = downloaded or set()
     if not items:
         print("沒有可下載的項目", flush=True)
         return []
@@ -3093,14 +3131,15 @@ def display_items_and_get_selection(items):
 
     for i, item in enumerate(items, 1):
         plot_info = item.get('plot_info', '')
-        print(f"{i:<3} {item['location']:<12} {item['doc_type']:<10} {item['fee']:<6} {plot_info}", flush=True)
+        mark = "  \033[38;5;46m✓ 已下載\033[0m" if (i - 1) in downloaded else ""
+        print(f"{i:<3} {item['location']:<12} {item['doc_type']:<10} {item['fee']:<6} {plot_info}{mark}", flush=True)
 
     print("=" * 39, flush=True)
-    print("\n請選擇要下載的項目：", flush=True)
+    print("\n\033[96m請選擇要下載的項目：\033[0m", flush=True)
     print("  - 輸入編號，多個編號請用逗號分隔（例如：1,3,5）", flush=True)
     print("  - 輸入範圍請用減號（例如：1-5）", flush=True)
-    print("  - 輸入 'all' 或 'a' 下載全部", flush=True)
-    print("  - 直接按 Enter 取消下載", flush=True)
+    print("  - 輸入 \033[38;5;46m'all' 或 'a'\033[0m 下載全部", flush=True)
+    print("  - 直接按 \033[91mEnter\033[0m 取消下載", flush=True)
 
     while True:
         user_input = input("請輸入選擇：").strip()
@@ -3236,7 +3275,7 @@ def download_single_item(driver, item, item_number, total_items, auto_confirm, c
                 # 🔥 根據 dl_result 顯示正確的結果訊息
                 status, path = dl_result
                 if status == 'moved':
-                    print(f"\033[92m✓ 下載並歸檔完成\033[0m", flush=True)
+                    print(f"\033[38;5;46m✓ 下載並歸檔完成\033[0m", flush=True)
                 elif status == 'saved_only':
                     print(f"\033[93m⚠ 已下載但未歸檔，檔案留在：{path}\033[0m", flush=True)
                 else:
@@ -3335,95 +3374,163 @@ def handle_preview_print(
 
         # print(f"\n共收集到 {len(all_items)} 個項目", flush=True)
 
-        # 第二步：讓使用者選擇要下載的項目
-        selected_indices = display_items_and_get_selection(all_items)
+        # 目錄分流設定（迴圈外固定不變）
+        fallback_dir = get_work_folder("下載的謄本")
+        case_dir = custom_dir_options  # 案件資料夾的「0.謄本」（來自 data.json 第一筆），或 None
 
-        if not selected_indices:
-            print("未選擇任何項目，取消下載", flush=True)
-            return True
+        # 🔥 逐檔智慧分流：每一筆依「自己的區」各自歸檔（相符→案件0.謄本；否則→下載的謄本）
+        def _district_of(s):
+            ms = re.findall(r'[^\s]{1,3}(?:區|鄉|鎮|市)', str(s or ''))
+            return ms[-1] if ms else ''
+        _case_area = _district_of(os.path.basename(os.path.dirname(case_dir))) if case_dir else ''
 
-        # 第三步：詢問目錄（只詢問一次）
-        if custom_dir_options:
-            print("請選擇保存檔案的目錄：", flush=True)
-            print("1. 預設目錄（下載的謄本）", flush=True)
-            print(f"2. 自訂目錄（{custom_dir_options}）", flush=True)
-            print("（直接按下 Enter 選擇預設選項）", flush=True)
+        def _dir_for(item):
+            if case_dir and _case_area and (_district_of(item.get('location', '')) in ('', _case_area)):
+                return case_dir
+            return fallback_dir
+
+        downloaded = set()  # 本次已下載（領取）的 index，避免重複領件付費
+
+        # 🔁 清單 ⇄ 下載 可循環：下載完回清單，可再下載其他、回主選單或離開
+        while True:
+            # 第二步：選擇要下載的項目（已下載者會標記）
+            selected_indices = display_items_and_get_selection(all_items, downloaded)
+            if not selected_indices:
+                print("未選擇任何項目，離開領件", flush=True)
+                return True
+
+            # 第三步：金額 + 逐檔分流，下載前統一確認（下載＝領件＝會扣費！）
+            force_dir = None
+            _proceed = True
             while True:
-                choice = input("請輸入選項編號（1 或 2，預設：1）：").strip()
-                if not choice:
-                    choice = '1'
-                if choice == '1':
-                    output_dir = get_work_folder("下載的謄本")
+                total_fee = 0
+                n_case = 0
+                n_fallback = 0
+                n_dup = 0  # 已下載過卻又被選的筆數
+                for _idx in selected_indices:
+                    try:
+                        total_fee += int(''.join(filter(str.isdigit, str(all_items[_idx].get('fee', '0')))) or 0)
+                    except Exception:
+                        pass
+                    _d = force_dir or _dir_for(all_items[_idx])
+                    if case_dir and _d == case_dir:
+                        n_case += 1
+                    else:
+                        n_fallback += 1
+                    if _idx in downloaded:
+                        n_dup += 1
+                print("", flush=True)
+                print(f"\033[93m即將下載 {len(selected_indices)} 筆，合計金額：{total_fee} 元\033[0m", flush=True)
+                print("\033[91m※ 下載即領件、會產生費用，請先確認金額無誤！\033[0m", flush=True)
+                if n_dup > 0:
+                    print(f"\033[91m⚠ 其中 {n_dup} 筆稍早已下載過，再下載可能重複收費！\033[0m", flush=True)
+                print("\033[96m存放方式（依各筆的「區」自動分流）：\033[0m", flush=True)
+                if case_dir and n_case > 0:
+                    print(f"\033[96m   • {n_case} 筆（與案件「{_case_area}」相符）→ 案件「0.謄本」\033[0m", flush=True)
+                if n_fallback > 0:
+                    print(f"\033[96m   • {n_fallback} 筆 → 「下載的謄本」\033[0m", flush=True)
+                print("請確認（項目已選定，直接 Enter 即可下載）：", flush=True)
+                print("\033[38;5;46m   [Enter] 或 [Y]　確認下載\033[0m", flush=True)
+                if case_dir and n_case > 0 and not force_dir:
+                    print("\033[94m   [A]　全部改存到「下載的謄本」\033[0m", flush=True)
+                print("\033[91m   [N]　取消，回清單重選\033[0m", flush=True)
+                _c = input().strip().lower()
+                if _c in ('y', ''):
                     break
-                elif choice == '2':
-                    output_dir = custom_dir_options
-                    break
-                else:
-                    print("輸入無效，請重新輸入。", flush=True)
-        else:
-            output_dir = get_work_folder("下載的謄本")
-
-        if selected_output_dir is not None:
-            selected_output_dir['dir'] = output_dir
-
-        # 設置 auto_confirm 為 True，這樣後續下載不會再詢問目錄
-        auto_confirm = True
-
-        # 第四步：根據選擇的項目進行下載
-        print(f"\n開始下載 {len(selected_indices)} 個項目...", flush=True)
-        print("=" * 80, flush=True)
-
-        moved_count = 0        # 下載 + 歸檔都成功
-        saved_count = 0        # 下載成功但未歸檔（檔案留在暫存區）
-        failed_count = 0       # 連下載都失敗
-        staged_paths = []      # 已下載但未歸檔的檔案位置清單
-
-        # 先回到第一頁
-        try:
-            first_page_link = driver.find_element(By.XPATH, "//li[@class='pgFirst']/a")
-            first_page_link.click()
-            time.sleep(2)
-        except:
-            pass
-
-        current_page = 1
-
-        for i, idx in enumerate(selected_indices, 1):
-            item = all_items[idx]
-
-            # 檢查是否需要翻頁
-            if item['page'] != current_page:
-                print(f"\n導航到第 {item['page']} 頁...", flush=True)
-                if navigate_to_page(driver, item['page']):
-                    current_page = item['page']
-                else:
-                    print(f"\033[91m無法導航到第 {item['page']} 頁，跳過此項目\033[0m", flush=True)
-                    failed_count += 1
+                elif _c == 'a' and case_dir and not force_dir:
+                    force_dir = fallback_dir
                     continue
+                elif _c == 'n':
+                    _proceed = False
+                    break
+                else:
+                    print("\033[90m（請按 Enter/Y 確認、A 全部存下載的謄本 或 N 取消）\033[0m", flush=True)
+                    continue
+            if not _proceed:
+                continue  # 取消 → 回清單重選
 
-            # 下載該項目並依狀態計數
-            status, path = download_single_item(driver, item, i, len(selected_indices), auto_confirm, custom_dir_options, selected_output_dir)
-            if status == 'moved':
-                moved_count += 1
-            elif status == 'saved_only':
-                saved_count += 1
-                if path:
-                    staged_paths.append(path)
+            auto_confirm = True
+
+            # 第四步：依選擇逐檔下載
+            print(f"\n開始下載 {len(selected_indices)} 個項目...", flush=True)
+            print("=" * 80, flush=True)
+            moved_count = 0
+            saved_count = 0
+            failed_count = 0
+            staged_paths = []
+            try:
+                first_page_link = driver.find_element(By.XPATH, "//li[@class='pgFirst']/a")
+                first_page_link.click()
+                time.sleep(2)
+            except:
+                pass
+            current_page = 1
+            for i, idx in enumerate(selected_indices, 1):
+                item = all_items[idx]
+                # 逐檔智慧分流：依此筆的「區」決定存檔目錄
+                _item_dir = force_dir or _dir_for(item)
+                if selected_output_dir is not None:
+                    selected_output_dir['dir'] = _item_dir
+                try:
+                    os.makedirs(_item_dir, exist_ok=True)
+                except Exception:
+                    pass
+                if item['page'] != current_page:
+                    print(f"\n導航到第 {item['page']} 頁...", flush=True)
+                    if navigate_to_page(driver, item['page']):
+                        current_page = item['page']
+                    else:
+                        print(f"\033[91m無法導航到第 {item['page']} 頁，跳過此項目\033[0m", flush=True)
+                        failed_count += 1
+                        continue
+                status, path = download_single_item(driver, item, i, len(selected_indices), auto_confirm, custom_dir_options, selected_output_dir)
+                if status == 'moved':
+                    moved_count += 1
+                    downloaded.add(idx)
+                elif status == 'saved_only':
+                    saved_count += 1
+                    downloaded.add(idx)
+                    if path:
+                        staged_paths.append(path)
+                else:
+                    failed_count += 1
+
+            print("\n" + "=" * 80, flush=True)
+            print("下載完成！", flush=True)
+            print(f"  \033[38;5;46m成功下載並歸檔：{moved_count} 個\033[0m", flush=True)
+            if saved_count > 0:
+                print(f"  \033[93m已下載但未歸檔：{saved_count} 個（需手動搬移）\033[0m", flush=True)
+                for p in staged_paths:
+                    print(f"    - {p}", flush=True)
+            print(f"  \033[91m下載失敗：{failed_count} 個\033[0m", flush=True)
+            print("=" * 80, flush=True)
+
+            # 🔥 下載後選單：回清單再下載其他 / 回主選單 / 離開程式
+            remaining = [j for j in range(len(all_items)) if j not in downloaded]
+            print("", flush=True)
+            if remaining:
+                print(f"\033[96m清單還有 {len(remaining)} 筆尚未下載。接下來：\033[0m", flush=True)
+                print("\033[38;5;46m   [Enter] 或 [L]　回清單，再下載其他\033[0m", flush=True)
+                print("\033[94m   [M]　回主選單（送件／領件）\033[0m", flush=True)
+                print("\033[91m   [Q]　離開程式\033[0m", flush=True)
+                _post = input().strip().lower()
+                if _post == 'q':
+                    print("離開程式。", flush=True)
+                    sys.exit(0)
+                elif _post == 'm':
+                    return True
+                else:
+                    continue  # 回清單（沿用記憶體清單，已下載者會標記）
             else:
-                failed_count += 1
-
-        # 顯示下載結果
-        print("\n" + "=" * 80, flush=True)
-        print(f"下載完成！", flush=True)
-        print(f"  \033[92m成功下載並歸檔：{moved_count} 個\033[0m", flush=True)
-        if saved_count > 0:
-            print(f"  \033[93m已下載但未歸檔：{saved_count} 個（需手動搬移）\033[0m", flush=True)
-            for p in staged_paths:
-                print(f"    - {p}", flush=True)
-        print(f"  \033[91m下載失敗：{failed_count} 個\033[0m", flush=True)
-        print("=" * 80, flush=True)
-
-        return True
+                print("\033[38;5;46m清單項目已全部下載完成。\033[0m", flush=True)
+                print("\033[94m   [Enter] 或 [M]　回主選單\033[0m", flush=True)
+                print("\033[91m   [Q]　離開程式\033[0m", flush=True)
+                _post = input().strip().lower()
+                if _post == 'q':
+                    print("離開程式。", flush=True)
+                    sys.exit(0)
+                else:
+                    return True
 
     except Exception as e:
         print(f"處理『預覽列印』連結時發生錯誤: {e}", flush=True)

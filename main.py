@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7a"
-BUILD_DATE = "2026-06-05"
+VERSION = "1.1.7b"
+BUILD_DATE = "2026-06-11"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -1623,7 +1623,7 @@ def get_available_work_area():
 ANSI_COLOR_MAP = {
     '30': 'black', '31': 'red', '32': 'green', '33': 'yellow',
     '34': 'blue', '35': 'magenta', '36': 'cyan', '37': 'white',
-    '90': 'gray', '91': 'red', '92': 'green', '93': 'yellow',
+    '90': 'gray', '91': 'red', '92': '#00FF00', '93': 'yellow',  # 92 亮綠改 #00FF00（原 green 太暗）
     # 🔥 94（bright blue）改用 'skyblue'，原本 'blue' 在黑底上太深難讀
     '94': 'skyblue', '95': 'magenta', '96': 'cyan', '97': 'white',
     '40': 'black', '41': 'red', '42': 'green', '43': 'yellow',
@@ -2101,7 +2101,7 @@ def select_continuous_mode_scripts():
         ("地籍便民系統 (依地段地號建立目錄)", "land.py"),
         # 2. 謄本與土增稅（分頁內容）
         ("【謄本與土增稅】全國地政電子謄本", "hinet.py"),
-        ("【謄本與土增稅】全功能地籍資料查詢", "qpt_hinet.py"),
+        ("【謄本與土增稅】電傳資訊系統(光特)", "qpt_hinet.py"),
         ("【謄本與土增稅】電子謄本結構化", "GUI_transcript_pdf 1141021-01.py"),
         ("【謄本與土增稅】電傳謄本結構化", "GUI_telereport.py"),
         ("【功能】讀取結構化JSON", "read_json"),
@@ -2303,12 +2303,12 @@ def select_continuous_mode_scripts():
             var.set(False)
 
     def select_buy():
-        # 買賣：全選除了"全功能地籍資料查詢"、"高雄市土增稅估算"、"全國土地使用分區"
+        # 買賣：全選除了"電傳資訊系統(光特)"、"高雄市土增稅估算"、"全國土地使用分區"
         # 🔥 license 群組是互斥的，跳過保留使用者選擇
         for var, name, script in check_vars:
             if script in LICENSE_QUERY_SCRIPTS:
                 continue
-            if ("全功能地籍資料查詢" not in name and
+            if ("電傳資訊系統(光特)" not in name and
                 "高雄市土增稅估算" not in name and
                 "全國土地使用分區" not in name):
                 var.set(True)
@@ -2316,12 +2316,12 @@ def select_continuous_mode_scripts():
                 var.set(False)
 
     def select_rent():
-        # 租賃：全選除了"全功能地籍資料查詢"、"土地增值稅"、"電子謄本結構化"、"讀取結構化JSON"（包含編輯物件資料）
+        # 租賃：全選除了"電傳資訊系統(光特)"、"土地增值稅"、"電子謄本結構化"、"讀取結構化JSON"（包含編輯物件資料）
         # 🔥 license 群組是互斥的，跳過保留使用者選擇
         for var, name, script in check_vars:
             if script in LICENSE_QUERY_SCRIPTS:
                 continue
-            if ("全功能地籍資料查詢" not in name and
+            if ("電傳資訊系統(光特)" not in name and
                 "土地增值稅" not in name and
                 "電子謄本結構化" not in name and
                 "讀取結構化JSON" not in name):
@@ -4789,12 +4789,12 @@ hinet_button_style = {
 hinet_button = tk.Button(
     transcript_left_frame, text="全國地政電子謄本",
     command=lambda: (
-        update_message("歡迎使用【地籍電子謄本】小程式，模組加載中...")
+        update_message("歡迎使用【全國地政電子謄本】小程式，模組加載中...")
         or toggle_buttons(hinet_button, "全國地政電子謄本", "hinet.py")
     ),
     **hinet_button_style
 )
-qpt_hinet_button = tk.Button(transcript_left_frame, text="全功能地籍資料查詢", command=lambda: toggle_buttons(qpt_hinet_button, "全功能地籍資料查詢", "qpt_hinet.py"), **sub_page_button_style)
+qpt_hinet_button = tk.Button(transcript_left_frame, text="電傳資訊系統(光特)", command=lambda: toggle_buttons(qpt_hinet_button, "電傳資訊系統(光特)", "qpt_hinet.py"), **sub_page_button_style)
 
 # 🔥 電子謄本結構化按鈕（深藍色）
 structured_transcript_button_style = {
@@ -5057,7 +5057,7 @@ hinet_button.pack(fill=tk.X, pady=3)
 structured_transcript_button.pack(fill=tk.X, pady=3)
 # ── 分隔線：區隔上下兩組 ──
 tk.Frame(transcript_left_frame, height=2, bg="#90A4AE").pack(fill="x", padx=10, pady=(8, 6))
-# ── 左下：全功能地籍資料查詢（調閱）＋ 電傳謄本結構化 ──
+# ── 左下：電傳資訊系統(光特)（調閱）＋ 電傳謄本結構化 ──
 qpt_hinet_button.pack(fill=tk.X, pady=3)
 telereport_structured_button.pack(fill=tk.X, pady=3)
 
@@ -5338,8 +5338,12 @@ def exit_subprocess(button):
         time.sleep(0.1)
         kill_subprocess_and_children(process)
 
-        # 🔥 顯示手動關閉的結束訊息
-        update_message("🔧 子程序已結束，返回碼: 手動關閉")
+        # 🔥 顯示手動關閉的結束訊息（帶工具名稱，較友善；不顯示「返回碼」術語）
+        try:
+            _tool = (button.cget('text') if button else '').replace('關閉 ', '').strip()
+        except Exception:
+            _tool = ''
+        update_message(f"🔧 已手動關閉：{_tool}" if _tool else "🔧 已手動關閉")
         update_message("")
         update_divider("＊")
         update_message("")
@@ -6955,7 +6959,7 @@ def _bg_check_update():
 # 🔥 新增：程式啟動時的提醒訊息
 def show_startup_reminder():
     update_divider()
-    update_message("🔥 【重要提醒】不動產營業員作業便捷工具集")
+    update_message("\033[38;5;208m🔥 【重要提醒】地籍資料查詢系統\033[0m")
     update_divider()
     update_message("📍 首次使用請先執行【地籍便民系統】(\033[38;5;208m橙色按鈕\033[0m)")
     update_message("📁 將自動建立地段、地號資料夾作為儲存目錄")

@@ -151,7 +151,7 @@ def get_or_prompt_credentials(service, label):
 
 # 已知的服務清單（service_key, 顯示名稱）
 # hinet 的自然人憑證另外用 _cert 後綴，username 欄存身分證號、password 欄存憑證 PIN
-# 註：「全國地政電子謄本」(hinet.py) 與「全功能地籍資料查詢」(qpt_hinet.py) 共用同一組
+# 註：「全國地政電子謄本」(hinet.py) 與「電傳資訊系統(光特)」(qpt_hinet.py) 共用同一組
 #     HiNet 帳密與自然人憑證，故合併成一筆 hinet / hinet_cert 管理（qpt_hinet 已改讀 hinet）。
 KNOWN_SERVICES = [
     ("V523_KH", "V523 高雄市"),
