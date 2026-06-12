@@ -358,9 +358,18 @@ try:
 except Exception as e:
     print(f"[WARNING] 視窗設定失敗: {e}，繼續執行")
 
+# 🔥 用 CDP 直接授予地理位置權限（比 prefs 可靠；新版 Chrome 的 prefs 常失效）
+try:
+    driver.execute_cdp_cmd("Browser.grantPermissions", {"permissions": ["geolocation"]})
+    print("[權限] 已自動授予地理位置權限", flush=True)
+except Exception as _perm_e:
+    print(f"[權限] 自動授予地理位置失敗（不影響流程）: {_perm_e}", flush=True)
+
 # 指定要打開的網址
 url = "https://maps.nlsc.gov.tw/T09/mapshow.action"
 
+# 🔥 保險提醒：萬一仍跳出地理位置權限窗，告訴使用者怎麼點
+print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
 # 使用系統預設瀏覽器打開網址
 driver.get(url)
 # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）

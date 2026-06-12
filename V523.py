@@ -38,6 +38,20 @@ os.system('cls')
 sys.stdout.reconfigure(line_buffering=True)
 print("歡迎使用【V523地產資訊網】自動化小程式，模組載入中...", flush=True)
 
+# 🔥 解析 --indices 參數：主程式傳遞使用者勾選的筆次（0-based，逗號分隔）
+#    例如 --indices 0,2,5 表示只處理第 1、3、6 筆
+#    沒給 --indices → 維持處理全部（V523 原行為）
+selected_indices = None
+for _i, _arg in enumerate(sys.argv):
+    if _arg == '--indices' and _i + 1 < len(sys.argv):
+        try:
+            selected_indices = [int(x.strip()) for x in sys.argv[_i + 1].split(',') if x.strip()]
+        except ValueError:
+            selected_indices = None
+        break
+if selected_indices is not None:
+    print(f"[自選模式] 將處理使用者勾選的 {len(selected_indices)} 筆", flush=True)
+
 
 
 # 設定（根據縣市動態取出帳號密碼，從 Windows 認證管理員）
@@ -1288,7 +1302,18 @@ def test():
     with open(get_data_json_path(), 'r', encoding='utf-8') as file:
         data_list = json.load(file)
 
-    # 先顯示所有讀取到的資料
+    # 🔥 資料夾命名仍以 data.json 第一筆為準（與 luz 等工具一致，輸出進同一案件資料夾）
+    _orig_first_data = data_list[0] if data_list else None
+
+    # 🔥 套用使用者在主程式勾選的筆次（--indices）；沒給則維持全部（V523 原行為）
+    if selected_indices is not None:
+        data_list = [data_list[i] for i in selected_indices if 0 <= i < len(data_list)]
+        print(f"[自選模式] 已套用勾選，將處理 {len(data_list)} 筆", flush=True)
+    if not data_list:
+        print("❌ 未選取任何筆（或勾選超出範圍），程式結束", flush=True)
+        return
+
+    # 先顯示要處理的資料
     print("\n" + "="*39)
     for i, data in enumerate(data_list, 1):
         print(f"{i:2d}. {data['city']} {data['area']} {data['section']} {data['lot_number']}")
@@ -1337,7 +1362,7 @@ def test():
     #     return
 
     # 建立目錄結構
-    main_save_directory = make_directory_structure(first_data['area'], first_data['section'], first_data['lot_number'])
+    main_save_directory = make_directory_structure(_orig_first_data['area'], _orig_first_data['section'], _orig_first_data['lot_number'])
 
     # 初始化瀏覽器
     init_driver()

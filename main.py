@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7b"
-BUILD_DATE = "2026-06-11"
+VERSION = "1.1.7c"
+BUILD_DATE = "2026-06-12"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -4883,7 +4883,7 @@ def launch_cadastral_map_tool():
         latest_exe = exe_files[0]
 
         update_message(f"啟動地籍圖處理工具：{os.path.basename(latest_exe)}")
-        subprocess.Popen([latest_exe], shell=True)
+        subprocess.Popen([latest_exe])
 
     except Exception as e:
         update_message(f"[錯誤] 啟動地籍圖處理工具失敗：{e}")
@@ -5159,8 +5159,9 @@ def start_subprocess(button, script_name):
                 cmd += ['--city', city_for_btn]
                 update_message(f"[NBUPIC] 將查詢「{city_for_btn}」")
 
-        # 🔥 全國土地使用分區：開多選對話框讓使用者勾選要執行哪幾筆
-        if script_name == "luz.py":
+        # 🔥 全國土地使用分區 / V523：開多選對話框讓使用者勾選要執行哪幾筆
+        if script_name in ("luz.py", "V523.py"):
+            _tool_label = "全國土地使用分區" if script_name == "luz.py" else "V523 系統"
             try:
                 data_json_path = get_data_json_path()
                 if os.path.exists(data_json_path):
@@ -5173,12 +5174,12 @@ def start_subprocess(button, script_name):
                             f"  全選(A)  全不選(N)  只第一筆(F)  Enter=執行  Esc=取消"
                         )
                         selected_indices = show_lot_selection_dialog(
-                            "【土地使用分區】選擇要執行的地號",
+                            f"【{_tool_label}】選擇要執行的地號",
                             intro,
                             luz_data
                         )
                         if selected_indices is None:
-                            update_message("[已取消] 未啟動【全國土地使用分區】")
+                            update_message(f"[已取消] 未啟動【{_tool_label}】")
                             is_running = False
                             original_text = button.cget("text").replace("關閉 ", "")
                             button.config(text=original_text)

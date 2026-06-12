@@ -293,6 +293,20 @@ def process_entry(driver, entry, idx, total):
         print(f"\033[96m【第 {idx}/{total} 筆】{target_city} {target_area}{target_section} {target_lot}\033[0m", flush=True)
         print("=" * 50, flush=True)
 
+    # 🔥 多筆時：上一筆結束後選單是「收合」狀態（步驟7.10 收回的），
+    #   表單收合時段名下拉點不到 → 這裡先確認表單已展開，避免第2筆起選段名失敗
+    try:
+        _expanded = driver.execute_script("""
+            var m = document.getElementById('menuL');
+            return !!(m && m.offsetParent !== null && m.getBoundingClientRect().width > 100);
+        """)
+        if not _expanded:
+            print("  (偵測到表單收合，先展開系統功能選單)", flush=True)
+            driver.execute_script("loadmenu();")
+            time.sleep(1.2)
+    except Exception:
+        pass
+
     # ========== 步驟2：選擇「縣市」==========
     print(f"步驟2：選擇【縣市】: {target_city}...", flush=True)
     try:
@@ -438,48 +452,179 @@ def process_entry(driver, entry, idx, total):
     except Exception as e:
         print(f"  搜尋失敗: {e}", flush=True)
 
-    # ========== 步驟8：調整地圖位置 ==========
-    print("步驟8：調整地圖位置...", flush=True)
+    # 🔍 診斷：搜尋後 pin 狀態（判斷 pin 有沒有出現）
+    time.sleep(2)
+    _d = driver.execute_script("return [document.querySelectorAll('svg image').length, document.querySelectorAll('#mapDiv_graphics_layer image').length, document.querySelectorAll('#mapDiv_graphics_layer circle').length];")
+    print(f"  [診斷-搜尋後] svgImgs={_d[0]}, layerImgs={_d[1]}, circles={_d[2]}", flush=True)
+
+    # ========== 步驟7.5：縮回左側搜尋表框（點右上 back.png → loadmenu()），避免擋住地圖 ==========
+    print("步驟7.5：縮回左側搜尋表框...", flush=True)
     try:
-        left_panel = driver.find_element(By.ID, "menuLB")
-        menu_width = driver.execute_script("return arguments[0].getBoundingClientRect().width;", left_panel)
+        time.sleep(1)  # 等搜尋結果穩定後再收合
+        driver.execute_script("loadmenu();")
+        print("  已縮回搜尋表框", flush=True)
+    except Exception as e:
+        print(f"  縮回表框失敗（不影響後續）: {e}", flush=True)
+    _c = driver.execute_script("return document.querySelectorAll('svg image').length;")
+    print(f"  [診斷-縮回後] svgImgs={_c}", flush=True)
+    # 🔥 點「查詢」後 pin 會消失，所以先記住 pin 座標（＝地號所在），等下用座標去點
+    #   小地號時「最下面尖端」可能落到下方鄰地/道路，改用「pin 中心」較準
+    _pin_xy = driver.execute_script("""
+        var pin = document.querySelector('#mapDiv_graphics_layer image');
+        if (!pin) return null;
+        var r = pin.getBoundingClientRect();
+        return [Math.round(r.left + r.width/2), Math.round(r.top + r.height/2)];
+    """)
+    print(f"  [記住] 錨點中心座標 = {_pin_xy}", flush=True)
 
-        if menu_width == 0:
-            try:
-                accordion = driver.find_element(By.CSS_SELECTOR, "#menuLB .ui-accordion")
-                menu_width = driver.execute_script("return arguments[0].getBoundingClientRect().width;", accordion)
-            except:
-                menu_width = 380
+    # ========== 步驟7.6：點工具列「查詢」鈕（進入查詢/identify 模式）==========
+    print("步驟7.6：點工具列【查詢】鈕...", flush=True)
+    try:
+        time.sleep(0.5)
+        try:
+            # w2ui 工具列按鈕：點該按鈕元素觸發 onclick（最接近真人點擊）
+            _q_btn = driver.find_element(By.CSS_SELECTOR, "#tb_layout_main_toolbar_item_itemrdo3 table.w2ui-button")
+            driver.execute_script("arguments[0].click();", _q_btn)
+        except Exception:
+            # 退路：直接呼叫 w2ui 工具列的 click
+            driver.execute_script("w2ui['layout_main_toolbar'].click('itemrdo3');")
+        print("  已點擊【查詢】鈕（進入查詢模式）", flush=True)
+    except Exception as e:
+        print(f"  點擊【查詢】鈕失敗: {e}", flush=True)
+    _c = driver.execute_script("return document.querySelectorAll('svg image').length;")
+    print(f"  [診斷-查詢後] svgImgs={_c}", flush=True)
 
-        print(f"  左側面板寬度: {menu_width}px", flush=True)
-
-        result = driver.execute_script(f"""
-            if (typeof map !== 'undefined') {{
-                try {{
-                    var mapWidth = map.width;
-                    var menuWidth = {menu_width};
-                    var panPixels = menuWidth / 2;
-                    var extent = map.extent;
-                    var extentWidth = extent.xmax - extent.xmin;
-                    var pixelSize = extentWidth / mapWidth;
-                    var offsetX = -panPixels * pixelSize;
-                    var center = extent.getCenter();
-                    var newCenter = new esri.geometry.Point(center.x + offsetX, center.y, map.spatialReference);
-                    map.centerAt(newCenter);
-                    return 'success';
-                }} catch(e) {{
-                    return 'error: ' + e.message;
-                }}
-            }} else {{
-                return 'map not found';
-            }}
-        """)
-
-        if result == 'success':
-            print("  已調整地圖位置", flush=True)
+    # ========== 步驟7.7：用記住的座標點地圖查詢，並「驗證地號」，不對就自動微調重點 ==========
+    print("步驟7.7：在錨點座標點地圖（查詢該地號）...", flush=True)
+    try:
+        if not _pin_xy:
+            print("  沒有記住錨點座標（搜尋後 pin 未出現，略過）", flush=True)
         else:
-            print(f"  平移結果: {result}", flush=True)
+            bx, by = int(_pin_xy[0]), int(_pin_xy[1])
+            target = str(target_lot).strip()
+            _CLICK_JS = """
+                var cx=arguments[0], cy=arguments[1];
+                var tgt=document.elementFromPoint(cx,cy);
+                if(!tgt) return false;
+                var opts={bubbles:true,cancelable:true,view:window,clientX:cx,clientY:cy,button:0,buttons:1,pointerId:1,pointerType:'mouse',isPrimary:true};
+                ['pointerover','pointermove','pointerdown','mousedown','pointerup','mouseup','click'].forEach(function(t){
+                    var ev; try{ev=(t.indexOf('pointer')===0)?new PointerEvent(t,opts):new MouseEvent(t,opts);}catch(e){ev=new MouseEvent(t,opts);}
+                    tgt.dispatchEvent(ev);
+                });
+                return true;
+            """
+            _READ_LOT_JS = """
+                var el=document.querySelector('#identify_result'); if(!el) return null;
+                var rows=el.querySelectorAll('tr');
+                for(var i=0;i<rows.length;i++){var tds=rows[i].querySelectorAll('td');
+                    if(tds.length>=2 && tds[0].innerText.trim()==='地號') return tds[1].innerText.trim();}
+                return null;
+            """
+            # 先試 pin 中心，不對再上下左右微調
+            candidates = [(0, 0), (0, -8), (0, 8), (-7, 0), (7, 0), (0, -15), (-7, -8), (7, -8)]
+            matched = False
+            for dx, dy in candidates:
+                cx, cy = bx + dx, by + dy
+                driver.execute_script(_CLICK_JS, cx, cy)
+                lot = None
+                for _ in range(6):  # 等查詢結果，最多約 3 秒
+                    time.sleep(0.5)
+                    lot = driver.execute_script(_READ_LOT_JS)
+                    if lot:
+                        break
+                print(f"  試點 @({cx},{cy}) → 查到地號={lot}", flush=True)
+                if lot and str(lot).strip() == target:
+                    print(f"  ✓ 查詢結果正確：地號 {lot}", flush=True)
+                    matched = True
+                    break
+            if not matched:
+                print(f"  ⚠ 試了 {len(candidates)} 個位置仍未對到目標地號 {target}（地號可能太小，請人工確認）", flush=True)
+    except Exception as e:
+        print(f"  查詢點擊失敗: {e}", flush=True)
 
+    # ========== 步驟7.8～7.10：重新顯示錨點(pin)，讓最終截圖更明確 ==========
+    #   查詢結果確認後，再展開選單→重新搜尋(pin 重現)→收回選單
+    try:
+        print("步驟7.8：重新展開系統功能選單...", flush=True)
+        driver.execute_script("loadmenu();")
+        time.sleep(1)
+        print("步驟7.9：再次搜尋（讓錨點重新出現）...", flush=True)
+        driver.execute_script("ZoomToData(8,'CADANO_0101','CADA');")
+        time.sleep(2)
+        print("步驟7.10：再次縮回系統功能選單...", flush=True)
+        driver.execute_script("loadmenu();")
+        time.sleep(1)
+        _imgs2 = driver.execute_script("return document.querySelectorAll('#mapDiv_graphics_layer image').length;")
+        print(f"  錨點已重新顯示（image={_imgs2}）", flush=True)
+    except Exception as e:
+        print(f"  重新顯示錨點失敗（不影響截圖）: {e}", flush=True)
+
+    # ========== 步驟8a：對準錨點放大一級（＝滑鼠對準錨點往前滾一格滾輪）==========
+    #   先放大、再右移；放大以錨點為中心，之後再做右移，確保右移是最後一步不被洗掉
+    print("步驟8a：對準錨點放大一級...", flush=True)
+    try:
+        zres = driver.execute_script("""
+            if (typeof map === 'undefined') return 'map not found';
+            try {
+                // 取錨點(pin)的地理座標（找有圖形的圖層，取最後一個圖形）
+                var pinGeo = null;
+                var layers = [];
+                if (map.graphics) layers.push(map.graphics);
+                try { for (var k in map._layers) { var L = map.getLayer(k); if (L && L.graphics && L.graphics.length) layers.push(L); } } catch(e) {}
+                for (var li = layers.length - 1; li >= 0 && !pinGeo; li--) {
+                    var gs = layers[li].graphics;
+                    if (gs && gs.length) {
+                        var geom = gs[gs.length - 1].geometry;
+                        if (geom) pinGeo = (geom.type === 'point') ? geom
+                            : (geom.getCenter ? geom.getCenter()
+                            : (geom.getExtent ? geom.getExtent().getCenter() : null));
+                    }
+                }
+                var lvl = map.getLevel();
+                var maxL = 19; try { if (map.getMaxZoom) maxL = map.getMaxZoom(); } catch(e) {}
+                if (maxL >= 0 && lvl >= maxL) return 'already-max level=' + lvl;
+                if (!pinGeo) { map.setLevel(lvl + 1); return 'zoom(no-pin) level=' + (lvl+1); }
+                // 以錨點為中心放大一級（錨點移到畫面中央、變大）；右移留給步驟8b
+                map.centerAndZoom(pinGeo, lvl + 1);
+                return 'success level=' + lvl + '->' + (lvl+1);
+            } catch(e) { return 'error: ' + e.message; }
+        """)
+        print(f"  放大結果: {zres}", flush=True)
+        time.sleep(1.5)
+    except Exception as e:
+        print(f"  放大失敗（不影響截圖）: {e}", flush=True)
+
+    # ========== 步驟8b：把地號往右移（置中於查詢結果面板右側剩餘空間）==========
+    #   這是最後一個地圖動作，確保「右移」不會被放大覆蓋掉
+    print("步驟8b：調整地圖位置（地號置中於查詢結果面板右側剩餘空間）...", flush=True)
+    try:
+        result = driver.execute_script("""
+            if (typeof map === 'undefined') return 'map not found';
+            try {
+                // 地圖繪圖區(svg)的螢幕範圍
+                var svg = document.querySelector('#mapDiv_gc');
+                if (!svg) { var g = document.querySelector('#mapDiv_graphics_layer'); svg = g ? g.ownerSVGElement : null; }
+                var mr = svg ? svg.getBoundingClientRect() : {left:0, right:map.width};
+                // 查詢結果面板的右緣：用 #identify_result 往上找對話框（最穩），找不到退回左側選單
+                var panelRight = mr.left; var src = 'none';
+                var content = document.querySelector('#identify_result');
+                var dlg = content ? content.closest('.ui-dialog') : null;
+                if (dlg && dlg.offsetParent !== null) { panelRight = dlg.getBoundingClientRect().right; src = 'dialog'; }
+                else {
+                    var menu = document.getElementById('menuL') || document.getElementById('menuLB');
+                    if (menu && menu.offsetParent !== null) { panelRight = menu.getBoundingClientRect().right; src = 'menu'; }
+                }
+                // 把地號往右移到「面板右緣 ~ 地圖右緣」的中間 → 平移量 =(面板右緣 - 地圖左緣)/2
+                var panPixels = (panelRight - mr.left) / 2;
+                if (panPixels < 0) panPixels = 0;
+                var extent = map.extent;
+                var pixelSize = (extent.xmax - extent.xmin) / map.width;
+                var center = extent.getCenter();
+                map.centerAt(new esri.geometry.Point(center.x - panPixels * pixelSize, center.y, map.spatialReference));
+                return 'success src=' + src + ' panPixels=' + Math.round(panPixels) + ' panelRight=' + Math.round(panelRight) + ' mapLeft=' + Math.round(mr.left);
+            } catch(e) { return 'error: ' + e.message; }
+        """)
+        print(f"  平移結果: {result}", flush=True)
     except Exception as e:
         print(f"  調整地圖位置失敗: {e}", flush=True)
 

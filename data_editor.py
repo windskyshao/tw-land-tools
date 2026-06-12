@@ -28,6 +28,22 @@ from config_manager import open_config_manager, load_config, save_config
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
+
+def _get_with_ssl_fallback(url, **kwargs):
+    """先嘗試正常 SSL 驗證，失敗才退到不驗證（政府網站偶有憑證鏈問題；避免下載失效）。"""
+    import requests
+    kwargs.pop('verify', None)
+    try:
+        return requests.get(url, verify=True, **kwargs)
+    except requests.exceptions.SSLError:
+        try:
+            import urllib3
+            urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
+        except Exception:
+            pass
+        return requests.get(url, verify=False, **kwargs)
+
+
 # 🔥 處理 PyInstaller 打包後的路徑問題
 def get_resource_path(relative_path):
     """
@@ -6021,7 +6037,7 @@ def open_data_editor():
                         }
 
                         update_message(f"[DEBUG] 國小學區 URL: {elem_source}")
-                        response = requests.get(elem_source, headers=headers, verify=False, timeout=60)
+                        response = _get_with_ssl_fallback(elem_source, headers=headers, timeout=60)
                         update_message(f"[DEBUG] HTTP 狀態碼: {response.status_code}")
 
                         if response.status_code == 200:
@@ -6077,7 +6093,7 @@ def open_data_editor():
                         }
 
                         update_message(f"[DEBUG] 國中學區 URL: {jun_source}")
-                        response = requests.get(jun_source, headers=headers, verify=False, timeout=60)
+                        response = _get_with_ssl_fallback(jun_source, headers=headers, timeout=60)
                         update_message(f"[DEBUG] HTTP 狀態碼: {response.status_code}")
 
                         if response.status_code == 200:
@@ -6393,19 +6409,31 @@ def open_data_editor():
         if not pdf_path or not schools:
             return {}
         results = {}
+        import os
+        if not os.path.exists(pdf_path):
+            return {}
+        # 🔥 依序嘗試多個 PDF 庫，確保打包版(dist-0 有 pypdf)與開發環境(有 PyPDF2/fitz)都能讀
+        pages_text = None
         try:
-            import fitz, os
-            if not os.path.exists(pdf_path):
-                return {}
-            doc = fitz.open(pdf_path)
-            for i in range(len(doc)):
-                text = doc[i].get_text()
-                for sch in schools:
-                    if sch not in results and sch in text:
-                        results[sch] = i + 1
-            doc.close()
-        except Exception as _e:
-            update_message(f"[警告] 讀 PDF 失敗 {pdf_path}：{_e}")
+            from pypdf import PdfReader
+            pages_text = [(p.extract_text() or '') for p in PdfReader(pdf_path).pages]
+        except Exception:
+            try:
+                from PyPDF2 import PdfReader
+                pages_text = [(p.extract_text() or '') for p in PdfReader(pdf_path).pages]
+            except Exception:
+                try:
+                    import fitz
+                    _doc = fitz.open(pdf_path)
+                    pages_text = [_doc[i].get_text() for i in range(len(_doc))]
+                    _doc.close()
+                except Exception as _e:
+                    update_message(f"[警告] 讀 PDF 失敗 {pdf_path}：{_e}")
+                    return {}
+        for i, text in enumerate(pages_text):
+            for sch in schools:
+                if sch not in results and sch in text:
+                    results[sch] = i + 1
         return results
 
     def _find_pdf_path(filename):

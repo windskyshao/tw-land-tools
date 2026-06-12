@@ -3053,6 +3053,9 @@ def collect_all_preview_items(driver, debug_mode=False, skip_diagnosis=False):
                         doc_type = cells[4].text.strip()
                         sheets = cells[5].text.strip()
                         fee = cells[6].text.strip()
+                        # 🔥 狀態欄（cells[7]）：含「未下載」＝尚未下載、會扣費；否則為已領取（不再扣費）
+                        status_text = cells[7].text.strip() if len(cells) > 7 else ''
+                        is_pending = ('未下載' in status_text)
 
                         # 地號在 cells[9]
                         plot_info = cells[9].text.strip() if len(cells) > 9 else ''
@@ -3080,6 +3083,7 @@ def collect_all_preview_items(driver, debug_mode=False, skip_diagnosis=False):
                             'doc_type': doc_type,
                             'sheets': sheets,
                             'fee': fee,
+                            'pending': is_pending,   # True＝未下載（會扣費）；False＝已領取過（不扣費）
                             'plot_info': plot_info,
                             'link': link,
                             'row_element': row
@@ -3131,7 +3135,9 @@ def display_items_and_get_selection(items, downloaded=None):
 
     for i, item in enumerate(items, 1):
         plot_info = item.get('plot_info', '')
-        mark = "  \033[38;5;46m✓ 已下載\033[0m" if (i - 1) in downloaded else ""
+        # 已領取＝網頁狀態非「未下載」，或本次已下載過 → 不扣費；其餘為未下載 → 需扣費
+        already = (not item.get('pending', True)) or ((i - 1) in downloaded)
+        mark = "  \033[38;5;46m不扣費\033[0m" if already else "  \033[97;41m 需扣費 \033[0m"
         print(f"{i:<3} {item['location']:<12} {item['doc_type']:<10} {item['fee']:<6} {plot_info}{mark}", flush=True)
 
     print("=" * 39, flush=True)
@@ -3403,27 +3409,33 @@ def handle_preview_print(
             force_dir = None
             _proceed = True
             while True:
-                total_fee = 0
+                total_fee = 0     # 只累計「會扣費（未下載過）」的金額
+                n_charge = 0      # 會實際扣費的筆數
+                n_free = 0        # 已領取過、不再扣費的筆數
                 n_case = 0
                 n_fallback = 0
-                n_dup = 0  # 已下載過卻又被選的筆數
                 for _idx in selected_indices:
-                    try:
-                        total_fee += int(''.join(filter(str.isdigit, str(all_items[_idx].get('fee', '0')))) or 0)
-                    except Exception:
-                        pass
-                    _d = force_dir or _dir_for(all_items[_idx])
+                    _it = all_items[_idx]
+                    _already = (not _it.get('pending', True)) or (_idx in downloaded)
+                    if _already:
+                        n_free += 1
+                    else:
+                        n_charge += 1
+                        try:
+                            total_fee += int(''.join(filter(str.isdigit, str(_it.get('fee', '0')))) or 0)
+                        except Exception:
+                            pass
+                    _d = force_dir or _dir_for(_it)
                     if case_dir and _d == case_dir:
                         n_case += 1
                     else:
                         n_fallback += 1
-                    if _idx in downloaded:
-                        n_dup += 1
                 print("", flush=True)
-                print(f"\033[93m即將下載 {len(selected_indices)} 筆，合計金額：{total_fee} 元\033[0m", flush=True)
-                print("\033[91m※ 下載即領件、會產生費用，請先確認金額無誤！\033[0m", flush=True)
-                if n_dup > 0:
-                    print(f"\033[91m⚠ 其中 {n_dup} 筆稍早已下載過，再下載可能重複收費！\033[0m", flush=True)
+                print(f"\033[93m即將下載 {len(selected_indices)} 筆：\033[0m", flush=True)
+                if n_charge > 0:
+                    print(f"\033[91m   ▸ {n_charge} 筆會扣費，合計 {total_fee} 元（下載即領件、會產生費用，請確認！）\033[0m", flush=True)
+                if n_free > 0:
+                    print(f"\033[38;5;46m   ▸ {n_free} 筆先前已領取，不會再扣費\033[0m", flush=True)
                 print("\033[96m存放方式（依各筆的「區」自動分流）：\033[0m", flush=True)
                 if case_dir and n_case > 0:
                     print(f"\033[96m   • {n_case} 筆（與案件「{_case_area}」相符）→ 案件「0.謄本」\033[0m", flush=True)

@@ -386,6 +386,7 @@ def download_cpi_excel():
         flush_print("下載最新CPI資料...", "important")
 
         session = requests.Session()
+        # 主計總處檔案主機 ws.dgbas.gov.tw 憑證鏈不完整（缺中間憑證），無法做正常 SSL 驗證，只能關閉驗證
         session.verify = False
 
         headers = {
@@ -402,7 +403,7 @@ def download_cpi_excel():
             main_url = "https://www.stat.gov.tw/cp.aspx?n=2665"
             
             response = session.get(main_url, headers=headers, timeout=30)
-            
+
             if response.status_code == 200:
                 html_content = response.text
                 flush_print(f"✓ 網頁載入成功（{len(html_content)} bytes）", "important")
@@ -2241,178 +2242,6 @@ def handle_year_month_dropdown(driver, year_month_str):
 
 import requests
 
-def download_and_parse_cpi_data():
-    """下載並解析消費者物價指數數據 - 使用爬蟲取得最新網址"""
-    cpi_data = {}
-    cpi_file = None
-
-    try:
-        # 🔥 使用 download_cpi_excel 函數（會爬蟲取得最新網址）
-        cpi_file = download_cpi_excel()
-
-        if not cpi_file or not os.path.exists(cpi_file):
-            flush_print("✗ 無法下載 CPI 檔案")
-            return {}
-        
-        # 解析Excel檔案
-        try:
-            import pandas as pd
-
-            # 🔥 顯示正在讀取的檔案路徑
-            flush_print(f"正在解析 CPI 檔案：{cpi_file}")
-
-            # 🎯 根據實際結構：跳過標題行，讀取資料
-            df = pd.read_excel(cpi_file, sheet_name="稅務專用", header=None)
-            # 然後從第5行開始處理（index=4）
-            for index in range(4, len(df)):
-                flush_print(f"✓ 成功讀取CPI資料，共{len(df)}行")
-            
-            # 🔍 調試：檢查實際的資料結構
-            flush_print(f"CPI資料前3行樣本：")
-            for i in range(min(3, len(df))):
-                row_data = [str(df.iloc[i, j]) for j in range(min(13, len(df.columns)))]
-                flush_print(f"  第{i+1}行：{row_data}")
-            
-            # 解析資料：A欄=民國年，B到M欄=1月到12月
-            for index, row in df.iterrows():
-                try:
-                    # A欄：民國年份
-                    republic_year_value = row.iloc[0]
-                    
-                    if pd.isna(republic_year_value):
-                        continue
-                    
-                    # 提取民國年份數字
-                    if isinstance(republic_year_value, str):
-                        import re
-                        year_match = re.search(r'(\d+)', str(republic_year_value))
-                        if year_match:
-                            republic_year = int(year_match.group(1))
-                        else:
-                            continue
-                    else:
-                        republic_year = int(float(republic_year_value))
-                    
-                    # 檢查年份合理性 (民國80-120年)
-                    if republic_year < 48 or republic_year > 120:
-                        continue
-                    
-                    # B到M欄：1月到12月的CPI值
-                    for month in range(1, 13):
-                        col_index = month  # B欄=1月(index=1), C欄=2月(index=2), ..., M欄=12月(index=12)
-                        
-                        if col_index < len(row) and pd.notna(row.iloc[col_index]):
-                            try:
-                                cpi_value = float(row.iloc[col_index])
-                                
-                                # 建立多種查詢格式的索引
-                                key1 = f"{republic_year:03d}{month:02d}"        # 08901
-                                key2 = f"{republic_year:03d}年{month:02d}月"    # 089年01月  
-                                key3 = f"{republic_year:02d}{month:02d}"        # 8901
-
-                                cpi_data[key1] = str(cpi_value)
-                                cpi_data[key2] = str(cpi_value)
-                                if republic_year < 100:
-                                    cpi_data[key3] = str(cpi_value)
-                                
-                                # # 調試：顯示關鍵範例
-                                # if republic_year in [110, 111, 112] and month == 12:
-                                #     flush_print(f"  CPI重要資料：民國{republic_year}年{month}月 → {key1} = {cpi_value}")
-                                    
-                            except (ValueError, TypeError):
-                                continue
-                                
-                except (ValueError, IndexError, TypeError) as e:
-                    continue
-                    
-            flush_print(f"✓ 解析完成，共{len(cpi_data)}筆CPI資料")
-            
-            # # 🔍 重點調試：檢查111年12月的資料
-            # target_keys = ['11112', '111012']  # 可能的格式
-            # for key in target_keys:
-            #     if key in cpi_data:
-            #         flush_print(f"✓ 找到目標資料：{key} = {cpi_data[key]}")
-            #     else:
-            #         flush_print(f"✗ 找不到：{key}")
-            
-            # # 顯示111年可用的月份
-            # year_111_keys = [k for k in cpi_data.keys() if k.startswith('111')]
-            # if year_111_keys:
-            #     flush_print(f"民國111年可用月份：{sorted(year_111_keys)}")
-            
-        except Exception as e:
-            flush_print(f"解析CPI檔案失敗：{e}")
-
-            flush_print(f"詳細錯誤：{traceback.format_exc()}")
-            return {}
-        
-    except Exception as e:
-        flush_print(f"下載CPI資料時發生錯誤：{e}")
-        return {}
-    
-    finally:
-        # 清理下載的 CPI 檔案（可選，保留供調試）
-        pass
-    
-    # 🔥 檢查 CPI 資料的最新年月（確認是否為最新資料）
-    if cpi_data:
-        # 找出所有年份和月份
-        max_year = 0
-        max_month = 0
-        latest_key = ""
-        latest_value = ""
-
-        import re
-        for key in cpi_data:
-            year = None
-            month = None
-
-            # 嘗試解析格式1：114年11月
-            match1 = re.search(r'(\d{2,3})年(\d{1,2})月', key)
-            if match1:
-                year = int(match1.group(1))
-                month = int(match1.group(2))
-            else:
-                # 嘗試解析格式2：11411 或 11401（5位數：3位年+2位月）
-                match2 = re.match(r'^(\d{3})(\d{2})$', key)
-                if match2:
-                    year = int(match2.group(1))
-                    month = int(match2.group(2))
-                else:
-                    # 嘗試解析格式3：8901（4位數：2位年+2位月，適用於民國89年以前）
-                    match3 = re.match(r'^(\d{2})(\d{2})$', key)
-                    if match3:
-                        year = int(match3.group(1))
-                        month = int(match3.group(2))
-
-            # 驗證月份合理性（1-12）
-            if year is not None and month is not None and 1 <= month <= 12:
-                if year > max_year or (year == max_year and month > max_month):
-                    max_year = year
-                    max_month = month
-                    latest_key = key
-                    latest_value = cpi_data[key]
-
-        if latest_key:
-            # 🔥 使用亮黃色顯示最新年月，讓使用者容易確認是否為最新資料
-            yellow = "\033[93m"  # 亮黃色
-            reset = "\033[0m"    # 重置顏色
-            print(f"\n{yellow}✓ CPI 資料最新年月：民國 {max_year} 年 {max_month} 月 = {latest_value}{reset}", flush=True)
-
-            # 檢查是否為最近的資料（至少要有今年或去年的資料）
-            from datetime import datetime
-            current_year = datetime.now().year - 1911  # 轉換為民國年
-
-            if max_year >= current_year - 1:
-                flush_print(f"✓ CPI 資料為最新版本（包含近期資料）", "success")
-            else:
-                flush_print(f"⚠️ 警告：CPI 資料可能過舊（最新為民國 {max_year} 年）", "warning")
-        else:
-            flush_print("⚠️ 無法判斷 CPI 資料的最新年月", "warning")
-
-    return cpi_data
-
-
 def parse_cpi_data(file_path):
     """解析CPI數據 - 加入詳細調試"""
     try:
@@ -3094,36 +2923,23 @@ def enhanced_main():
     
     print("-"*39 + "\n")
     
-    # 步驟1: 下載最新CPI資料
+    # 步驟1: 下載最新CPI資料（直接用可正常解析的機制 download_cpi_excel + parse_cpi_data）
     flush_print("下載最新CPI資料...", "important")
-    global_cpi_data = download_and_parse_cpi_data()
+    cpi_file = download_cpi_excel()
+    global_cpi_data = parse_cpi_data(cpi_file) if cpi_file else {}
     flush_print(f"CPI載入完成: {len(global_cpi_data)} 筆", "important")
 
-    # 🔥 檢查 CPI 資料是否成功下載
+    # 🔥 檢查 CPI 資料是否成功下載並解析
     if not global_cpi_data or len(global_cpi_data) == 0:
-        flush_print("\n⚠️ 警告：無法自動下載 CPI 資料", "important")
-        flush_print("嘗試使用新的下載機制...", "important")
-
-        # 使用新的下載機制（包含用戶輸入）
-        cpi_file = download_cpi_excel()
-        if cpi_file:
-            global_cpi_data = parse_cpi_data(cpi_file)
-            flush_print(f"✓ CPI重新載入完成: {len(global_cpi_data)} 筆", "important")
-
-            # 🔥 檢查第二次解析是否成功
-            if not global_cpi_data or len(global_cpi_data) == 0:
-                flush_print("\n" + "="*39, "important")
-                flush_print("✗ CPI 檔案下載成功，但解析失敗", "important")
-                flush_print("="*39, "important")
-                flush_print("可能原因：", "important")
-                flush_print("1. 檔案格式不正確", "important")
-                flush_print("2. 缺少必要的套件（xlrd）", "important")
-                flush_print("3. 檔案內容與預期不符", "important")
-                flush_print("\n程式無法繼續執行。", "important")
-                return
-        else:
-            flush_print("\n✗ 無法取得 CPI 資料，程式無法繼續", "important")
-            return
+        flush_print("\n" + "="*39, "important")
+        flush_print("✗ 無法取得或解析 CPI 資料，程式無法繼續", "important")
+        flush_print("="*39, "important")
+        flush_print("可能原因：", "important")
+        flush_print("1. 主計總處網站連線異常", "important")
+        flush_print("2. 缺少必要的套件（xlrd）", "important")
+        flush_print("3. 檔案格式與預期不符", "important")
+        flush_print("\n程式無法繼續執行。", "important")
+        return
     
     # 步驟2: 使用已驗證的 JSON 路徑
     flush_print("解析JSON資料...", "important")

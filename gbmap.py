@@ -270,6 +270,13 @@ def main():
         # 初始化瀏覽器
         driver = create_chrome_driver(options=options)
 
+        # 🔥 用 CDP 直接授予地理位置權限（比 prefs 可靠；新版 Chrome 的 prefs 常失效）
+        try:
+            driver.execute_cdp_cmd("Browser.grantPermissions", {"permissions": ["geolocation"]})
+            print("[權限] 已自動授予地理位置權限", flush=True)
+        except Exception as _perm_e:
+            print(f"[權限] 自動授予地理位置失敗（不影響流程）: {_perm_e}", flush=True)
+
         # 開啟目標網頁
         url = "https://service.map.com.tw/houseol/AnalysisObject.aspx"
         driver.get(url)
