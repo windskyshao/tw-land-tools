@@ -44,8 +44,12 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7c"
-BUILD_DATE = "2026-06-12"
+VERSION = "1.1.7d"
+BUILD_DATE = "2026-06-15"
+
+# 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
+FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
+FEEDBACK_TOKEN = "ksp-fb-2026-x7q2"  # ⚠️ 需與 Render 環境變數 FEEDBACK_TOKEN 設成完全一樣
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -1862,6 +1866,19 @@ update_button = tk.Button(
 )
 update_button.pack(side=tk.RIGHT, padx=(0, 6))
 
+# 💬 意見回饋按鈕（緊鄰更新鈕左側）
+feedback_button = tk.Button(
+    status_frame,
+    text="💬",
+    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
+    bg='#FF9800', fg='white',
+    relief=tk.FLAT, bd=0,
+    padx=8, pady=0,
+    cursor="hand2",
+    command=lambda: open_feedback_dialog()
+)
+feedback_button.pack(side=tk.RIGHT, padx=(0, 6))
+
 # 🔥 後 pack json_status_label，吃掉剩餘空間
 json_status_label = tk.Label(
     status_frame,
@@ -1931,6 +1948,44 @@ def _update_btn_leave(_e):
 
 update_button.bind('<Enter>', _update_btn_enter)
 update_button.bind('<Leave>', _update_btn_leave)
+
+# 💬 回饋鈕：滑鼠移上去顯示提示詞
+feedback_button._tooltip = None
+
+def _feedback_btn_enter(_e):
+    try:
+        feedback_button.config(bg='#F57C00')
+        tip = tk.Toplevel(feedback_button)
+        tip.wm_overrideredirect(True)
+        tip.attributes('-topmost', True)
+        tk.Label(
+            tip, text="意見回饋\n（把建議或問題直接傳給開發者）",
+            background='#333333', foreground='white',
+            relief=tk.SOLID, borderwidth=1,
+            font=("Microsoft JhengHei", 9),
+            padx=8, pady=3, justify=tk.LEFT,
+        ).pack()
+        tip.update_idletasks()
+        tip_w = tip.winfo_width()
+        x = feedback_button.winfo_rootx() + feedback_button.winfo_width() - tip_w
+        y = feedback_button.winfo_rooty() + feedback_button.winfo_height() + 4
+        tip.wm_geometry(f"+{x}+{y}")
+        feedback_button._tooltip = tip
+    except Exception:
+        pass
+
+def _feedback_btn_leave(_e):
+    try:
+        feedback_button.config(bg='#FF9800')
+        tip = getattr(feedback_button, '_tooltip', None)
+        if tip is not None:
+            tip.destroy()
+            feedback_button._tooltip = None
+    except Exception:
+        pass
+
+feedback_button.bind('<Enter>', _feedback_btn_enter)
+feedback_button.bind('<Leave>', _feedback_btn_leave)
 
 frame_top = tk.Frame(root)
 frame_top.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
@@ -6873,6 +6928,245 @@ def perform_self_update(download_url, new_version, asset_name):
     perform_multi_update([fake_update])
 
 
+def _capture_screen_png_bytes():
+    """擷取整個螢幕，回傳 PNG bytes；失敗回 None。"""
+    try:
+        from PIL import ImageGrab
+        import io
+        img = ImageGrab.grab()
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+    except Exception as e:
+        try:
+            print(f"[feedback] 截圖失敗: {e}")
+        except Exception:
+            pass
+        return None
+
+
+def _load_image_as_png_bytes(path):
+    """讀取使用者選的圖片檔，統一轉成 PNG bytes（確保 LINE 能顯示）；失敗回 None。"""
+    try:
+        from PIL import Image
+        import io
+        img = Image.open(path)
+        img = img.convert('RGB')
+        buf = io.BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+    except Exception as e:
+        try:
+            print(f"[feedback] 讀取圖片失敗: {e}")
+        except Exception:
+            pass
+        return None
+
+
+def _send_feedback_request(name, category, message, png_bytes):
+    """把回饋 POST 到 bot（JSON + base64 截圖）。回傳 (ok, info)。"""
+    import urllib.request
+    import json as _json
+    import base64 as _b64
+    payload = {
+        'token': FEEDBACK_TOKEN,
+        'version': VERSION,
+        'name': name or '匿名',
+        'category': category or '',
+        'message': message or '',
+        'screenshot_b64': _b64.b64encode(png_bytes).decode('ascii') if png_bytes else ''
+    }
+    data = _json.dumps(payload).encode('utf-8')
+    req = urllib.request.Request(
+        FEEDBACK_URL, data=data,
+        headers={'Content-Type': 'application/json', 'X-Feedback-Token': FEEDBACK_TOKEN}
+    )
+    try:
+        with urllib.request.urlopen(req, timeout=60) as resp:
+            return (resp.getcode() == 200, f"HTTP {resp.getcode()}")
+    except Exception as e:
+        return (False, str(e))
+
+
+def open_feedback_dialog():
+    """意見回饋對話框：自動截圖 + 填寫 → 送到開發者 LINE。"""
+    # 先截圖（趁對話框尚未蓋住畫面）
+    png = _capture_screen_png_bytes()
+
+    dlg = tk.Toplevel(root)
+    dlg.title("意見回饋")
+    dlg.transient(root)
+    dlg.resizable(False, False)
+    try:
+        dlg.grab_set()
+    except Exception:
+        pass
+
+    pad = {'padx': 12}
+    tk.Label(dlg, text="💬 意見回饋", font=("Microsoft JhengHei", 13, "bold")).pack(anchor="w", pady=(12, 2), **pad)
+    tk.Label(dlg, text="您的建議或問題會直接傳給開發者，方便快速改善 🙏",
+             font=("Microsoft JhengHei", 10), fg="#555").pack(anchor="w", **pad)
+
+    # 稱呼
+    row1 = tk.Frame(dlg)
+    row1.pack(fill="x", pady=(10, 2), **pad)
+    tk.Label(row1, text="稱呼：", font=("Microsoft JhengHei", 11), width=6, anchor="w").pack(side="left")
+    name_var = tk.StringVar()
+    tk.Entry(row1, textvariable=name_var, font=("Microsoft JhengHei", 11), width=24).pack(side="left", fill="x", expand=True)
+
+    # 類型
+    row2 = tk.Frame(dlg)
+    row2.pack(fill="x", pady=2, **pad)
+    tk.Label(row2, text="類型：", font=("Microsoft JhengHei", 11), width=6, anchor="w").pack(side="left")
+    cat_var = tk.StringVar(value="錯誤回報")
+    for _t in ("錯誤回報", "功能建議", "其他"):
+        tk.Radiobutton(row2, text=_t, variable=cat_var, value=_t, font=("Microsoft JhengHei", 10)).pack(side="left")
+
+    # 內容
+    tk.Label(dlg, text="內容：", font=("Microsoft JhengHei", 11)).pack(anchor="w", pady=(8, 2), **pad)
+    content_text = tk.Text(dlg, font=("Microsoft JhengHei", 11), width=40, height=5, wrap="char")
+    content_text.pack(fill="both", **pad)
+
+    # ===== 圖片：預設自動截取目前畫面，也可改用自己的圖片 =====
+    chosen = {'bytes': None, 'name': ''}  # 使用者自選的圖片（優先於自動截圖）
+
+    img_frame = tk.LabelFrame(dlg, text="📷 圖片（幫助開發者了解問題）",
+                              font=("Microsoft JhengHei", 10), padx=8, pady=4)
+    img_frame.pack(fill="x", pady=(10, 0), **pad)
+
+    tk.Label(img_frame, text="送出時會自動截取您目前的螢幕畫面；也可改用自己的截圖或圖片。",
+             font=("Microsoft JhengHei", 9), fg="#555", justify="left").pack(anchor="w")
+
+    shot_var = tk.BooleanVar(value=bool(png))
+    auto_chk = tk.Checkbutton(
+        img_frame,
+        text=("自動附上『目前螢幕畫面』" if png else "自動截圖這次失敗，請改用下方自選圖片"),
+        variable=shot_var, font=("Microsoft JhengHei", 10),
+        state=("normal" if png else "disabled"))
+    auto_chk.pack(anchor="w", pady=(2, 0))
+
+    pick_row = tk.Frame(img_frame)
+    pick_row.pack(fill="x", pady=(2, 0))
+    img_status = tk.Label(pick_row, text="（未選，將用螢幕截圖）",
+                          font=("Microsoft JhengHei", 9), fg="#999")
+
+    def pick_image():
+        from tkinter import filedialog
+        path = filedialog.askopenfilename(
+            parent=dlg, title="選擇要附上的圖片",
+            filetypes=[("圖片檔", "*.png *.jpg *.jpeg *.bmp *.gif"), ("所有檔案", "*.*")])
+        if not path:
+            return
+        data = _load_image_as_png_bytes(path)
+        if not data:
+            img_status.config(text="⚠ 無法讀取這張圖片，請換一張", fg="#D32F2F")
+            return
+        chosen['bytes'] = data
+        chosen['name'] = os.path.basename(path)
+        shot_var.set(False)  # 改用自選圖，就不重複附自動截圖
+        img_status.config(text=f"已選擇：{chosen['name']}（將改用此圖）", fg="#2E7D32")
+
+    tk.Button(pick_row, text="改用自己的圖片…", font=("Microsoft JhengHei", 9),
+              cursor="hand2", command=pick_image).pack(side="left")
+    img_status.pack(side="left", padx=(8, 0))
+
+    status_lbl = tk.Label(dlg, text="", font=("Microsoft JhengHei", 10), fg="#1976D2", justify="left")
+    status_lbl.pack(anchor="w", pady=(6, 0), **pad)
+
+    btn_row = tk.Frame(dlg)
+    btn_row.pack(fill="x", pady=12, **pad)
+
+    def do_send():
+        message = content_text.get("1.0", "end").strip()
+        if not message:
+            status_lbl.config(text="請先填寫內容再送出", fg="#D32F2F")
+            return
+        send_btn.config(state="disabled")
+        cancel_btn.config(state="disabled")
+        status_lbl.config(text="傳送中…（伺服器若休眠中，第一次可能稍久，請稍候）", fg="#1976D2")
+        name = name_var.get().strip()
+        category = cat_var.get()
+        # 圖片：使用者自選優先，否則用自動截圖（若有勾選），都沒有就不附圖
+        if chosen['bytes']:
+            png_to_send = chosen['bytes']
+        elif shot_var.get():
+            png_to_send = png
+        else:
+            png_to_send = None
+
+        import threading
+
+        def worker():
+            ok, info = _send_feedback_request(name, category, message, png_to_send)
+
+            def done():
+                if ok:
+                    status_lbl.config(text="✅ 已送出，感謝您的回饋！", fg="#2E7D32")
+                    dlg.after(1200, dlg.destroy)
+                    try:
+                        update_message("✅ 意見回饋已送出，感謝您！")
+                    except Exception:
+                        pass
+                else:
+                    status_lbl.config(text=f"❌ 送出失敗：{info}\n請確認網路後再試一次", fg="#D32F2F")
+                    send_btn.config(state="normal")
+                    cancel_btn.config(state="normal")
+            try:
+                root.after(0, done)
+            except Exception:
+                done()
+        threading.Thread(target=worker, daemon=True).start()
+
+    send_btn = tk.Button(btn_row, text="送出", font=("Microsoft JhengHei", 11, "bold"),
+                         bg="#FF9800", fg="white", relief=tk.FLAT, padx=20, cursor="hand2", command=do_send)
+    send_btn.pack(side="right", padx=(8, 0))
+    cancel_btn = tk.Button(btn_row, text="取消", font=("Microsoft JhengHei", 11),
+                           relief=tk.FLAT, padx=16, cursor="hand2", command=dlg.destroy)
+    cancel_btn.pack(side="right")
+
+    # 置中於主視窗
+    dlg.update_idletasks()
+    try:
+        x = root.winfo_rootx() + (root.winfo_width() - dlg.winfo_width()) // 2
+        y = root.winfo_rooty() + (root.winfo_height() - dlg.winfo_height()) // 3
+        dlg.geometry(f"+{max(x, 0)}+{max(y, 0)}")
+    except Exception:
+        pass
+    content_text.focus_set()
+
+
+def _prompt_updates(updates):
+    """顯示『有新版本』對話框；按確認即執行更新。必須在主執行緒呼叫。
+    啟動時的背景檢查與手動點 🔄 都走這裡，行為一致。"""
+    if not updates:
+        return
+    lines = []
+    for u in updates:
+        name = u['source']['name']
+        local = u['local_version'] or '(未安裝)'
+        remote = u['remote_version']
+        lines.append(f"▸ {name}：v{local} → v{remote}")
+        notes_short = u['release_notes'].strip()
+        if notes_short:
+            first_line = notes_short.split('\n')[0].strip()[:60]
+            if first_line:
+                lines.append(f"   {first_line}")
+
+    msg = (
+        f"偵測到 {len(updates)} 個更新：\n\n"
+        + '\n'.join(lines)
+        + "\n\n是否立即更新？"
+    )
+
+    if not show_large_yesno("有新版本", msg):
+        return
+
+    # 一次處理全部 update（主程式 zip + 工具 exe）：
+    # perform_multi_update 會下載所有 asset、產生單一 updater.bat、
+    # 等主程式關閉後一次替換全部檔案、重啟。
+    perform_multi_update(updates)
+
+
 def check_for_update(silent=True):
     """檢查所有 UPDATE_SOURCES（主程式 + 兩個附屬工具）。
 
@@ -6899,11 +7193,17 @@ def check_for_update(silent=True):
     except Exception:
         pass
 
-    # silent 模式：只在偵測到更新時於訊息區提示
+    # silent 模式（啟動時背景檢查）：偵測到更新時於訊息區提示，並主動彈出下載對話框
     if silent:
         if updates:
             names = '、'.join(u['source']['name'] for u in updates)
-            update_message(f"💡 偵測到 {len(updates)} 個更新：{names}（點右上角 🔄 查看）")
+            update_message(f"💡 偵測到 {len(updates)} 個更新：{names}（點右上角 🔄 可再次查看）")
+            # 🔥 啟動時就主動跳出下載對話框，明顯告知使用者；沒新版則不打擾
+            #    對話框是 tkinter 元件，需排回主執行緒執行（本函式在背景執行緒）
+            try:
+                root.after(0, lambda u=updates: _prompt_updates(u))
+            except Exception:
+                pass
         return
 
     # 主動點 🔄：彈出對話框
@@ -6924,32 +7224,8 @@ def check_for_update(silent=True):
         show_large_message("檢查更新", "目前都是最新版本 ✓\n\n" + '\n'.join(lines))
         return
 
-    # 有更新：列出所有可更新項目
-    lines = []
-    for u in updates:
-        name = u['source']['name']
-        local = u['local_version'] or '(未安裝)'
-        remote = u['remote_version']
-        lines.append(f"▸ {name}：v{local} → v{remote}")
-        notes_short = u['release_notes'].strip()
-        if notes_short:
-            first_line = notes_short.split('\n')[0].strip()[:60]
-            if first_line:
-                lines.append(f"   {first_line}")
-
-    msg = (
-        f"偵測到 {len(updates)} 個更新：\n\n"
-        + '\n'.join(lines)
-        + "\n\n是否立即更新？"
-    )
-
-    if not show_large_yesno("有新版本", msg):
-        return
-
-    # 一次處理全部 update（主程式 zip + 工具 exe）：
-    # perform_multi_update 會下載所有 asset、產生單一 updater.bat、
-    # 等主程式關閉後一次替換全部檔案、重啟。
-    perform_multi_update(updates)
+    # 有更新：彈出對話框（與啟動時自動彈出的是同一個）
+    _prompt_updates(updates)
 
 
 def _bg_check_update():
