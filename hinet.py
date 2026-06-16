@@ -1915,7 +1915,8 @@ def _prefill_from_data_json():
     print(f"\n\033[96m偵測到 data.json，共 {len(data)} 筆：\033[0m", flush=True)
     for i, e in enumerate(data, 1):
         print(f"  {i}. {e.get('city','')} {e.get('area','')} {e.get('section','')} {e.get('lot_number','')}", flush=True)
-    ans = input("\033[93m要直接帶入這些資料嗎？(Y 帶入 / N 自己輸入)：\033[0m").strip().lower()
+    print("\033[93m要直接帶入這些資料嗎？(直接按 Enter 或 Y = 帶入 ／ N = 自己輸入)：\033[0m", flush=True)
+    ans = input().strip().lower()
     if ans not in ('y', ''):
         return None
 
@@ -1937,7 +1938,8 @@ def _prefill_from_data_json():
         for i, (k, es) in enumerate(groups, 1):
             print(f"\033[93m  {i}. {k[0]} {k[1]} {k[2]}（{len(es)} 筆）\033[0m", flush=True)
         while True:
-            pick = input("請輸入編號：").strip()
+            print("請輸入編號：", flush=True)
+            pick = input().strip()
             if pick.isdigit() and 1 <= int(pick) <= len(groups):
                 chosen = groups[int(pick) - 1]
                 break
@@ -1951,7 +1953,8 @@ def _prefill_from_data_json():
         print(f"\n\033[93m此段有 {len(lots)} 筆地號，要怎麼帶入？\033[0m", flush=True)
         print("\033[93m  [1] 一次帶入（同一組，一次調閱所有地號）\033[0m", flush=True)
         print("\033[93m  [2] 分批帶入（逐筆各別調閱）\033[0m", flush=True)
-        c = input("請選擇(1/2，預設 1)：").strip()
+        print("請選擇(1/2，預設 1)：", flush=True)
+        c = input().strip()
         sep = ' ' if c == '2' else ','
         land_number_input = sep.join(lots)
     else:
@@ -1997,9 +2000,12 @@ def get_user_input():
         print(f"您輸入的地號是: ", flush=True)
 
     # 提示輸入建號
-    print("請輸入建號:", flush=True)
+    if len(land_number_list) > 1:
+        # 分批調閱（多筆地號）時：建號沒有分批機制，若輸入會跟著每一批重複送出
+        print("\033[91m⚠ 您選的是『分批調閱』（多筆地號）。建號沒有分批機制，若在此輸入建號，會跟著每一批重複送出；分批調閱時建議『不要輸入建號』，直接按 Enter 跳過。\033[0m", flush=True)
+    print("請輸入建號 (若沒有建號或不需要，直接按 Enter 跳過):", flush=True)
     gland_number = input()
-    print(f"您輸入的建號是: {gland_number}", flush=True)
+    print(f"您輸入的建號是: {gland_number if gland_number.strip() else '（無）'}", flush=True)
 
     # 提示輸入統一編號
     print("請輸入統一編號(一類):", flush=True)
@@ -2077,9 +2083,11 @@ def get_user_input():
                 land_number_list = []
                 print("已清空地號輸入", flush=True)
         elif choice == '5':
-            print("請重新輸入建號:", flush=True)
+            if len(land_number_list) > 1:
+                print("\033[91m⚠ 分批調閱（多筆地號）時，建號會跟著每一批重複送出，建議不要輸入、直接按 Enter。\033[0m", flush=True)
+            print("請重新輸入建號 (若沒有建號或不需要，直接按 Enter 跳過):", flush=True)
             gland_number = input()
-            print(f"已更新建號為: {gland_number}", flush=True)
+            print(f"已更新建號為: {gland_number if gland_number.strip() else '（無）'}", flush=True)
         elif choice == '6':
             print("請重新輸入統一編號(一類):", flush=True)
             ID_number = input()
