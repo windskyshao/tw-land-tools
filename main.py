@@ -44,12 +44,15 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7d"
-BUILD_DATE = "2026-06-15"
+VERSION = "1.1.7e"
+BUILD_DATE = "2026-06-16"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
 FEEDBACK_TOKEN = "ksp-fb-2026-x7q2"  # ⚠️ 需與 Render 環境變數 FEEDBACK_TOKEN 設成完全一樣
+
+# 📖 線上使用說明（fyy 提供）
+HELP_URL = "https://fyy-l8a3.onrender.com/help"
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -1860,11 +1863,11 @@ update_button = tk.Button(
     font=("Microsoft JhengHei", max(9, message_font_size - 1)),
     bg='#2196F3', fg='white',
     relief=tk.FLAT, bd=0,
-    padx=8, pady=0,
+    padx=4, pady=0,
     cursor="hand2",
     command=lambda: check_for_update(silent=False)
 )
-update_button.pack(side=tk.RIGHT, padx=(0, 6))
+update_button.pack(side=tk.RIGHT, padx=(0, 3))
 
 # 💬 意見回饋按鈕（緊鄰更新鈕左側）
 feedback_button = tk.Button(
@@ -1873,11 +1876,24 @@ feedback_button = tk.Button(
     font=("Microsoft JhengHei", max(9, message_font_size - 1)),
     bg='#FF9800', fg='white',
     relief=tk.FLAT, bd=0,
-    padx=8, pady=0,
+    padx=4, pady=0,
     cursor="hand2",
     command=lambda: open_feedback_dialog()
 )
-feedback_button.pack(side=tk.RIGHT, padx=(0, 6))
+feedback_button.pack(side=tk.RIGHT, padx=(0, 0))
+
+# 📖 使用說明按鈕（💬 左側）：用瀏覽器開啟線上手冊
+help_button = tk.Button(
+    status_frame,
+    text="📖",
+    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
+    bg='#4CAF50', fg='white',
+    relief=tk.FLAT, bd=0,
+    padx=4, pady=0,
+    cursor="hand2",
+    command=lambda: _open_help_page()
+)
+help_button.pack(side=tk.RIGHT, padx=(0, 0))
 
 # 🔥 後 pack json_status_label，吃掉剩餘空間
 json_status_label = tk.Label(
@@ -1986,6 +2002,52 @@ def _feedback_btn_leave(_e):
 
 feedback_button.bind('<Enter>', _feedback_btn_enter)
 feedback_button.bind('<Leave>', _feedback_btn_leave)
+
+# 📖 說明鈕：開啟線上手冊 + 滑鼠移上去顯示提示
+def _open_help_page():
+    try:
+        import webbrowser
+        webbrowser.open(HELP_URL)
+        update_message("📖 已在瀏覽器開啟使用說明")
+    except Exception as e:
+        update_message(f"開啟使用說明失敗：{e}")
+
+help_button._tooltip = None
+
+def _help_btn_enter(_e):
+    try:
+        help_button.config(bg='#388E3C')
+        tip = tk.Toplevel(help_button)
+        tip.wm_overrideredirect(True)
+        tip.attributes('-topmost', True)
+        tk.Label(
+            tip, text="使用說明（線上手冊）\n（點擊用瀏覽器開啟）",
+            background='#333333', foreground='white',
+            relief=tk.SOLID, borderwidth=1,
+            font=("Microsoft JhengHei", 9),
+            padx=8, pady=3, justify=tk.LEFT,
+        ).pack()
+        tip.update_idletasks()
+        tip_w = tip.winfo_width()
+        x = help_button.winfo_rootx() + help_button.winfo_width() - tip_w
+        y = help_button.winfo_rooty() + help_button.winfo_height() + 4
+        tip.wm_geometry(f"+{x}+{y}")
+        help_button._tooltip = tip
+    except Exception:
+        pass
+
+def _help_btn_leave(_e):
+    try:
+        help_button.config(bg='#4CAF50')
+        tip = getattr(help_button, '_tooltip', None)
+        if tip is not None:
+            tip.destroy()
+            help_button._tooltip = None
+    except Exception:
+        pass
+
+help_button.bind('<Enter>', _help_btn_enter)
+help_button.bind('<Leave>', _help_btn_leave)
 
 frame_top = tk.Frame(root)
 frame_top.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
@@ -4143,10 +4205,10 @@ def update_json_status_display():
             # 🔥 從檔名提取日期時間（格式：YYYYMMDD_HHMM）
             import re
             datetime_match = re.search(r'(\d{8}_\d{4})', filename)
-            datetime_str = datetime_match.group(1) if datetime_match else ""
+            datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else ""
 
             if lot_display and datetime_str:
-                json_status_label.config(text=f"JSON: {datetime_str} | {lot_display}", fg='#006400')
+                json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
             elif lot_display:
                 json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
             else:
@@ -4766,11 +4828,11 @@ def choose_json_file():
             # 🔥 從檔名提取日期時間（格式：YYYYMMDD_HHMM）
             import re
             datetime_match = re.search(r'(\d{8}_\d{4})', filename)
-            datetime_str = datetime_match.group(1) if datetime_match else ""
+            datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else ""
 
             if lot_display and datetime_str:
                 json_status_label.config(
-                    text=f"JSON: {datetime_str} | {lot_display}",
+                    text=f"JSON: {lot_display}",
                     fg='#006400'
                 )
             elif lot_display:
@@ -4962,26 +5024,39 @@ transcript_back_button = tk.Button(transcript_right_frame, text="回至主頁", 
 # 🔥 腳本名稱到按鈕的映射（用於連續模式）
 script_to_button_map = {}  # 將在按鈕定義後初始化
 
-def simplify_lot_number(lot_string):
-    """簡化地號顯示：鳳山區鳳青段 0169-0000地號 -> 鳳山區鳳青段 169"""
+def _short_dt(s):
+    """縮短標題列時間戳：20260611_1845 -> 06/11 18:45
+    （保留月日時分，足以分辨 output 內同地段地號的多份結構化檔，又不會太長）"""
     import re
-    
-    # 匹配格式：XX區XX段 0000-0000地號 或 XX區XX段 0000地號
-    match = re.search(r'(.+?段)\s*(\d+)(?:-(\d+))?(?:地號|建號)?', lot_string)
+    m = re.match(r'\d{4}(\d{2})(\d{2})_(\d{2})(\d{2})', str(s or ''))
+    if m:
+        return f"{m.group(1)}/{m.group(2)} {m.group(3)}:{m.group(4)}"
+    return s
+
+
+def simplify_lot_number(lot_string):
+    """簡化地號顯示，與標題列第一行格式一致：
+    鳳山區鳳青段 0169-0000地號 / 鳳山區鳳青段-0169-0000 -> 鳳山區鳳青段-169
+    苓雅區林興段-0400-0010 -> 苓雅區林興段-400-10
+    """
+    import re
+
+    # 匹配格式：XX區XX段（後面接 空白或「-」）0000-0000（地號/建號）
+    match = re.search(r'(.+?段)\s*-?\s*(\d+)(?:-(\d+))?(?:地號|建號)?', lot_string)
     if match:
         district_section = match.group(1)  # 鳳山區鳳青段
         main_num = int(match.group(2))     # 169 (去除前導0)
         sub_num_str = match.group(3)      # 可能是 None 或 "0000"
-        
+
         if sub_num_str:
             sub_num = int(sub_num_str)
             if sub_num == 0:
-                return f"{district_section} {main_num}"
+                return f"{district_section}-{main_num}"
             else:
-                return f"{district_section} {main_num}-{sub_num}"
+                return f"{district_section}-{main_num}-{sub_num}"
         else:
-            return f"{district_section} {main_num}"
-    
+            return f"{district_section}-{main_num}"
+
     return lot_string  # 如果格式不符，返回原字串
 
 # 主頁面所有按鈕 - 🔥 更新：移除 start_nlscmaps_button, start_planning_button，加入 land_use_zone_button, edit_object_data_button
@@ -6440,10 +6515,10 @@ if selected_json_path:
         # 🔥 從檔名提取日期時間（格式：YYYYMMDD_HHMM）
         import re
         datetime_match = re.search(r'(\d{8}_\d{4})', filename)
-        datetime_str = datetime_match.group(1) if datetime_match else ""
+        datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else ""
 
         if lot_display and datetime_str:
-            json_status_label.config(text=f"JSON: {datetime_str} | {lot_display}", fg='#006400')
+            json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
         elif lot_display:
             json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
         else:
@@ -6826,6 +6901,17 @@ def perform_multi_update(updates):
         bat_lines.append(f'echo [{i}/{total_steps}] {dr["name"]}...')
 
         if dr['type'] == 'zip':
+            # 🔥 主程式更新前，先把「目前版本」備份到 _backup_prev（供「復原上一版」用）
+            #    best effort：備份失敗也不擋更新
+            bat_lines.extend([
+                'echo   backing up current version...',
+                f'rmdir /S /Q "{exe_dir}\\_backup_prev" 2>nul',
+                f'mkdir "{exe_dir}\\_backup_prev" 2>nul',
+                f'robocopy "{exe_dir}\\_internal" "{exe_dir}\\_backup_prev\\_internal" /E /R:3 /W:1 /NFL /NDL /NJH /NJS >nul',
+                f'copy /Y "{current_exe}" "{exe_dir}\\_backup_prev\\地籍資料查詢系統.exe" >nul',
+                f'>"{exe_dir}\\_backup_prev\\version.txt" echo {VERSION}',
+                '',
+            ])
             # 主程式：更新 _internal/ + 替換 exe + 複製其他頂層檔案
             # 🔥 robocopy /R:10 /W:2 = 最多 10 次重試、每次間隔 2 秒（共可撐 ~20 秒檔案釋放）
             bat_lines.extend([
@@ -6926,6 +7012,91 @@ def perform_self_update(download_url, new_version, asset_name):
         'local_version': VERSION,
     }
     perform_multi_update([fake_update])
+
+
+def _get_prev_backup_info():
+    """若有可復原的上一版備份，回傳 (backup_dir, version)；否則 None。"""
+    try:
+        if not getattr(sys, 'frozen', False):
+            return None
+        exe_dir = os.path.dirname(sys.executable)
+        bk = os.path.join(exe_dir, '_backup_prev')
+        vf = os.path.join(bk, 'version.txt')
+        if os.path.isdir(bk) and os.path.isdir(os.path.join(bk, '_internal')) and os.path.exists(vf):
+            with open(vf, 'r', encoding='utf-8', errors='ignore') as f:
+                ver = f.read().strip()
+            return bk, (ver or '(未知)')
+    except Exception:
+        pass
+    return None
+
+
+def restore_previous_version():
+    """復原到上一版（更新前自動備份的版本）。用於新版有問題時。"""
+    import tempfile
+    import subprocess
+
+    info = _get_prev_backup_info()
+    if not info:
+        show_large_message("復原上一版", "目前沒有可復原的上一版。\n\n（每次『自動更新』成功後，才會留下可復原的備份）")
+        return
+    bk_dir, bk_ver = info
+
+    if not show_large_yesno(
+        "復原上一版",
+        f"要從目前的 v{VERSION} 復原回上一版 v{bk_ver} 嗎？\n\n"
+        f"（適用於：更新後的新版有問題，想先退回能正常運作的舊版）\n\n"
+        f"確認後程式會關閉、自動還原、再重新啟動。\n請勿關閉接下來出現的黑色視窗。"
+    ):
+        return
+
+    exe_dir = os.path.dirname(sys.executable)
+    current_exe = sys.executable
+    bk_exe = os.path.join(bk_dir, '地籍資料查詢系統.exe')
+    temp_dir = tempfile.mkdtemp(prefix="land_restore_")
+    restore_path = os.path.join(temp_dir, "_restore.bat")
+
+    lines = [
+        '@echo off',
+        'chcp 65001 > nul',
+        'title Restoring previous version - DO NOT CLOSE THIS WINDOW',
+        'echo.',
+        'echo Restoring previous version...',
+        'echo Waiting for main program to fully release files...',
+        'timeout /t 8 /nobreak > nul',
+        'taskkill /F /IM 地籍資料查詢系統.exe 2>nul',
+        'timeout /t 2 /nobreak > nul',
+        f'robocopy "{bk_dir}\\_internal" "{exe_dir}\\_internal" /E /R:10 /W:2 /NFL /NDL /NJH /NJS',
+        'if errorlevel 8 ( echo [X] restore _internal failed & pause & exit /b 1 )',
+        f'copy /Y "{bk_exe}" "{current_exe}" >nul',
+        'if errorlevel 1 ( echo [X] restore exe failed & pause & exit /b 1 )',
+        'echo Restart...',
+        f'start "" "{current_exe}"',
+        'timeout /t 1 /nobreak > nul',
+        f'rd /s /q "{temp_dir}" 2>nul',
+        'exit',
+    ]
+    try:
+        with open(restore_path, 'wb') as f:
+            f.write(('\r\n'.join(lines) + '\r\n').encode('utf-8'))
+    except Exception as e:
+        show_large_message("建立還原程序失敗", str(e))
+        return
+
+    show_large_message(
+        "即將復原並重啟",
+        f"即將復原到 v{bk_ver}。\n程式會關閉、自動還原、再重啟。\n請勿關閉接下來出現的黑色視窗。"
+    )
+    try:
+        subprocess.Popen(['cmd', '/c', restore_path], creationflags=getattr(subprocess, 'CREATE_NEW_CONSOLE', 0))
+    except Exception as e:
+        show_large_message("啟動還原程序失敗", str(e))
+        return
+    try:
+        root.quit()
+    except Exception:
+        pass
+    sys.exit(0)
 
 
 def _capture_screen_png_bytes():
@@ -7221,6 +7392,18 @@ def check_for_update(silent=True):
                     lines.append(f"  • {name}：本機 v{local} ＞ GitHub v{remote}（開發中？）")
                 else:
                     lines.append(f"  • {name}：v{local} ✓")
+        # 🔥 已是最新版：若有可復原的備份，順便提供「復原上一版」（用於新版有問題時）
+        _bk = _get_prev_backup_info()
+        if _bk:
+            _, _bk_ver = _bk
+            if show_large_yesno(
+                "檢查更新",
+                "目前都是最新版本 ✓\n\n" + '\n'.join(lines)
+                + f"\n\n🔙 偵測到可復原的上一版 v{_bk_ver}。\n"
+                f"若這個新版用起來有問題，要復原回上一版嗎？"
+            ):
+                restore_previous_version()
+            return
         show_large_message("檢查更新", "目前都是最新版本 ✓\n\n" + '\n'.join(lines))
         return
 
@@ -7400,10 +7583,10 @@ def check_and_warn_data_consistency():
             # 🔥 從檔名提取日期時間（格式：YYYYMMDD_HHMM）
             import re
             datetime_match = re.search(r'(\d{8}_\d{4})', filename)
-            datetime_str = datetime_match.group(1) if datetime_match else filename
+            datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else filename
 
-            lot_display = f"{transcript_info['area']}{transcript_info['section']}-{transcript_info['lot_number']}"
-            json_status_label.config(text=f"JSON: {datetime_str} | {lot_display}", fg='#006400')
+            lot_display = simplify_lot_number(f"{transcript_info['area']}{transcript_info['section']}-{transcript_info['lot_number']}")
+            json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
         elif selected_json_path and os.path.exists(selected_json_path):
             # 如果本地沒有謄本資料，但有已載入的 JSON，嘗試顯示它的資訊
             try:
@@ -7411,15 +7594,14 @@ def check_and_warn_data_consistency():
                     data = json.load(f)
                 if isinstance(data, list) and len(data) > 0 and "基本資訊" in data[0]:
                     lot_info = data[0]["基本資訊"].get("地號建號", "")
-                    from config_manager import simplify_lot_number
                     lot_display = simplify_lot_number(lot_info)
 
                     import re
                     filename = os.path.basename(selected_json_path)
                     datetime_match = re.search(r'(\d{8}_\d{4})', filename)
-                    datetime_str = datetime_match.group(1) if datetime_match else filename
+                    datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else filename
 
-                    json_status_label.config(text=f"JSON: {datetime_str} | {lot_display}", fg='#006400')
+                    json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
                 else:
                     json_status_label.config(text=f"JSON: {os.path.basename(selected_json_path)}", fg='#006400')
             except:

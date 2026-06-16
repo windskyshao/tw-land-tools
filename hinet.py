@@ -1895,28 +1895,100 @@ def main():
         sys.stdout.flush()
         sys.stderr.flush()
         
+def _prefill_from_data_json():
+    """送件前：若 data.json 有資料，詢問是否帶入，免手動輸入。
+    回傳 (county, district, section, land_number_input) 或 None（不帶入/無資料）。
+    ⚠️ 官方系統「不同地段必須分開調閱」，故依『縣市+地區+地段』分組，混段時讓使用者選一組帶入。"""
+    try:
+        path = get_data_json_path()
+        if not os.path.exists(path):
+            return None
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, list) or not data:
+            return None
+    except Exception as e:
+        print(f"\033[90m（讀取 data.json 失敗，改為手動輸入：{e}）\033[0m", flush=True)
+        return None
+
+    # 顯示清單
+    print(f"\n\033[96m偵測到 data.json，共 {len(data)} 筆：\033[0m", flush=True)
+    for i, e in enumerate(data, 1):
+        print(f"  {i}. {e.get('city','')} {e.get('area','')} {e.get('section','')} {e.get('lot_number','')}", flush=True)
+    ans = input("\033[93m要直接帶入這些資料嗎？(Y 帶入 / N 自己輸入)：\033[0m").strip().lower()
+    if ans not in ('y', ''):
+        return None
+
+    # 依「縣市+地區+地段」分組（官方系統不同地段須分開調閱）
+    groups = []  # [(key, [entries])]
+    for e in data:
+        key = (e.get('city', '') or '高雄市', e.get('area', ''), e.get('section', ''))
+        for g in groups:
+            if g[0] == key:
+                g[1].append(e)
+                break
+        else:
+            groups.append((key, [e]))
+
+    if len(groups) == 1:
+        chosen = groups[0]
+    else:
+        print("\n\033[93m偵測到多個地段；官方系統「不同地段必須分開調閱」，本次請選一個帶入（其餘地段可再執行一次送件帶入）：\033[0m", flush=True)
+        for i, (k, es) in enumerate(groups, 1):
+            print(f"\033[93m  {i}. {k[0]} {k[1]} {k[2]}（{len(es)} 筆）\033[0m", flush=True)
+        while True:
+            pick = input("請輸入編號：").strip()
+            if pick.isdigit() and 1 <= int(pick) <= len(groups):
+                chosen = groups[int(pick) - 1]
+                break
+            print("請輸入有效編號。", flush=True)
+
+    (city, district, section), entries = chosen
+    lots = [str(e.get('lot_number', '')).strip() for e in entries if str(e.get('lot_number', '')).strip()]
+
+    # 多筆地號：一次帶入（同組逗號）或分批帶入（空白）
+    if len(lots) > 1:
+        print(f"\n\033[93m此段有 {len(lots)} 筆地號，要怎麼帶入？\033[0m", flush=True)
+        print("\033[93m  [1] 一次帶入（同一組，一次調閱所有地號）\033[0m", flush=True)
+        print("\033[93m  [2] 分批帶入（逐筆各別調閱）\033[0m", flush=True)
+        c = input("請選擇(1/2，預設 1)：").strip()
+        sep = ' ' if c == '2' else ','
+        land_number_input = sep.join(lots)
+    else:
+        land_number_input = lots[0] if lots else ''
+
+    print(f"\033[38;5;46m✓ 已帶入：{city} {district} {section}　地號：{land_number_input or '（無）'}\033[0m", flush=True)
+    return city, district, section, land_number_input
+
+
 def get_user_input():
-    # 提示輸入縣市
-    print("請輸入縣市 (直接按 Enter 使用預設值：高雄市):", flush=True)
-    county = input().replace("台", "臺")
-    if not county.strip():  # 判斷輸入是否為空
-        county = "高雄市"  # 如果為空，設定預設值
-    print(f"您輸入的縣市是: {county}", flush=True)
+    # 🔥 送件前：若 data.json 有資料，先問是否帶入（免手動輸入縣市/地區/地段/地號）
+    _pf = _prefill_from_data_json()
+    if _pf:
+        county, district, section, land_number_input = _pf
+    else:
+        # 提示輸入縣市
+        print("請輸入縣市 (直接按 Enter 使用預設值：高雄市):", flush=True)
+        county = input().replace("台", "臺")
+        if not county.strip():  # 判斷輸入是否為空
+            county = "高雄市"  # 如果為空，設定預設值
+        print(f"您輸入的縣市是: {county}", flush=True)
 
-    # 提示輸入地區
-    print("請輸入地區:", flush=True)
-    district = input()
-    print(f"您輸入的地區是: {district}", flush=True)
+        # 提示輸入地區
+        print("請輸入地區:", flush=True)
+        district = input()
+        print(f"您輸入的地區是: {district}", flush=True)
 
-    # 提示輸入地段
-    print("請輸入地段:", flush=True)
-    section = input()
-    print(f"您輸入的地段是: {section}", flush=True)
+        # 提示輸入地段
+        print("請輸入地段:", flush=True)
+        section = input()
+        print(f"您輸入的地段是: {section}", flush=True)
 
-    # 提示輸入地號
-    print("請輸入地號 (以','為分隔為同組，以空格分隔為分批多組調閱):", flush=True)
-    land_number_input = input()
-    # 處理空字符串情況，確保即使沒有輸入也要建立一個列表
+        # 提示輸入地號
+        print("請輸入地號 (以','為分隔為同組，以空格分隔為分批多組調閱):", flush=True)
+        land_number_input = input()
+
+    # 處理地號字串 → 列表（逗號=同組、空白=分批；帶入或手動皆適用）
     if land_number_input.strip():
         land_number_list = land_number_input.split() # 將地號以空白分割為列表
         print(f"您輸入的地號是: {'、'.join(land_number_list)}", flush=True)
@@ -3384,15 +3456,18 @@ def handle_preview_print(
         fallback_dir = get_work_folder("下載的謄本")
         case_dir = custom_dir_options  # 案件資料夾的「0.謄本」（來自 data.json 第一筆），或 None
 
-        # 🔥 逐檔智慧分流：每一筆依「自己的區」各自歸檔（相符→案件0.謄本；否則→下載的謄本）
-        def _district_of(s):
-            ms = re.findall(r'[^\s]{1,3}(?:區|鄉|鎮|市)', str(s or ''))
-            return ms[-1] if ms else ''
-        _case_area = _district_of(os.path.basename(os.path.dirname(case_dir))) if case_dir else ''
+        # 🔥 逐檔智慧分流：每一筆依「自己的區+段」各自歸檔（同區同段→案件0.謄本；否則→下載的謄本）
+        #   案件基準＝資料夾名第一個「-」前面（含小段），例如「苓雅區林興段」「三民區大港段二小段」
+        _case_base = os.path.basename(os.path.dirname(case_dir)).split('-')[0] if case_dir else ''
+        _case_base_key = re.sub(r'\s+', '', _case_base)
 
         def _dir_for(item):
-            if case_dir and _case_area and (_district_of(item.get('location', '')) in ('', _case_area)):
-                return case_dir
+            # 該筆「區+段」＝地區欄(location)+地號欄(plot_info)，去空白後須「包含」案件基準才進案件夾；
+            # 比對不到（格式異常、或不同段）一律進「下載的謄本」
+            if case_dir and _case_base_key:
+                item_key = re.sub(r'\s+', '', str(item.get('location', '')) + str(item.get('plot_info', '')))
+                if _case_base_key in item_key:
+                    return case_dir
             return fallback_dir
 
         downloaded = set()  # 本次已下載（領取）的 index，避免重複領件付費
@@ -3438,7 +3513,7 @@ def handle_preview_print(
                     print(f"\033[38;5;46m   ▸ {n_free} 筆先前已領取，不會再扣費\033[0m", flush=True)
                 print("\033[96m存放方式（依各筆的「區」自動分流）：\033[0m", flush=True)
                 if case_dir and n_case > 0:
-                    print(f"\033[96m   • {n_case} 筆（與案件「{_case_area}」相符）→ 案件「0.謄本」\033[0m", flush=True)
+                    print(f"\033[96m   • {n_case} 筆（與案件「{_case_base}」相符）→ 案件「0.謄本」\033[0m", flush=True)
                 if n_fallback > 0:
                     print(f"\033[96m   • {n_fallback} 筆 → 「下載的謄本」\033[0m", flush=True)
                 print("請確認（項目已選定，直接 Enter 即可下載）：", flush=True)
