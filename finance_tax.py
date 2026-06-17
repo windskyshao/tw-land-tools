@@ -24,6 +24,20 @@ print("===      財政部土地增值稅試算自動化      ===", flush=True)
 print("=" * 78, flush=True)
 print("模組載入中，請稍候......", flush=True)
 sys.stdout.flush()
+
+# 🔥 子程式 stdout 在管線下會緩衝；input(提示) 的提示不會 flush 而顯示不全 → 覆寫 input 先 flush 提示
+import builtins as _builtins
+_orig_input = _builtins.input
+def _flushing_input(prompt=''):
+    if prompt:
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return _orig_input()
+_builtins.input = _flushing_input
+
 import os
 import re
 import sys

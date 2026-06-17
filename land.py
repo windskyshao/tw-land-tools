@@ -221,6 +221,22 @@ def check_for_alert(driver):
         print(f"處理警告時發生未知錯誤: {e}", flush=True)
         return True
 
+def normalize_lot_number(lot_num):
+    """正規化地號，去除前導零、子號為 0 時省略，讓各程式存取一致。
+    例：0277 / 277 / 277-0 / 0277-0000 → 277；0277-0010 → 277-10；401-2 → 401-2。"""
+    if lot_num is None:
+        return lot_num
+    s = str(lot_num).strip()
+    if not s:
+        return s
+    if '-' in s:
+        parts = s.split('-', 1)
+        mother = parts[0].lstrip('0') or '0'
+        child = parts[1].lstrip('0') or '0'
+        return mother if child == '0' else f"{mother}-{child}"
+    return s.lstrip('0') or '0'
+
+
 def save_data_to_json(data, json_file=None, new_file=False):
     """保存數據到 JSON 文件，如果存在重複，則更新舊數據，保持順序"""
     # 🔥 使用 BASE_DIR 中的 data.json
@@ -729,7 +745,12 @@ def get_land_info():
                 section_text = section_select.first_selected_option.text.split(')')[-1].strip()
 
                 lot_number_input = driver.find_element(By.ID, 'landno').get_attribute('value')
-                
+                # 🔥 正規化地號（0277/277/277-0/0277-0000 → 277），統一格式避免各程式存檔資料夾對不上
+                _raw_lot = lot_number_input
+                lot_number_input = normalize_lot_number(lot_number_input)
+                if _raw_lot != lot_number_input:
+                    print(f"[正規化] 地號 {_raw_lot} → {lot_number_input}", flush=True)
+
                 time.sleep(2)
                 # 等待地圖上的標記並模擬右鍵點擊
                 map_marker = WebDriverWait(driver, 5).until(

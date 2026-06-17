@@ -7421,7 +7421,7 @@ def show_startup_reminder():
     update_divider()
     update_message("\033[38;5;208m🔥 【重要提醒】地籍資料查詢系統\033[0m")
     update_divider()
-    update_message("📍 首次使用請先執行【地籍便民系統】(\033[38;5;208m橙色按鈕\033[0m)")
+    update_message("\033[97;41m 📍 首次使用請先執行【地籍便民系統】（橙色按鈕） \033[0m")
     update_message("📁 將自動建立地段、地號資料夾作為儲存目錄")
     update_message("📋 建議執行順序：")
     update_message("   1️地籍便民系統 → 建立【資料夾】")
@@ -7432,7 +7432,7 @@ def show_startup_reminder():
     update_message("   5️其他查詢功能 → 依需求使用")
     update_message("   6️編輯物件資料【物件調查表】")
     update_divider()
-    update_message("💡 \033[38;5;208m橙色按鈕\033[0m為優先執行功能，請注意！")
+    update_message("\033[97;41m 💡 橙色按鈕為優先執行功能，請注意！ \033[0m")
     update_message("")
 
 # === 資料一致性檢查（啟動時自動執行）===

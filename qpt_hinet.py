@@ -182,6 +182,20 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8')
 sys.stdout.reconfigure(line_buffering=True)
 
+# 🔥 line_buffering 只在換行才 flush，但 input(提示) 的提示沒有換行 → 提示會卡在緩衝區顯示不全。
+#    覆寫 input：先把提示 print 出來並 flush，確保所有問句都完整顯示在主程式訊息框。
+import builtins as _builtins
+_orig_input = _builtins.input
+def _flushing_input(prompt=''):
+    if prompt:
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return _orig_input()
+_builtins.input = _flushing_input
+
 print("歡迎使用【地籍電子謄本】小程式，模組加載中...", flush=True)
 
 
@@ -2177,7 +2191,8 @@ def get_user_input():
         _land_parts_desc = ("建物坐落土地所有權部(持分)、土地標示部、土地他項權利部"
                             if _is_full_query else "建物坐落土地所有權部(持分)")
         print("\n\033[93m此查詢包含【建物所有權部】。大樓建物常坐落於「持分土地」。\033[0m", flush=True)
-        _ans = input(f"\033[93m是否一併調閱「{_land_parts_desc}」？[Y/N，預設 Y]: \033[0m").strip().upper()
+        print(f"\033[93m是否一併調閱「{_land_parts_desc}」？[Y/N，預設 Y]: \033[0m", flush=True)
+        _ans = input().strip().upper()
         _QUERY_LAND_SHARE = (_ans != 'N')
         print(f"\033[92m✓ 已設定：{'會' if _QUERY_LAND_SHARE else '不'}一併調閱土地\033[0m", flush=True)
     else:

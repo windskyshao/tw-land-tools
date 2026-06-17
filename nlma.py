@@ -21,6 +21,20 @@ import atexit  # 添加atexit模块，用于注册程序退出时的回调函数
 # 清理畫面並顯示歡迎訊息
 os.system('cls')
 sys.stdout.reconfigure(line_buffering=True)
+
+# 🔥 line_buffering 只在換行才 flush；input(提示) 的提示沒換行會顯示不全 → 覆寫 input 先 flush 提示
+import builtins as _builtins
+_orig_input = _builtins.input
+def _flushing_input(prompt=''):
+    if prompt:
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return _orig_input()
+_builtins.input = _flushing_input
+
 print("歡迎使用【全國建築執照存根查詢】自動化小程式~\n模組載入中...", flush=True)
 import json
 import time

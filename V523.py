@@ -36,6 +36,19 @@ from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 # 清理畫面並顯示歡迎訊息
 os.system('cls')
 sys.stdout.reconfigure(line_buffering=True)
+
+# 🔥 line_buffering 只在換行才 flush；input(提示) 的提示沒換行會顯示不全 → 覆寫 input 先 flush 提示
+import builtins as _builtins
+_orig_input = _builtins.input
+def _flushing_input(prompt=''):
+    if prompt:
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return _orig_input()
+_builtins.input = _flushing_input
 print("歡迎使用【V523地產資訊網】自動化小程式，模組載入中...", flush=True)
 
 # 🔥 解析 --indices 參數：主程式傳遞使用者勾選的筆次（0-based，逗號分隔）

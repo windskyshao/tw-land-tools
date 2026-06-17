@@ -148,6 +148,19 @@ sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='surro
 sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='surrogateescape')
 sys.stdout.reconfigure(line_buffering=True)
 
+# 🔥 line_buffering 只在換行才 flush；input(提示) 的提示沒換行會顯示不全 → 覆寫 input 先 flush 提示
+import builtins as _builtins
+_orig_input = _builtins.input
+def _flushing_input(prompt=''):
+    if prompt:
+        try:
+            sys.stdout.write(prompt)
+            sys.stdout.flush()
+        except Exception:
+            pass
+    return _orig_input()
+_builtins.input = _flushing_input
+
 print("✓ 模組載入完成", flush=True)  # 🔥 主程式已先顯示「模組加載中」，這裡改為完成訊息避免重複
 
 # 添加程序結束標記
