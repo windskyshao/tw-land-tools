@@ -150,21 +150,52 @@ def get_available_work_area():
     return rect
 
 def calculate_browser_window_position():
-    """計算瀏覽器視窗的位置和大小，避開主程式介面和工作列"""
-    # 獲取工作區域（已排除工作列）
-    work_area = get_available_work_area()
-    screen_width = ctypes.windll.user32.GetSystemMetrics(0)  # 完整螢幕寬度
-    
-    # 主程式佔用螢幕右側 1/3
-    main_program_width = screen_width // 3
-    
-    # 瀏覽器使用剩餘的左側空間
-    browser_width = work_area.right - work_area.left - main_program_width
-    browser_height = work_area.bottom - work_area.top
-    browser_x = work_area.left
-    browser_y = work_area.top
-    
-    return browser_x, browser_y, browser_width, browser_height
+    """從 window_config.json 算出瀏覽器視窗（邏輯像素）：2/3 物理寬 ÷ DPI，位置在主程式對側。
+    與其他子程式一致；避免在高DPI機器把物理像素當邏輯像素而開太大（約 3/4）。
+    回傳 (x, y, width, height)，皆為邏輯像素。"""
+    bx, by, bw, bh = 0, 0, 1024, 1024
+    try:
+        cfg_path = os.path.join(BASE_DIR, 'window_config.json')
+        if os.path.exists(cfg_path):
+            with open(cfg_path, 'r', encoding='utf-8') as f:
+                cfg = json.load(f)
+            wa = cfg.get('work_area', {})
+            mw = cfg.get('main_window', {})
+            if wa and mw:
+                dpi = cfg.get('dpi_scale') or 1.0
+                work_left = wa.get('left', 0)
+                work_top = wa.get('top', 0)
+                work_right = wa.get('right', 1920)
+                work_bottom = wa.get('bottom', 1080)
+                main_x = mw.get('x', 1280)
+                main_w = mw.get('width', 640)
+                chrome_w_phys = (work_right - work_left) * 2 // 3      # 物理像素的 2/3
+                if (main_x + main_w / 2) > (work_left + work_right) / 2:
+                    chrome_x_phys = work_left                          # 主程式在右 → 瀏覽器放左
+                else:
+                    chrome_x_phys = work_right - chrome_w_phys         # 主程式在左 → 瀏覽器放右
+                chrome_h_phys = work_bottom - work_top - 20
+                if chrome_w_phys < 800:
+                    chrome_w_phys = 800
+                if chrome_h_phys < 600:
+                    chrome_h_phys = 600
+                bw = int(chrome_w_phys / dpi)                          # 🔥 除以 DPI → 邏輯像素
+                bh = int(chrome_h_phys / dpi) + 32                     # +標題欄高度
+                bx = int(chrome_x_phys / dpi)
+                by = int(work_top / dpi)
+                return bx, by, bw, bh
+    except Exception as e:
+        print(f"[視窗] 讀 window_config 失敗，改用螢幕推算：{e}", flush=True)
+    # 後備（無設定檔時）：用工作區推算 2/3
+    try:
+        work_area = get_available_work_area()
+        bw = (work_area.right - work_area.left) * 2 // 3
+        bh = work_area.bottom - work_area.top - 20
+        bx = work_area.left
+        by = work_area.top
+    except Exception:
+        pass
+    return bx, by, bw, bh
 
 
 def init_driver():
@@ -183,17 +214,23 @@ def init_driver():
     options.add_argument("--v=1")  # 設置日誌等級為 VERBOSE（詳細）
     options.add_argument("--log-level=3")  # 僅顯示錯誤日誌
 
-    # 計算瀏覽器視窗位置和大小
+    # 計算瀏覽器視窗位置和大小（邏輯像素）
     browser_x, browser_y, browser_width, browser_height = calculate_browser_window_position()
+    print(f"瀏覽器視窗設定：位置({browser_x}, {browser_y})，大小({browser_width}x{browser_height})（邏輯像素）", flush=True)
 
-    # 設定視窗大小和位置
-    options.add_argument(f"--window-size={browser_width},{browser_height}")
-    options.add_argument(f"--window-position={browser_x},{browser_y}")
-    
-    print(f"瀏覽器視窗設定：位置({browser_x}, {browser_y})，大小({browser_width}x{browser_height})", flush=True)
-    
     global driver
     driver = create_chrome_driver(options=options)
+
+    # 🔥 啟動後再設定視窗大小/位置（不用 --window-size 啟動參數：避免高DPI下把物理像素當邏輯像素而過大、或DPI改變時崩潰）
+    try:
+        driver.set_window_size(browser_width, browser_height)
+        driver.set_window_position(browser_x, browser_y)
+    except Exception as _e:
+        print(f"[視窗] 設定大小失敗：{_e}", flush=True)
+    try:
+        verify_and_fix_chrome_window(driver)
+    except Exception:
+        pass
 
 def select_query_method():
     """
