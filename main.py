@@ -7618,20 +7618,40 @@ def check_for_update(silent=True):
                     lines.append(f"  • {name}：本機 v{local} ＞ GitHub v{remote}（開發中？）")
                 else:
                     lines.append(f"  • {name}：v{local} ✓")
-        # 🔥 已是最新版：若有可復原的備份，順便提供「復原上一版」（用於新版有問題時）
+        # 🔥 已是最新版：提供「重新下載最新版」（同版本但內容有更新/修正時用）＋「復原上一版」（若有備份）
+        _main_r = next((r for r in results
+                        if r['source'].get('install_type') == 'zip_replace' and r.get('asset_url')), None)
+        _status = "目前都是最新版本 ✓\n\n" + '\n'.join(lines)
+        _note = ("\n\n💡 若版本相同但內容有更新（例如剛修了小問題、重新上傳了安裝包），\n"
+                 "可按「重新下載最新版」強制重新下載並安裝最新的內容。")
+
+        def _force_redownload():
+            if _main_r:
+                perform_multi_update([_main_r])
+            else:
+                show_large_message("提示", "找不到可下載的主程式安裝包（asset）。")
+
         _bk = _get_prev_backup_info()
         if _bk:
             _, _bk_ver = _bk
-            if show_large_yesno(
+            # 三選一：重新下載 / 復原上一版 / 關閉
+            _ans = show_large_yesnocancel(
                 "檢查更新",
-                "目前都是最新版本 ✓\n\n" + '\n'.join(lines)
-                + f"\n\n🔙 偵測到可復原的上一版 v{_bk_ver}。\n"
-                f"若這個新版用起來有問題，要復原回上一版嗎？"
-            ):
+                _status + _note + f"\n（新版若用起來有問題，也可「復原上一版 v{_bk_ver}」）",
+                yes_text="🔄 重新下載最新版",
+                no_text=f"🔙 復原上一版 v{_bk_ver}",
+                cancel_text="關閉"
+            )
+            if _ans is True:
+                _force_redownload()
+            elif _ans is False:
                 restore_previous_version()
             return
-        show_large_message("檢查更新", "目前都是最新版本 ✓\n\n" + '\n'.join(lines))
-        return
+        else:
+            # 沒有備份：是／否（重新下載 / 關閉）
+            if show_large_yesno("檢查更新", _status + _note + "\n\n要「重新下載最新版」嗎？"):
+                _force_redownload()
+            return
 
     # 有更新：彈出對話框（與啟動時自動彈出的是同一個）
     _prompt_updates(updates)
