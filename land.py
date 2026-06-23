@@ -37,7 +37,7 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.webdriver import ActionChains
 from selenium.common.exceptions import JavascriptException, NoAlertPresentException, TimeoutException, UnexpectedAlertPresentException, NoSuchElementException, WebDriverException, InvalidSessionIdException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 from PIL import Image
 from fpdf import FPDF
 import keyboard
@@ -626,25 +626,19 @@ def get_land_info():
     except Exception as e:
         print(f"[頁面縮放] 偵測配置時發生錯誤: {e}，使用預設不縮放", flush=True)
 
-    if zoom_count > 0:
-        try:
-            # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-            # 使用 JavaScript 讓視窗獲得焦點，避免點擊觸發頁面元素
-            time.sleep(1)  # 等待頁面完全載入
-            driver.execute_script("window.focus();")
-            time.sleep(0.3)
+    # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+    try:
+        _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+        if os.path.exists(_zcp):
+            _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('land')
+            if _zov is not None:
+                zoom_count = int(_zov)
+                print(f"[頁面縮放] 採用使用者設定：縮放 {zoom_count} 次", flush=True)
+    except Exception:
+        pass
 
-            # 🔥 根據 DPI 決定按幾次 Ctrl + -
-            print(f"[頁面縮放] 正在使用系統鍵盤縮放（按 {zoom_count} 次）...", flush=True)
-            for i in range(zoom_count):
-                keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-                time.sleep(0.5)
-
-            print(f"[頁面縮放] ✓ 已使用系統鍵盤縮放至 {target_zoom}", flush=True)
-        except Exception as e:
-            print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
-    else:
-        print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
+    time.sleep(1)  # 等待頁面完全載入
+    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
     # 等待下拉選單出現
     select_element = WebDriverWait(driver, 10).until(

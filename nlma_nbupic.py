@@ -46,8 +46,38 @@ from PIL import Image
 from fpdf import FPDF
 import numpy as np
 
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
+
+
+def _nbupic_zoom_count():
+    """依 window_config 的 DPI + zoom_config 覆寫（key=nlma_nbupic），算出要縮幾次。"""
+    zc = 0
+    try:
+        _cfg = os.path.join(BASE_DIR, 'window_config.json')
+        if os.path.exists(_cfg):
+            c = json.load(open(_cfg, encoding='utf-8'))
+            dpi = c.get('dpi_scale', 1.0) or 1.0
+            lw = c.get('screen_width', 1920) / dpi
+            if dpi >= 1.75:
+                zc = 4
+            elif dpi >= 1.5:
+                zc = 2
+            elif dpi >= 1.25 and lw < 1200:
+                zc = 2
+            else:
+                zc = 0
+    except Exception:
+        pass
+    try:
+        _zp = os.path.join(BASE_DIR, 'zoom_config.json')
+        if os.path.exists(_zp):
+            ov = json.load(open(_zp, encoding='utf-8')).get('overrides', {}).get('nlma_nbupic')
+            if ov is not None:
+                zc = int(ov)
+    except Exception:
+        pass
+    return zc
 
 # ====== 縣市對應表（NBUPIC 9 個縣市）======
 # LICENSING_UNIT 是「發照單位」select 的 value
@@ -253,6 +283,12 @@ def open_nbupic(city_name):
     # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
     # 注意：要放在 _apply_chrome_window_layout() 之後，否則會被覆蓋掉
     verify_and_fix_chrome_window(driver)
+
+    # 🔥 頁面縮放（可在主程式「Chrome縮放設定」面板調整，key=nlma_nbupic）
+    try:
+        apply_page_zoom(driver, _nbupic_zoom_count())
+    except Exception:
+        pass
     return True
 
 

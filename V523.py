@@ -28,7 +28,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -537,20 +537,17 @@ def open_query_page():
     except Exception:
         pass  # 偵測配置失敗時靜默處理
 
-    if zoom_count > 0:
-        try:
-            # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-            # 先點擊頁面確保 Chrome 視窗有焦點
-            body = driver.find_element(By.TAG_NAME, 'body')
-            body.click()
-            time.sleep(0.5)
+    # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+    try:
+        _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+        if os.path.exists(_zcp):
+            _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('V523')
+            if _zov is not None:
+                zoom_count = int(_zov)
+    except Exception:
+        pass
 
-            # 🔥 根據 DPI 決定按幾次 Ctrl + -
-            for _ in range(zoom_count):
-                keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-                time.sleep(0.5)
-        except Exception:
-            pass  # 靜默處理縮放錯誤
+    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
     return zoom_count > 0  # 返回是否設定了縮放，供 finally 區塊使用
 

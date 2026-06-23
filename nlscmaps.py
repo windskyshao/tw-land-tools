@@ -31,7 +31,7 @@ from PIL import Image
 from fpdf import FPDF
 import time
 from selenium.common.exceptions import UnexpectedAlertPresentException, TimeoutException, NoAlertPresentException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -366,12 +366,23 @@ except Exception as _perm_e:
     print(f"[權限] 自動授予地理位置失敗（不影響流程）: {_perm_e}", flush=True)
 
 # 指定要打開的網址
-url = "https://maps.nlsc.gov.tw/T09/mapshow.action"
+# 🔥 ?In_type=web 強制使用 PC 桌面版（沒帶這參數時會依視窗寬度退成窄版，缺 addIndexPage 等桌面版函式而報錯）
+url = "https://maps.nlsc.gov.tw/T09/mapshow.action?In_type=web"
 
 # 🔥 保險提醒：萬一仍跳出地理位置權限窗，告訴使用者怎麼點
 print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
 # 使用系統預設瀏覽器打開網址
 driver.get(url)
+# 🔥 重新整理一次才會套用 PC 桌面版：In_type=web 在「第一次載入」才寫進 session，
+#    要「第二次載入」才讀得到（等同手動按 F5）。否則首次仍是窄版、缺 addIndexPage。
+try:
+    print("[版面] 首次載入完成，2 秒後自動重新整理（套用 PC 桌面版）...", flush=True)
+    time.sleep(2)            # 等第一次載入把 In_type=web 設定寫進去
+    driver.refresh()         # 等於按 F5 → 這次才是桌面版
+    time.sleep(2)
+    print("[版面] ✓ 已重新整理，現在是 PC 桌面版", flush=True)
+except Exception as _e:
+    print(f"[版面] 重新整理時發生問題（不影響流程）：{_e}", flush=True)
 # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
 try:
     driver.set_window_size(nlsc_window_width, nlsc_window_height)
@@ -419,25 +430,67 @@ try:
 except Exception as e:
     print(f"[頁面縮放] 偵測配置時發生錯誤: {e}，使用預設不縮放", flush=True)
 
-if zoom_count > 0:
+# 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+try:
+    _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+    if os.path.exists(_zcp):
+        _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('nlscmaps')
+        if _zov is not None:
+            zoom_count = int(_zov)
+            print(f"[頁面縮放] 採用使用者設定：縮放 {zoom_count} 次", flush=True)
+except Exception:
+    pass
+
+def _force_chrome_foreground(driver):
+    """用 AttachThreadInput 解除 Windows 前景鎖，把本支 Chrome 拉到前景，
+    keyboard 的 Ctrl+- 才送得進去（背景程式直接 SetForegroundWindow 會被擋）。"""
     try:
-        # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-        # 先點擊頁面確保 Chrome 視窗有焦點
-        body = driver.find_element(By.TAG_NAME, 'body')
-        body.click()
-        time.sleep(0.5)
-
-        # 🔥 根據 DPI 決定按幾次 Ctrl + -
-        print(f"[頁面縮放] 正在使用系統鍵盤縮放（按 {zoom_count} 次）...", flush=True)
-        for i in range(zoom_count):
-            keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-            time.sleep(0.5)
-
-        print(f"[頁面縮放] ✓ 已使用系統鍵盤縮放至 {target_zoom}", flush=True)
+        driver.switch_to.window(driver.current_window_handle)
+    except Exception:
+        pass
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        marker = "NLSCZOOMWIN8741"
+        old = driver.execute_script("var t=document.title;document.title=arguments[0];return t;", marker)
+        time.sleep(0.25)
+        found = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, lparam):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if marker in buf.value:
+                    found.append(hwnd)
+            return True
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        try:
+            driver.execute_script("document.title=arguments[0];", old)
+        except Exception:
+            pass
+        if not found:
+            print("[頁面縮放] 找不到 Chrome 視窗（無法拉前景）", flush=True)
+            return False
+        hwnd = found[0]
+        fg = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        cur_thread = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(cur_thread, fg_thread, True)
+        user32.ShowWindow(hwnd, 9)        # SW_RESTORE
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.AttachThreadInput(cur_thread, fg_thread, False)
+        time.sleep(0.3)
+        return True
     except Exception as e:
-        print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
-else:
-    print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
+        print(f"[頁面縮放] 拉前景失敗：{e}", flush=True)
+        return False
+
+apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
 
 # 🔥 關閉「提醒您」彈窗（本網站內容僅供參考…）
 # 這個彈窗是頁面載入後才彈出來的，加上 JS 主動 polling 等它出現
@@ -899,6 +952,111 @@ except Exception as e:
         print("備用方案也失敗,繼續執行後續步驟", flush=True)
 
 
+# ──────────────────────────────────────────────────────────────
+# 🔥 方案A：當網站前端「定位查詢」下拉選單壞掉（選縣市後地段選不出來）時，
+#    改打國土測繪「免申請開放API」拿代碼，再用 JS 把選項灌進下拉選單，繞過壞掉的前端。
+#    API（已實測）：
+#      ListCounty                         → 縣市碼
+#      ListTown/{縣市碼}                  → 區碼
+#      ListLandSection/{縣市碼}/{區碼}    → office, sectcode, sectstr(段名)
+# ──────────────────────────────────────────────────────────────
+import urllib.request as _urlreq
+import xml.etree.ElementTree as _ET
+
+def _norm_name(s):
+    """名稱正規化：去空白、台↔臺 統一、巿→市，避免縣市/區/段名小差異害比對失敗。"""
+    return (s or '').strip().replace('台', '臺').replace('巿', '市')
+
+def _nlsc_api_xml(path):
+    """打 api.nlsc.gov.tw/other/{path}，回傳 XML root；失敗回 None。"""
+    try:
+        url = "https://api.nlsc.gov.tw/other/" + path
+        with _urlreq.urlopen(url, timeout=15) as _r:
+            return _ET.fromstring(_r.read())
+    except Exception as _e:
+        print(f"[NLSC API] 取得 {path} 失敗：{_e}", flush=True)
+        return None
+
+def _nlsc_county_code(city_name):
+    root = _nlsc_api_xml("ListCounty")
+    if root is None:
+        return None
+    for it in root.iter('countyItem'):
+        if _norm_name(it.findtext('countyname')) == _norm_name(city_name):
+            return (it.findtext('countycode') or '').strip()
+    return None
+
+def _nlsc_town_code(county_code, area_name):
+    root = _nlsc_api_xml(f"ListTown/{county_code}")
+    if root is None:
+        return None
+    for it in list(root):
+        # 容錯：不同節點名稱都掃 townname/towncode
+        name = it.findtext('townname') or ''
+        code = (it.findtext('towncode') or '').strip()
+        if _norm_name(name) == _norm_name(area_name) and code:
+            return code
+    return None
+
+def _nlsc_section(county_code, town_code, section_name):
+    """回傳 (office, sectcode) 或 (None, None)"""
+    root = _nlsc_api_xml(f"ListLandSection/{county_code}/{town_code}")
+    if root is None:
+        return None, None
+    for it in root.iter('sectItem'):
+        if _norm_name(it.findtext('sectstr')) == _norm_name(section_name):
+            return (it.findtext('office') or '').strip(), (it.findtext('sectcode') or '').strip()
+    return None, None
+
+def _select_with_api_fallback(driver, select_id, want_text, kind, city_name=None, area_name=None):
+    """先用可見文字選；失敗(前端沒填好選項)就打 API 拿代碼、JS 灌進選項再選。
+    kind: 'area' or 'section'。回傳 True/False。"""
+    from selenium.webdriver.support.ui import Select as _Select
+    try:
+        el = WebDriverWait(driver, 8).until(EC.presence_of_element_located((By.ID, select_id)))
+        # 🔥 診斷：印出目前選項的 value/text 格式（之後微調灌值格式用）
+        try:
+            opts = driver.execute_script(
+                "return Array.from(arguments[0].options).slice(0,4).map(o=>o.value+'｜'+o.text);", el)
+            print(f"[診斷] #{select_id} 現有選項(前4)：{opts}", flush=True)
+        except Exception:
+            pass
+        _Select(el).select_by_visible_text(want_text)
+        return True
+    except Exception:
+        print(f"[後備] #{select_id} 找不到「{want_text}」選項（前端可能壞了），改用 API 灌入…", flush=True)
+        try:
+            cc = _nlsc_county_code(city_name)
+            if not cc:
+                print("[後備] 取縣市碼失敗", flush=True); return False
+            if kind == 'section':
+                tc = _nlsc_town_code(cc, area_name)
+                if not tc:
+                    print("[後備] 取區碼失敗", flush=True); return False
+                office, sectcode = _nlsc_section(cc, tc, want_text)
+                if not sectcode:
+                    print(f"[後備] API 找不到地段「{want_text}」", flush=True); return False
+                # 🔥 網頁 #section 的 option value 格式為「office_sectcode」（例：EB_0901），實測確認
+                inject_val = f"{office}_{sectcode}"
+            else:
+                inject_val = _nlsc_town_code(cc, want_text) or want_text
+            # 用 JS 把選項灌進去並選取、觸發 change
+            driver.execute_script("""
+                var sel = document.getElementById(arguments[0]);
+                if(!sel) return;
+                var v = arguments[1], t = arguments[2];
+                var found=false;
+                for(var i=0;i<sel.options.length;i++){ if(sel.options[i].text===t){sel.selectedIndex=i;found=true;break;} }
+                if(!found){ var o=document.createElement('option'); o.value=v; o.text=t; sel.add(o); sel.value=v; }
+                sel.dispatchEvent(new Event('change',{bubbles:true}));
+            """, select_id, inject_val, want_text)
+            print(f"[後備] 已用 API 代碼灌入 #{select_id}=「{want_text}」(value={inject_val})", flush=True)
+            return True
+        except Exception as _e:
+            print(f"[後備] 灌入 #{select_id} 失敗：{_e}", flush=True)
+            return False
+
+
 # 遍歷 data.json 中的每一組數據
 for data in data_list:
     city = data['city']
@@ -917,18 +1075,13 @@ for data in data_list:
         city_select.select_by_visible_text(city)
         print(f"已選擇縣市: {city}", flush=True)
 
-        area_select_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "area_office"))
-        )
-        area_select = Select(area_select_element)
-        area_select.select_by_visible_text(area)
+        # 🔥 選區：正常用可見文字選；前端壞了就用 API 灌入（方案A）
+        _select_with_api_fallback(driver, "area_office", area, 'area', city_name=city, area_name=area)
         print(f"已選擇鄉鎮市區: {area}", flush=True)
+        time.sleep(0.6)  # 等「地段」選單依區載入
 
-        section_select_element = WebDriverWait(driver, 10).until(
-            EC.presence_of_element_located((By.ID, "section"))
-        )
-        section_select = Select(section_select_element)
-        section_select.select_by_visible_text(section)
+        # 🔥 選段：正常用可見文字選；前端壞了就用 API 灌入（方案A）
+        _select_with_api_fallback(driver, "section", section, 'section', city_name=city, area_name=area)
         print(f"已選擇地段: {section}", flush=True)
 
         landcode_input_element = WebDriverWait(driver, 10).until(

@@ -53,7 +53,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException, ElementClickInterceptedException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -638,20 +638,17 @@ def run_query_session():
         except Exception:
             pass  # 靜默處理偵測配置錯誤
 
-        if zoom_count > 0:
-            try:
-                # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-                # 先點擊頁面確保 Chrome 視窗有焦點
-                body = driver.find_element(By.TAG_NAME, 'body')
-                body.click()
-                time.sleep(0.5)
+        # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+        try:
+            _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+            if os.path.exists(_zcp):
+                _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('nlma')
+                if _zov is not None:
+                    zoom_count = int(_zov)
+        except Exception:
+            pass
 
-                # 🔥 根據 DPI 決定按幾次 Ctrl + -
-                for i in range(zoom_count):
-                    keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-                    time.sleep(0.5)
-            except Exception:
-                pass  # 靜默處理縮放錯誤
+        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
         # 4. 設置查詢結果和狀態變量
         all_results = {}  # 用於儲存所有有效結果
@@ -821,12 +818,11 @@ def process_results(status, results, base_directory, all_results):
         # 顯示結果並讓用戶選擇
         while results:  # 只有在有結果時才進入選擇循環
             print_results_with_options(all_results)
-            print("請輸入選擇的選項（例如：1, 2 或 a/all 全選）：", flush=True)
-            selected_options = input().split(",")
+            print("請輸入選擇的選項（例如：1, 3 或 2-3 範圍，可混用 1,3-5；a/all 全選）：", flush=True)
+            _raw = input().strip()
 
             # 🔥 處理"全選"（支援 all, a, A）
-            first_option = selected_options[0].strip().lower()
-            if first_option in ("all", "a"):
+            if _raw.lower() in ("all", "a"):
                 print("開始處理所有選項...", flush=True)
                 for option, result in all_results.items():
                     try:
@@ -837,11 +833,34 @@ def process_results(status, results, base_directory, all_results):
                 print("所有選項處理完成。", flush=True)
                 break
 
-            # 處理單個或多個選項
+            # 處理單個/多個/範圍選項（支援逗號分隔與 2-3 範圍，可混用）
             else:
+                _expanded = []
+                for _part in _raw.split(","):
+                    _part = _part.strip()
+                    if not _part:
+                        continue
+                    if "-" in _part:
+                        try:
+                            _a, _b = [int(x.strip()) for x in _part.split("-", 1)]
+                            if _a > _b:
+                                _a, _b = _b, _a
+                            _expanded.extend(str(n) for n in range(_a, _b + 1))
+                        except ValueError:
+                            _expanded.append(_part)  # 解析失敗保留原值，下面會判無效
+                    else:
+                        _expanded.append(_part)
+                # 去重保序
+                _seen = set()
+                selected_options = []
+                for _o in _expanded:
+                    if _o not in _seen:
+                        _seen.add(_o)
+                        selected_options.append(_o)
+
                 all_options_valid = True
                 for option in selected_options:
-                    option = option.strip()  # 移除.upper()，因为数字不需要转大写
+                    option = option.strip()
                     if option in all_results:
                         try:
                             click_and_save_pdf(all_results[option], base_directory)
@@ -999,8 +1018,8 @@ def test():
                                 # 顯示結果並讓用戶選擇
                                 while results:  # 只有在有結果時才進入選擇循環
                                     print_results_with_options(all_results)
-                                    print("請輸入選擇的選項（例如：1, 2 或 a/all 全選）：", flush=True)
-                                    selected_options = safe_input().split(",")
+                                    print("請輸入選擇的選項（例如：1, 3 或 2-3 範圍，可混用 1,3-5；a/all 全選）：", flush=True)
+                                    selected_options = _expand_sel(safe_input())
 
                                     # 🔥 處理"全選"（支援 all, a, A）
                                     first_option = selected_options[0].strip().lower()
@@ -1108,8 +1127,8 @@ def test():
                             # 顯示結果並讓用戶選擇
                             while results:
                                 print_results_with_options(all_results)
-                                print("請輸入選擇的選項（例如：1, 2 或 a/all 全選）：", flush=True)
-                                selected_options = safe_input().split(",")
+                                print("請輸入選擇的選項（例如：1, 3 或 2-3 範圍，可混用 1,3-5；a/all 全選）：", flush=True)
+                                selected_options = _expand_sel(safe_input())
 
                                 # 🔥 處理"全選"（支援 all, a, A）
                                 first_option = selected_options[0].strip().lower()
@@ -1201,8 +1220,8 @@ def test():
                             # 顯示結果並讓用戶選擇
                             while results:  # 只有在有結果時才進入選擇循環
                                 print_results_with_options(all_results)
-                                print("請輸入選擇的選項（例如：1, 2 或 a/all 全選）：", flush=True)
-                                selected_options = safe_input().split(",")
+                                print("請輸入選擇的選項（例如：1, 3 或 2-3 範圍，可混用 1,3-5；a/all 全選）：", flush=True)
+                                selected_options = _expand_sel(safe_input())
 
                                 # 🔥 處理"全選"（支援 all, a, A）
                                 first_option = selected_options[0].strip().lower()
@@ -1327,11 +1346,19 @@ def select_city(city_name):
                         else:
                             zoom_count = 0  # 100%、125%（大螢幕）：不縮放
 
+                        # 🔥 使用者覆寫優先（zoom_config.json）
+                        try:
+                            _zcp2 = os.path.join(BASE_DIR, 'zoom_config.json')
+                            if os.path.exists(_zcp2):
+                                _zov2 = json.load(open(_zcp2, encoding='utf-8')).get('overrides', {}).get('nlma')
+                                if _zov2 is not None:
+                                    zoom_count = int(_zov2)
+                        except Exception:
+                            pass
+
                         if zoom_count > 0:
                             time.sleep(0.5)  # 等待新視窗完全載入
-                            for _ in range(zoom_count):
-                                keyboard.press_and_release('ctrl+-')
-                                time.sleep(0.3)
+                        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
                 except Exception:
                     pass  # 靜默處理縮放錯誤
         # print(f"當前視窗網址: {driver.current_url}", flush=True)
@@ -2854,6 +2881,60 @@ def generate_option(index):
     """
     return str(index)
 
+def _expand_sel(raw):
+    """把選擇輸入展開：支援逗號分隔與 2-3 範圍（可混用 1,3-5），保留 a/all 等非數字原樣。
+    回傳 list；空輸入回 ['']（讓後續判為無效，維持原行為）。"""
+    out = []
+    for part in str(raw).split(","):
+        part = part.strip()
+        if not part:
+            continue
+        bits = part.split("-", 1)
+        if "-" in part and len(bits) == 2 and bits[0].strip().isdigit() and bits[1].strip().isdigit():
+            a, b = int(bits[0].strip()), int(bits[1].strip())
+            if a > b:
+                a, b = b, a
+            out.extend(str(n) for n in range(a, b + 1))
+        else:
+            out.append(part)
+    seen = set()
+    res = []
+    for o in out:
+        if o not in seen:
+            seen.add(o)
+            res.append(o)
+    return res or ['']
+
+def _nlma_zoom_count():
+    """依 window_config 的 DPI + zoom_config 覆寫，算出 nlma 要縮幾次（給跳轉後的新分頁用）。"""
+    zc = 0
+    try:
+        _cfg = os.path.join(BASE_DIR, 'window_config.json')
+        if os.path.exists(_cfg):
+            c = json.load(open(_cfg, encoding='utf-8'))
+            dpi = c.get('dpi_scale', 1.0) or 1.0
+            sw = c.get('screen_width', 1920)
+            lw = sw / dpi
+            if dpi >= 1.75:
+                zc = 4
+            elif dpi >= 1.5:
+                zc = 2
+            elif dpi >= 1.25 and lw < 1200:
+                zc = 2
+            else:
+                zc = 0
+    except Exception:
+        pass
+    try:
+        _zp = os.path.join(BASE_DIR, 'zoom_config.json')
+        if os.path.exists(_zp):
+            ov = json.load(open(_zp, encoding='utf-8')).get('overrides', {}).get('nlma')
+            if ov is not None:
+                zc = int(ov)
+    except Exception:
+        pass
+    return zc
+
 def click_and_save_pdf(result, base_directory):
     try:
         link_href = result.get("link_href")
@@ -2872,6 +2953,12 @@ def click_and_save_pdf(result, base_directory):
             print("目標內容已加載。", flush=True)
         except TimeoutException:
             print("目標內容加載超時，嘗試保存當前頁面內容。", flush=True)
+
+        # 🔥 跳轉後的新分頁也套用縮放（與其他頁面一致）
+        try:
+            apply_page_zoom(driver, _nlma_zoom_count())
+        except Exception:
+            pass
 
         # 建立目標目錄
         pdf_directory = os.path.join(base_directory, "1.基本資料")

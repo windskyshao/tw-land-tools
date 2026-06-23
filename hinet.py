@@ -1129,7 +1129,13 @@ def extract_info_enhanced(text):
             段名_match = pattern段名.search(text)
             建號_match = pattern建號.search(text)
             段名 = 段名_match.group(1) if 段名_match else ''
-            建號 = 建號_match.group(1).translate(str.maketrans('〇一二三四五六七八九', '0123456789')) if 建號_match else ''
+            if 建號_match:
+                # 🔥 母建號常以中文數字呈現（如「一八四○一」），其中的 0 可能是各種「圈」字元
+                #    （〇 U+3007、○ U+25CB、◯ U+25EF…）先一律轉成 0，再轉其餘中文數字
+                _b = re.sub(r'[〇○◯◌◎●⭕⚪]', '0', 建號_match.group(1))
+                建號 = _b.translate(str.maketrans('零一二三四五六七八九', '0123456789'))
+            else:
+                建號 = ''
             return '建物測量成果圖', 段名, 建號
         elif '地籍圖謄本' in text:
             # 🔥 改寫：不再直接把整段「土地坐落」文字塞進檔名（多筆時會有數千字）
@@ -1266,8 +1272,19 @@ def generate_unique_filename(directory, base_name):
 
 
 def rename_pdf(original_path, output_dir=None, auto_confirm=False, custom_dir_options=None, selected_output_dir=None):
+    # 🔥 分流設定（來自 handle_preview_print）：auto/per_file 需等解析出段名後再決定資料夾
+    _routing = selected_output_dir if isinstance(selected_output_dir, dict) else {}
+    _mode = _routing.get('mode')
+    _case_dir = _routing.get('case_dir')
+    _fallback_dir = _routing.get('fallback_dir')
+    _case_key = _routing.get('case_key', '')
+    _decide_by_content = _mode in ('auto', 'per_file')
+
     # 添加目錄選擇
-    if auto_confirm and selected_output_dir and selected_output_dir['dir']:
+    if _decide_by_content:
+        # 先給安全預設（萬一解析前就出錯仍有去處），實際資料夾等解析出段名後再決定
+        output_dir = _fallback_dir or get_work_folder("下載的謄本")
+    elif auto_confirm and selected_output_dir and selected_output_dir.get('dir'):
         output_dir = selected_output_dir['dir']
     else:
         if custom_dir_options:
@@ -1293,7 +1310,8 @@ def rename_pdf(original_path, output_dir=None, auto_confirm=False, custom_dir_op
         if auto_confirm and selected_output_dir is not None:
             selected_output_dir['dir'] = output_dir
 
-    os.makedirs(output_dir, exist_ok=True)
+    if not _decide_by_content:
+        os.makedirs(output_dir, exist_ok=True)
 
     # 🔥 回傳三態：(output_dir, rename_status, file_path)
     #   rename_status = 'moved'       → 已改名並搬到 output_dir
@@ -1342,6 +1360,31 @@ def rename_pdf(original_path, output_dir=None, auto_confirm=False, custom_dir_op
         print(f"類別: {類別}")
         print(f"段名: {段名}")
         print(f"地號和建號: {地號和建號}")
+
+        # 🔥 自動／各筆分流：用解析出的「段名」決定資料夾（土地、建物謄本都依實際內容）
+        if _decide_by_content:
+            # 去空白＋去開頭縣市（如「高雄市」「臺南市」「屏東縣」），再「雙向」比對：
+            # 段名可能多了縣市前綴（高雄市苓雅區五塊厝段）或少了區（五塊厝段），
+            # 只要其中一個是另一個的子字串就算同段，避免縣市前綴害同段被誤丟到「下載的謄本」
+            def _norm_seg(s):
+                s = re.sub(r'\s+', '', str(s or ''))
+                return re.sub(r'^.{1,2}[市縣]', '', s, count=1)
+            _seg_n = _norm_seg(段名)
+            _key_n = _norm_seg(_case_key)
+            if _mode == 'auto':
+                if _case_dir and _key_n and _seg_n and (_seg_n in _key_n or _key_n in _seg_n):
+                    output_dir = _case_dir
+                else:
+                    output_dir = _fallback_dir
+                _where = '案件「0.謄本」' if output_dir == _case_dir else '「下載的謄本」'
+                print(f"\033[96m[分流] 坐落地段「{段名 or '(無)'}」 → {_where}\033[0m", flush=True)
+            else:  # per_file：每一筆問
+                print(f"\033[93m這筆：坐落「{段名 or '?'}」{地號和建號 or ''}　要存到哪？\033[0m", flush=True)
+                print("   [1] 案件「0.謄本」", flush=True)
+                print("   [2] 「下載的謄本」（直接 Enter 即此項）", flush=True)
+                _ch = input().strip()
+                output_dir = _case_dir if (_ch == '1' and _case_dir) else _fallback_dir
+            os.makedirs(output_dir, exist_ok=True)
 
         # 檔案命名邏輯
         if 類別 == '建物測量成果圖':
@@ -1762,6 +1805,15 @@ def manage_config():
 
     window.mainloop()
 
+def _close_driver_quietly(driver):
+    """安靜地關閉瀏覽器（用於返回主選單前，避免每做一次就多開一個 Chrome）。"""
+    if not driver:
+        return
+    try:
+        driver.quit()
+    except Exception:
+        pass
+
 def main():
     global program_should_exit
     
@@ -1796,7 +1848,7 @@ def main():
         print("\033[93m１.送件作業\033[0m", flush=True)
         print("\033[93m２.送件、領件整體作業\033[0m", flush=True)
         print("\033[93m３.領件作業\033[0m", flush=True)
-        print("\033[93m４.退出程式\033[0m", flush=True)
+        print("\033[93m４.退出\033[0m", flush=True)
         print("（如需修改帳密，請回主程式 → 功能分頁 → 修改帳密）", flush=True)
 
         while True:
@@ -1843,6 +1895,8 @@ def main():
                     gland_number, ID_number, register_type, register_options, scenario, custom_dir_path
                     )
                 print("\033[41m【送件作業】執行完畢，祝您有美好的一天~~\033[0m", flush=True)
+                _close_driver_quietly(driver)  # 🔥 先關掉這次的 Chrome，再返回主選單（避免愈開愈多）
+                driver = None
                 return main()  # 返回主選單
 
             elif scenario == 2:
@@ -1855,6 +1909,8 @@ def main():
                         gland_number, ID_number, register_type, register_options, scenario, custom_dir_path
                     )
                 print("\033[42m【送件&領件】作業執行完畢，祝您冒泡連連~~\033[0m", flush=True)
+                _close_driver_quietly(driver)  # 🔥 先關掉這次的 Chrome，再返回主選單（避免愈開愈多）
+                driver = None
                 return main()  # 返回主選單
 
             elif scenario == 3:
@@ -1864,6 +1920,8 @@ def main():
                 if login_attempt(driver, register_type, username, password, card_cert):
                     download_document(driver, scenario, custom_dir_options=custom_dir_path) # 這裡也要傳入
                 print("\033[41m【領件作業】執行完畢，祝您心想事成~~\033[0m", flush=True)
+                _close_driver_quietly(driver)  # 🔥 先關掉這次的 Chrome，再返回主選單（避免愈開愈多）
+                driver = None
                 return main()  # 返回主選單
                 
         except KeyboardInterrupt:
@@ -3233,6 +3291,26 @@ def display_items_and_get_selection(items, downloaded=None):
         mark = "  \033[38;5;46m不扣費\033[0m" if already else "  \033[97;41m 需扣費 \033[0m"
         print(f"{i:<3} {item['location']:<12} {item['doc_type']:<10} {item['fee']:<6} {plot_info}{mark}", flush=True)
 
+    # 🔥 金額加總：分「需扣費合計」與「全部合計」
+    def _fee_int(x):
+        try:
+            return int(str(x).strip())
+        except Exception:
+            return 0
+    total_all = sum(_fee_int(it.get('fee', 0)) for it in items)
+    total_charge = sum(
+        _fee_int(it.get('fee', 0))
+        for j, it in enumerate(items, 1)
+        if not ((not it.get('pending', True)) or ((j - 1) in downloaded))
+    )
+    print("-" * 63, flush=True)
+    if total_charge == total_all:
+        print(f"\033[97;41m 合計需扣費：{total_charge} 元（共 {len(items)} 筆） \033[0m", flush=True)
+    elif total_charge == 0:
+        print(f"全部合計 {total_all} 元，\033[38;5;46m皆已領取、不需扣費\033[0m（共 {len(items)} 筆）", flush=True)
+    else:
+        print(f"全部合計 {total_all} 元，其中 \033[97;41m 需扣費 {total_charge} 元 \033[0m", flush=True)
+
     print("=" * 39, flush=True)
     print("\n\033[96m請選擇要下載的項目：\033[0m", flush=True)
     print("  - 輸入編號，多個編號請用逗號分隔（例如：1,3,5）", flush=True)
@@ -3442,6 +3520,9 @@ def handle_preview_print(
     selected_output_dir=None
 ):
     max_retries = 3  # 設定最大重試次數
+    # 🔥 確保是 dict，才能承載分流設定（mode/case_dir/fallback_dir/case_key），傳給 rename_pdf
+    if selected_output_dir is None:
+        selected_output_dir = {'dir': None}
 
     try:
         # 第一步：收集所有頁面的項目資訊
@@ -3502,14 +3583,13 @@ def handle_preview_print(
                 return True
 
             # 第三步：金額 + 逐檔分流，下載前統一確認（下載＝領件＝會扣費！）
-            force_dir = None
+            _routing_mode = 'auto'   # 'auto'＝依PDF內容分流 / 'batch'＝整批同一夾 / 'per_file'＝各筆問
+            _batch_dir = None
             _proceed = True
             while True:
                 total_fee = 0     # 只累計「會扣費（未下載過）」的金額
                 n_charge = 0      # 會實際扣費的筆數
                 n_free = 0        # 已領取過、不再扣費的筆數
-                n_case = 0
-                n_fallback = 0
                 for _idx in selected_indices:
                     _it = all_items[_idx]
                     _already = (not _it.get('pending', True)) or (_idx in downloaded)
@@ -3521,38 +3601,60 @@ def handle_preview_print(
                             total_fee += int(''.join(filter(str.isdigit, str(_it.get('fee', '0')))) or 0)
                         except Exception:
                             pass
-                    _d = force_dir or _dir_for(_it)
-                    if case_dir and _d == case_dir:
-                        n_case += 1
-                    else:
-                        n_fallback += 1
                 print("", flush=True)
                 print(f"\033[93m即將下載 {len(selected_indices)} 筆：\033[0m", flush=True)
                 if n_charge > 0:
-                    print(f"\033[91m   ▸ {n_charge} 筆會扣費，合計 {total_fee} 元（下載即領件、會產生費用，請確認！）\033[0m", flush=True)
+                    print(f"\033[97;41m ▸ {n_charge} 筆會扣費，合計 {total_fee} 元（下載即領件、會產生費用，請確認！） \033[0m", flush=True)
                 if n_free > 0:
                     print(f"\033[38;5;46m   ▸ {n_free} 筆先前已領取，不會再扣費\033[0m", flush=True)
-                print("\033[96m存放方式（依各筆的「區」自動分流）：\033[0m", flush=True)
-                if case_dir and n_case > 0:
-                    print(f"\033[96m   • {n_case} 筆（與案件「{_case_base}」相符）→ 案件「0.謄本」\033[0m", flush=True)
-                if n_fallback > 0:
-                    print(f"\033[96m   • {n_fallback} 筆 → 「下載的謄本」\033[0m", flush=True)
-                print("請確認（項目已選定，直接 Enter 即可下載）：", flush=True)
-                print("\033[38;5;46m   [Enter] 或 [Y]　確認下載\033[0m", flush=True)
-                if case_dir and n_case > 0 and not force_dir:
-                    print("\033[94m   [A]　全部改存到「下載的謄本」\033[0m", flush=True)
-                print("\033[91m   [N]　取消，回清單重選\033[0m", flush=True)
+
+                if not case_dir:
+                    # 沒有對應案件 → 全部存「下載的謄本」，只需確認費用
+                    print("\033[96m存放方式：全部存到「下載的謄本」\033[0m", flush=True)
+                    print("\033[30;42m 確認下載 \033[0m  按 Enter 或 Y", flush=True)
+                    print("\033[97;41m 取消 \033[0m      按 N　（回清單重選）", flush=True)
+                    _c = input().strip().lower()
+                    if _c in ('y', ''):
+                        _routing_mode = 'batch'; _batch_dir = fallback_dir; break
+                    elif _c == 'n':
+                        _proceed = False; break
+                    else:
+                        continue
+
+                print("\033[96m請選擇存放方式：\033[0m", flush=True)
+                print("\033[30;42m 自動分流 \033[0m  按 Enter 或 Y　\033[92m（建議）\033[0m", flush=True)
+                print("       同地段　 → 案件「0.謄本」", flush=True)
+                print("       不同地段 → 「下載的謄本」", flush=True)
+                print("\033[30;46m 手動分流 \033[0m  按 M　（自己決定每筆）", flush=True)
+                print("\033[97;41m 取消 \033[0m      按 N　（回清單重選）", flush=True)
                 _c = input().strip().lower()
                 if _c in ('y', ''):
-                    break
-                elif _c == 'a' and case_dir and not force_dir:
-                    force_dir = fallback_dir
-                    continue
+                    _routing_mode = 'auto'; break
+                elif _c == 'm':
+                    print("\033[96m手動分流方式：\033[0m", flush=True)
+                    print("   [1] 整批（這批全部存到同一個地方）", flush=True)
+                    print("   [2] 各筆（每一筆下載後各別選）", flush=True)
+                    print("   （直接按 Enter 返回上一步）", flush=True)
+                    _m = input().strip()
+                    if _m == '1':
+                        print("\033[96m這批 %d 筆全部存到哪？\033[0m" % len(selected_indices), flush=True)
+                        print("   [1] 案件「0.謄本」", flush=True)
+                        print("   [2] 「下載的謄本」", flush=True)
+                        _w = input().strip()
+                        if _w == '1':
+                            _routing_mode = 'batch'; _batch_dir = case_dir; break
+                        elif _w == '2':
+                            _routing_mode = 'batch'; _batch_dir = fallback_dir; break
+                        else:
+                            continue
+                    elif _m == '2':
+                        _routing_mode = 'per_file'; break
+                    else:
+                        continue
                 elif _c == 'n':
-                    _proceed = False
-                    break
+                    _proceed = False; break
                 else:
-                    print("\033[90m（請按 Enter/Y 確認、A 全部存下載的謄本 或 N 取消）\033[0m", flush=True)
+                    print("\033[90m（請按 Enter/Y 自動、M 手動 或 N 取消）\033[0m", flush=True)
                     continue
             if not _proceed:
                 continue  # 取消 → 回清單重選
@@ -3573,16 +3675,23 @@ def handle_preview_print(
             except:
                 pass
             current_page = 1
+            # 🔥 把分流設定交給 rename_pdf：整批＝固定 dir；自動/各筆＝下載後依 PDF 內容決定
+            if selected_output_dir is not None:
+                selected_output_dir['mode'] = _routing_mode
+                selected_output_dir['case_dir'] = case_dir
+                selected_output_dir['fallback_dir'] = fallback_dir
+                selected_output_dir['case_key'] = _case_base_key
             for i, idx in enumerate(selected_indices, 1):
                 item = all_items[idx]
-                # 逐檔智慧分流：依此筆的「區」決定存檔目錄
-                _item_dir = force_dir or _dir_for(item)
                 if selected_output_dir is not None:
-                    selected_output_dir['dir'] = _item_dir
-                try:
-                    os.makedirs(_item_dir, exist_ok=True)
-                except Exception:
-                    pass
+                    if _routing_mode == 'batch':
+                        selected_output_dir['dir'] = _batch_dir
+                        try:
+                            os.makedirs(_batch_dir, exist_ok=True)
+                        except Exception:
+                            pass
+                    else:
+                        selected_output_dir['dir'] = None  # auto/per_file → rename_pdf 解析段名後決定
                 if item['page'] != current_page:
                     print(f"\n導航到第 {item['page']} 頁...", flush=True)
                     if navigate_to_page(driver, item['page']):

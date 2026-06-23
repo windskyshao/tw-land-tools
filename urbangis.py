@@ -31,7 +31,7 @@ from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, StaleElementReferenceException, NoSuchElementException
 import sys
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 
 # 🔥 自訂例外：用於從 step 3/4 早跳出（道路用地不需要點擊+擷取建蔽容積）
@@ -203,6 +203,55 @@ url = "https://urbangis.kcg.gov.tw/"
 
 
 # 函式：初始化頁面
+def _force_chrome_foreground(driver):
+    """用 AttachThreadInput 解除 Windows 前景鎖，把本支 Chrome 拉到前景，
+    keyboard 的 Ctrl+- 才送得進去（背景程式直接 SetForegroundWindow 會被擋）。"""
+    try:
+        driver.switch_to.window(driver.current_window_handle)
+    except Exception:
+        pass
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        marker = "URBANZOOMWIN8741"
+        old = driver.execute_script("var t=document.title;document.title=arguments[0];return t;", marker)
+        time.sleep(0.25)
+        found = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, lparam):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if marker in buf.value:
+                    found.append(hwnd)
+            return True
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        try:
+            driver.execute_script("document.title=arguments[0];", old)
+        except Exception:
+            pass
+        if not found:
+            print("[頁面縮放] 找不到 Chrome 視窗（無法拉前景）", flush=True)
+            return False
+        hwnd = found[0]
+        fg = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        cur_thread = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(cur_thread, fg_thread, True)
+        user32.ShowWindow(hwnd, 9)        # SW_RESTORE
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.AttachThreadInput(cur_thread, fg_thread, False)
+        time.sleep(0.3)
+        return True
+    except Exception as e:
+        print(f"[頁面縮放] 拉前景失敗：{e}", flush=True)
+        return False
+
 def initialize_page(driver, url):
     driver.get(url)
     # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
@@ -249,25 +298,18 @@ def initialize_page(driver, url):
     except Exception as e:
         print(f"[頁面縮放] 偵測配置時發生錯誤: {e}，使用預設不縮放", flush=True)
 
-    if zoom_count > 0:
-        try:
-            # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-            # 先點擊頁面確保 Chrome 視窗有焦點
-            body = driver.find_element(By.TAG_NAME, 'body')
-            body.click()
-            time.sleep(0.5)
+    # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+    try:
+        _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+        if os.path.exists(_zcp):
+            _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('urbangis')
+            if _zov is not None:
+                zoom_count = int(_zov)
+                print(f"[頁面縮放] 採用使用者設定：縮放 {zoom_count} 次", flush=True)
+    except Exception:
+        pass
 
-            # 🔥 根據 DPI 決定按幾次 Ctrl + -
-            print(f"[頁面縮放] 正在使用系統鍵盤縮放（按 {zoom_count} 次）...", flush=True)
-            for i in range(zoom_count):
-                keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-                time.sleep(0.5)
-
-            print(f"[頁面縮放] ✓ 已使用系統鍵盤縮放至 {target_zoom}", flush=True)
-        except Exception as e:
-            print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
-    else:
-        print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
+    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
 
     # 關閉所有「關閉」按鈕的彈出視窗
     try:
@@ -1071,8 +1113,7 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
         traceback.print_exc()
         return None
 
-# 初始化頁面
-initialize_page(driver, url)
+# 🔥 初始化頁面移到迴圈內每筆做（原本這裡先做一次是多餘的，會害縮放等動作跑兩次）
 
 # 列表來收集所有 PNG 路徑和標識符
 all_png_files = []

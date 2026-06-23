@@ -413,6 +413,140 @@ def verify_and_fix_chrome_window(driver, target_ratio=2/3):
         return None
 
 
+def bring_chrome_foreground(driver):
+    """用 AttachThreadInput 解除 Windows 前景鎖，把本支 Chrome 拉到前景，
+    keyboard 的 Ctrl+- 才送得進去（背景程式直接 SetForegroundWindow 會被擋）。"""
+    import time
+    try:
+        driver.switch_to.window(driver.current_window_handle)
+    except Exception:
+        pass
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        marker = "CHROMEZOOMWIN8741"
+        old = driver.execute_script("var t=document.title;document.title=arguments[0];return t;", marker)
+        time.sleep(0.25)
+        found = []
+        WNDENUMPROC = ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+        def _cb(hwnd, lparam):
+            n = user32.GetWindowTextLengthW(hwnd)
+            if n:
+                buf = ctypes.create_unicode_buffer(n + 1)
+                user32.GetWindowTextW(hwnd, buf, n + 1)
+                if marker in buf.value:
+                    found.append(hwnd)
+            return True
+        user32.EnumWindows(WNDENUMPROC(_cb), 0)
+        try:
+            driver.execute_script("document.title=arguments[0];", old)
+        except Exception:
+            pass
+        if not found:
+            print("[頁面縮放] 找不到 Chrome 視窗（無法拉前景）", flush=True)
+            return None
+        hwnd = found[0]
+        fg = user32.GetForegroundWindow()   # 動作前的前景（通常是主程式）
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        cur_thread = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(cur_thread, fg_thread, True)
+        user32.ShowWindow(hwnd, 9)        # SW_RESTORE
+        user32.BringWindowToTop(hwnd)
+        user32.SetForegroundWindow(hwnd)
+        user32.AttachThreadInput(cur_thread, fg_thread, False)
+        time.sleep(0.3)
+        return fg   # 🔥 回傳原本的前景視窗，縮放完用 restore_foreground 還原
+    except Exception as e:
+        print(f"[頁面縮放] 拉前景失敗：{e}", flush=True)
+        return None
+
+
+def restore_foreground(hwnd):
+    """把 OS 前景還給指定視窗（通常是縮放前的主程式），
+    否則縮放把 Chrome 拉到前景後，使用者打字會跑到 Chrome（要再點輸入框才正常）。"""
+    if not hwnd:
+        return
+    try:
+        import ctypes
+        from ctypes import wintypes
+        user32 = ctypes.windll.user32
+        kernel32 = ctypes.windll.kernel32
+        user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+        fg = user32.GetForegroundWindow()
+        fg_thread = user32.GetWindowThreadProcessId(fg, None)
+        cur_thread = kernel32.GetCurrentThreadId()
+        user32.AttachThreadInput(cur_thread, fg_thread, True)
+        user32.SetForegroundWindow(hwnd)
+        user32.AttachThreadInput(cur_thread, fg_thread, False)
+    except Exception:
+        pass
+
+
+def apply_page_zoom(driver, zoom_count):
+    """把瀏覽器縮放到指定級數（按 zoom_count 次 Ctrl+-）。
+    先拉前景→Ctrl+0 重設回100%→按 Ctrl+- 縮到目標→用前後 devicePixelRatio 比值驗證實際%。
+    zoom_count<=0 不縮放。各子程式共用，確保 keyboard 縮放真的送進 Chrome。"""
+    import time
+    from selenium.webdriver.common.by import By
+    if not zoom_count or zoom_count <= 0:
+        print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
+        return None
+    try:
+        import keyboard
+    except Exception as e:
+        print(f"[頁面縮放] 無 keyboard 模組：{e}", flush=True)
+        return None
+    STEP_PCT = {1: '90%', 2: '80%', 3: '75%', 4: '67%', 5: '50%'}
+    target = STEP_PCT.get(zoom_count, f'{zoom_count}次')
+    _prev_fg = None
+    try:
+        _prev_fg = bring_chrome_foreground(driver)
+        try:
+            driver.find_element(By.TAG_NAME, 'body').click()
+        except Exception:
+            pass
+        time.sleep(0.4)
+        keyboard.press_and_release('ctrl+0')   # 先重設回100%（絕對縮放、跨筆不累加）
+        time.sleep(0.5)
+        try:
+            dpr0 = driver.execute_script("return window.devicePixelRatio;")
+        except Exception:
+            dpr0 = None
+        print(f"[頁面縮放] 縮放中（按 {zoom_count} 次，目標 {target}）...", flush=True)
+        for _ in range(zoom_count):
+            keyboard.press_and_release('ctrl+-')
+            time.sleep(0.4)
+        actual = None
+        try:
+            dpr1 = driver.execute_script("return window.devicePixelRatio;")
+            if dpr0:
+                actual = round(dpr1 / dpr0 * 100)
+        except Exception:
+            pass
+        if actual:
+            try:
+                ok = "✓ 成功" if abs(actual - int(str(target).rstrip('%'))) <= 3 else "⚠ 似乎沒生效"
+            except Exception:
+                ok = "已縮放"
+            print(f"[頁面縮放] {ok}：實際約 {actual}%（目標 {target}）", flush=True)
+        else:
+            print(f"[頁面縮放] 已送出縮放至 {target}", flush=True)
+        return actual
+    except Exception as e:
+        print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
+        return None
+    finally:
+        # 🔥 縮放完把 OS 前景還給原本的視窗（通常是主程式），
+        #    否則 Chrome 還在前景，使用者打字會跑到 Chrome（要再點輸入框才正常）
+        try:
+            restore_foreground(_prev_fg)
+        except Exception:
+            pass
+
+
 # 向後相容：提供舊的函數名稱
 def get_webdriver(options=None):
     """向後相容的函數名稱"""

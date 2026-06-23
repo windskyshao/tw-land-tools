@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7e"
-BUILD_DATE = "2026-06-16"
+VERSION = "1.1.7g"
+BUILD_DATE = "2026-06-23"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
@@ -1898,7 +1898,7 @@ help_button.pack(side=tk.RIGHT, padx=(0, 0))
 # 🔥 後 pack json_status_label，吃掉剩餘空間
 json_status_label = tk.Label(
     status_frame,
-    text="JSON: 未選擇",
+    text="尚未謄本結構化",
     font=("Microsoft JhengHei", max(8, message_font_size - 2)),  # 🔥 根據訊息框字體動態調整
     bg='#F0F0F0',
     fg='#333333',
@@ -2069,7 +2069,9 @@ frame_middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=10)  # 🔥 改�
 message_box = scrolledtext.ScrolledText(
     frame_middle, wrap=tk.CHAR, state=tk.DISABLED,  # 🔥 逐字換行：中文夾雜空白時不會在空白處亂折
     font=("Microsoft JhengHei", message_font_size),  # 🔥 使用動態字體大小
-    bg='black', fg='white', insertbackground='white'
+    bg='black', fg='white', insertbackground='white',
+    selectbackground='#2D6FB3', selectforeground='white',
+    inactiveselectbackground='#2D6FB3'  # 🔥 沒焦點時選取也看得到藍底反白，方便複製
 )
 message_box.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
 message_box.config(spacing3=1)
@@ -2635,7 +2637,7 @@ def load_data_json_from_folder():
                 # 🔥 先更新狀態列顯示（在顯示對話框之前）
                 lot_display = simplify_lot_number(f"{first.get('area', '')}{first.get('section', '')}-{first.get('lot_number', '')}")
                 json_status_label.config(
-                    text=f"JSON: {lot_display}",
+                    text=f"{lot_display}←已做謄本結構化",
                     fg='#006400'
                 )
                 # 🔥 強制更新 UI，確保狀態列立即顯示
@@ -4208,13 +4210,13 @@ def update_json_status_display():
             datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else ""
 
             if lot_display and datetime_str:
-                json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+                json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
             elif lot_display:
-                json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+                json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
             else:
-                json_status_label.config(text=f"JSON: {datetime_str if datetime_str else filename}", fg='#006400')
+                json_status_label.config(text=f"{datetime_str if datetime_str else filename}←已做謄本結構化", fg='#006400')
         except:
-            json_status_label.config(text=f"JSON: {filename}", fg='#006400')
+            json_status_label.config(text=f"{filename}←已做謄本結構化", fg='#006400')
 
 def start_subprocess_internal(script_name):
     """內部函數，用於連續模式執行腳本"""
@@ -4673,23 +4675,140 @@ def open_work_folder():
         update_message(f"[錯誤] 開啟資料夾失敗：{e}")
         messagebox.showerror("錯誤", f"開啟資料夾失敗：\n{e}")
 
-# 功能分頁 - 左側按鈕（載入案件、讀取結構化JSON）
+# 🔥 功能分頁按鈕：左右兩欄各 4 個，加寬、輕色系
+_uw = {**sub_page_button_style, 'width': SUB_PAGE_BUTTON_WIDTH + 4, 'fg': 'black', 'activeforeground': 'black'}
+def _ustyle(bg, abg):
+    return {**_uw, 'bg': bg, 'activebackground': abg}
+
+# 功能分頁 - 左欄（資料相關）：載入案件、讀取結構化JSON、匯入封存、匯出封存
 utility_load_data_button = tk.Button(utility_left_frame, text="載入案件 data.json",
                                      command=load_data_json_from_folder,
-                                     **sub_page_button_style)
+                                     **_ustyle('#BBDEFB', '#90CAF9'))
 # 🔥 讀取結構化JSON：原本在謄本專區，移到功能分頁左欄
 # 用 lambda 延後 choose_json_file 的查名（該函式定義在後面）
 read_json_button = tk.Button(utility_left_frame, text="讀取結構化JSON",
                              command=lambda: choose_json_file(),
-                             **sub_page_button_style)
-
-# 功能分頁 - 中間按鈕（匯入/匯出封存）
-utility_import_archive_button = tk.Button(utility_middle_frame, text="匯入封存",
+                             **_ustyle('#B2EBF2', '#80DEEA'))
+utility_import_archive_button = tk.Button(utility_left_frame, text="匯入封存",
                                           command=import_archive,
-                                          **sub_page_button_style)
-utility_export_archive_button = tk.Button(utility_middle_frame, text="匯出封存",
+                                          **_ustyle('#C8E6C9', '#A5D6A7'))
+utility_export_archive_button = tk.Button(utility_left_frame, text="匯出封存",
                                           command=data_editor.export_archive,
-                                          **sub_page_button_style)
+                                          **_ustyle('#DCEDC8', '#C5E1A5'))
+
+# ──────────────────────────────────────────────────────────────
+# 🔥 Chrome 縮放設定：各子程式開 Chrome 後要縮放多少（寫入 zoom_config.json）
+#    子程式開 Chrome 時會優先讀取此設定；沒設定才用 DPI 自動預設
+# ──────────────────────────────────────────────────────────────
+# key 對應子程式檔名去掉 .py（與子程式內讀取的 key 一致）
+ZOOM_PROGRAMS = [
+    ("land",         "地籍便民系統"),
+    ("nlscmaps",     "國土測繪圖資"),
+    ("urbangis",     "高雄都市計畫"),
+    ("luz",          "全國土地使用分區"),
+    ("V523",         "V523 系統(高雄)"),
+    ("tcdmap",       "國土分區查詢"),
+    ("geologycloud", "地質雲查詢"),
+    ("gbmap",        "重要設施查詢"),
+    ("nlma",         "使用執照-高雄市"),
+    ("nlma_nbupic",  "使用執照-屏東/台南"),
+]
+# 縮放% ↔ Ctrl+- 次數（Chrome 縮小級距：100→90→80→75→67→50）
+ZOOM_PCT_TO_STEPS = {"100%": 0, "90%": 1, "80%": 2, "75%": 3, "67%": 4, "50%": 5}
+ZOOM_STEPS_TO_PCT = {v: k for k, v in ZOOM_PCT_TO_STEPS.items()}
+ZOOM_PCT_OPTIONS = ["預設(自動)", "100%", "90%", "80%", "75%", "67%", "50%"]
+
+def _zoom_config_path():
+    return os.path.join(PROGRAM_DIR, 'zoom_config.json')
+
+def _load_zoom_overrides():
+    import json as _json
+    try:
+        p = _zoom_config_path()
+        if os.path.exists(p):
+            with open(p, 'r', encoding='utf-8') as f:
+                return (_json.load(f) or {}).get('overrides', {}) or {}
+    except Exception:
+        pass
+    return {}
+
+def _save_zoom_overrides(overrides):
+    import json as _json
+    try:
+        with open(_zoom_config_path(), 'w', encoding='utf-8') as f:
+            _json.dump({'overrides': overrides}, f, ensure_ascii=False, indent=2)
+        return True
+    except Exception as e:
+        messagebox.showerror("錯誤", f"儲存縮放設定失敗：\n{e}")
+        return False
+
+def open_zoom_settings():
+    _fam = custom_font.actual('family')
+    overrides = _load_zoom_overrides()
+    win = tk.Toplevel(root)
+    win.title("Chrome 縮放設定")
+    win.transient(root)
+    try:
+        win.grab_set()
+    except Exception:
+        pass
+    win.configure(bg='white')
+
+    tk.Label(win, text="各功能開啟 Chrome 後要縮放多少",
+             font=(_fam, 13, 'bold'), bg='white').pack(pady=(12, 2), padx=16)
+    tk.Label(win,
+             text="「預設(自動)」= 依電腦DPI自動縮放。\n"
+                  "若某功能畫面太大／太小，改選一個 %（數字越小縮越多，100%=不縮放）。\n"
+                  "設定會記住，下次開啟該功能的 Chrome 就會套用。",
+             font=(_fam, 10), fg='#555', bg='white', justify='left').pack(pady=(0, 10), padx=16, anchor='w')
+
+    rows_frame = tk.Frame(win, bg='white')
+    rows_frame.pack(padx=16, pady=4, fill='x')
+
+    vars_map = {}
+    for key, name in ZOOM_PROGRAMS:
+        row = tk.Frame(rows_frame, bg='white')
+        row.pack(fill='x', pady=2)
+        tk.Label(row, text=name, width=18, anchor='w', font=(_fam, 11), bg='white').pack(side=tk.LEFT)
+        cur = overrides.get(key)
+        try:
+            cur_label = ZOOM_STEPS_TO_PCT.get(int(cur), "預設(自動)") if cur is not None else "預設(自動)"
+        except Exception:
+            cur_label = "預設(自動)"
+        var = tk.StringVar(value=cur_label)
+        vars_map[key] = var
+        om = tk.OptionMenu(row, var, *ZOOM_PCT_OPTIONS)
+        om.config(width=10, font=(_fam, 10))
+        om.pack(side=tk.LEFT, padx=8)
+
+    def _reset_all():
+        for v in vars_map.values():
+            v.set("預設(自動)")
+
+    def _save_and_close():
+        new_over = {}
+        for k, var in vars_map.items():
+            val = var.get()
+            if val in ZOOM_PCT_TO_STEPS:
+                new_over[k] = ZOOM_PCT_TO_STEPS[val]
+            # 「預設(自動)」→ 不寫入（等於移除覆寫，回到 DPI 自動）
+        if _save_zoom_overrides(new_over):
+            messagebox.showinfo("完成", "已儲存。下次開啟各功能的 Chrome 會套用新的縮放。", parent=win)
+            win.destroy()
+
+    btn_frame = tk.Frame(win, bg='white')
+    btn_frame.pack(pady=14)
+    tk.Button(btn_frame, text="全部重置為預設", command=_reset_all,
+              font=(_fam, 10), bg='#E0E0E0').pack(side=tk.LEFT, padx=6)
+    tk.Button(btn_frame, text="儲存並關閉", command=_save_and_close,
+              font=(_fam, 10, 'bold'), bg='#4FC3F7', fg='white').pack(side=tk.LEFT, padx=6)
+    tk.Button(btn_frame, text="取消", command=win.destroy,
+              font=(_fam, 10), bg='#E0E0E0').pack(side=tk.LEFT, padx=6)
+
+    win.update_idletasks()
+    w, h = win.winfo_width(), win.winfo_height()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f"+{(sw - w) // 2}+{(sh - h) // 3}")
 
 # 功能分頁 - 右側按鈕（修改帳密、開啟工作資料夾、回至主頁）
 # 🔥 修改帳密：開啟 Windows 認證管理員的帳密管理介面
@@ -4700,22 +4819,27 @@ def _open_credential_manager():
     except Exception as _e:
         messagebox.showerror("錯誤", f"開啟帳密管理失敗：\n{_e}")
 
+# 功能分頁 - 右欄（工具/設定）：修改帳密、Chrome縮放設定、開啟工作資料夾、回至主頁
 utility_credential_button = tk.Button(utility_right_frame, text="修改帳密",
                                       command=_open_credential_manager,
-                                      **sub_page_button_style)
+                                      **_ustyle('#FFE0B2', '#FFCC80'))
+# 🔥 Chrome 縮放設定（各功能開 Chrome 後縮放多少，可個別調整/重置）
+utility_zoom_button = tk.Button(utility_right_frame, text="Chrome縮放設定",
+                                command=open_zoom_settings,
+                                **_ustyle('#B3E5FC', '#81D4FA'))
 # 🔥 開啟工作資料夾：原本在左欄，移到右欄回至主頁上方
 utility_open_folder_button = tk.Button(utility_right_frame, text="開啟工作資料夾",
                                        command=open_work_folder,
-                                       **sub_page_button_style)
+                                       **_ustyle('#FFF9C4', '#FFF59D'))
 utility_back_button = tk.Button(utility_right_frame, text="回至主頁",
                                 command=show_main_page,
-                                **sub_page_button_style)
+                                **_ustyle('#F8BBD0', '#F48FB1'))
 
 # 功能分頁按鈕列表
 utility_page_buttons = [
     utility_load_data_button, read_json_button,
     utility_import_archive_button, utility_export_archive_button,
-    utility_credential_button, utility_open_folder_button, utility_back_button
+    utility_credential_button, utility_zoom_button, utility_open_folder_button, utility_back_button
 ]
 
 # 🔥 土地使用分區分頁按鈕
@@ -4832,23 +4956,23 @@ def choose_json_file():
 
             if lot_display and datetime_str:
                 json_status_label.config(
-                    text=f"JSON: {lot_display}",
+                    text=f"{lot_display}←已做謄本結構化",
                     fg='#006400'
                 )
             elif lot_display:
                 json_status_label.config(
-                    text=f"JSON: {lot_display}",
+                    text=f"{lot_display}←已做謄本結構化",
                     fg='#006400'
                 )
             else:
                 json_status_label.config(
-                    text=f"JSON: {datetime_str if datetime_str else filename}",
+                    text=f"{datetime_str if datetime_str else filename}←已做謄本結構化",
                     fg='#006400'
                 )
         except Exception as e:
             filename = os.path.basename(selected_json_path)
             json_status_label.config(
-                text=f"JSON: {filename}",
+                text=f"{filename}←已做謄本結構化",
                 fg='#006400'
             )
             update_message(f"[警告] 解析地號資訊失敗: {e}")
@@ -4914,6 +5038,104 @@ hinet_button = tk.Button(
 qpt_hinet_button = tk.Button(transcript_left_frame, text="電傳資訊系統(光特)", command=lambda: toggle_buttons(qpt_hinet_button, "電傳資訊系統(光特)", "qpt_hinet.py"), **sub_page_button_style)
 
 # 🔥 電子謄本結構化按鈕（深藍色）
+# ──────────────────────────────────────────────────────────────
+# 🔥 謄本結構化前的「批次確認」防呆：避免用到上一批 data.json 而張冠李戴
+# ──────────────────────────────────────────────────────────────
+def _confirm_batch_before_structuring(display_name):
+    """結構化前確認 data.json 對應的資料夾批次。回傳 'proceed'/'goto_land'/'cancel'。"""
+    import json as _json
+    _fam = custom_font.actual('family')
+    folders = []
+    data_path = get_data_json_path()
+    if os.path.exists(data_path):
+        try:
+            with open(data_path, 'r', encoding='utf-8') as f:
+                dl = _json.load(f)
+            for d in (dl or []):
+                folders.append(f"{d.get('area','')}{d.get('section','')}-{d.get('lot_number','')}")
+        except Exception:
+            pass
+
+    F, FB, FBTN, FS = 14, 17, 13, 12   # 內文 / 標題 / 按鈕 / 小字
+    result = {'v': 'cancel'}
+    win = tk.Toplevel(root)
+    win.title(f"確認案件批次 — {display_name}")
+    win.transient(root)
+    win.configure(bg='white')
+    win.minsize(680, 420)
+    try:
+        win.grab_set()
+    except Exception:
+        pass
+
+    if folders:
+        first = folders[0]
+        first_exists = os.path.isdir(get_work_folder(first))
+        tk.Label(win, text=f"【{display_name}】會依「目前的 data.json」決定存到哪個資料夾。",
+                 font=(_fam, FB, 'bold'), bg='white', justify='left', wraplength=640).pack(padx=24, pady=(22, 10), anchor='w')
+        tk.Label(win, text=f"目前 data.json 的案件（共 {len(folders)} 筆）：",
+                 font=(_fam, F), bg='white').pack(padx=24, anchor='w')
+        box = tk.Frame(win, bg='#F7F7F7', relief=tk.GROOVE, bd=1)
+        box.pack(padx=24, pady=8, fill='x')
+        for fn in folders[:8]:
+            tk.Label(box, text=f"  • {fn}", font=(_fam, F, 'bold'), bg='#F7F7F7', fg='#1565C0', anchor='w').pack(fill='x', pady=2)
+        if len(folders) > 8:
+            tk.Label(box, text=f"  …（其餘 {len(folders) - 8} 筆）", font=(_fam, FS), bg='#F7F7F7', anchor='w').pack(fill='x')
+        exist_txt = "✅ 這個資料夾存在" if first_exists else "⚠️ 找不到這個資料夾（可能根本還沒建立）"
+        tk.Label(win, text=f"主資料夾（第一筆）：{first}\n   {exist_txt}",
+                 font=(_fam, F), bg='white', fg=('#2E7D32' if first_exists else '#C62828'),
+                 justify='left').pack(padx=24, pady=(10, 6), anchor='w')
+        tk.Label(win, text="⚠️ 請確認這就是你「現在要做的這一批」。\n"
+                           "若沒有重新用地籍便民查詢，這可能是上一批的資料，\n"
+                           "謄本會存到舊資料夾，造成張冠李戴！",
+                 font=(_fam, F), bg='#FFF3E0', fg='#BF360C', justify='left').pack(padx=24, pady=12, fill='x')
+        b1, b1bg, b1w = "✓ 是這批，繼續", '#66BB6A', 15
+        b2, b2bg, b2w = "↩ 先用地籍便民查詢", '#FFB74D', 20
+    else:
+        tk.Label(win, text="目前找不到 data.json", font=(_fam, FB + 1, 'bold'),
+                 bg='white', fg='#C62828').pack(padx=24, pady=(24, 10), anchor='w')
+        tk.Label(win, text=f"代表還沒用「地籍便民系統」查詢、建立這一批的資料夾。\n\n"
+                           f"直接做【{display_name}】會沒有對應的資料夾，\n"
+                           f"或對應到「上一批」的舊資料，造成張冠李戴！\n\n"
+                           f"建議先用「地籍便民系統」查詢，建立這一批的資料夾。",
+                 font=(_fam, F), bg='white', justify='left').pack(padx=24, pady=8, anchor='w')
+        b1, b1bg, b1w = "仍要繼續", '#BDBDBD', 13
+        b2, b2bg, b2w = "開啟地籍便民系統", '#FFB74D', 20
+
+    def _set(v):
+        result['v'] = v
+        win.destroy()
+
+    bf = tk.Frame(win, bg='white')
+    bf.pack(pady=20)
+    tk.Button(bf, text=b1, command=lambda: _set('proceed'), font=(_fam, FBTN, 'bold'),
+              bg=b1bg, fg='black', width=b1w, height=2).pack(side=tk.LEFT, padx=8)
+    tk.Button(bf, text=b2, command=lambda: _set('goto_land'), font=(_fam, FBTN, 'bold'),
+              bg=b2bg, fg='black', width=b2w, height=2).pack(side=tk.LEFT, padx=8)
+    tk.Button(bf, text="取消", command=lambda: _set('cancel'), font=(_fam, FBTN),
+              bg='#E0E0E0', width=9, height=2).pack(side=tk.LEFT, padx=8)
+
+    win.update_idletasks()
+    w, h = win.winfo_width(), win.winfo_height()
+    sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
+    win.geometry(f"+{(sw - w) // 2}+{(sh - h) // 3}")
+    win.wait_window()
+    return result['v']
+
+def _guard_structuring(display_name, script_name, button):
+    """謄本結構化按鈕的守門：啟動前先確認批次；關閉時直接放行。"""
+    # 正在執行（這次點擊是要關閉）→ 直接交給 toggle_buttons 停止，不需確認
+    if is_running:
+        toggle_buttons(button, display_name, script_name)
+        return
+    choice = _confirm_batch_before_structuring(display_name)
+    if choice == 'proceed':
+        toggle_buttons(button, display_name, script_name)
+    elif choice == 'goto_land':
+        show_main_page()  # 切回主頁，讓使用者看到地籍便民執行狀態
+        toggle_buttons(start_land_button, "地籍便民系統", "land.py")
+    # cancel → 什麼都不做
+
 structured_transcript_button_style = {
     'font': sub_page_font, 'width': SUB_PAGE_BUTTON_WIDTH, 'height': 1, 'relief': tk.RAISED,
     'borderwidth': 2, 'bg': '#1565C0', 'fg': 'white',  # 深藍色
@@ -4921,7 +5143,7 @@ structured_transcript_button_style = {
 }
 structured_transcript_button = tk.Button(
     transcript_left_frame, text="電子謄本結構化",
-    command=lambda: toggle_buttons(structured_transcript_button, "電子謄本結構化", "GUI_transcript_pdf 1141021-01.py"),
+    command=lambda: _guard_structuring("電子謄本結構化", "GUI_transcript_pdf 1141021-01.py", structured_transcript_button),
     **structured_transcript_button_style
 )
 
@@ -4933,7 +5155,7 @@ telereport_structured_button_style = {
 }
 telereport_structured_button = tk.Button(
     transcript_left_frame, text="電傳謄本結構化",
-    command=lambda: toggle_buttons(telereport_structured_button, "電傳謄本結構化", "GUI_telereport.py"),
+    command=lambda: _guard_structuring("電傳謄本結構化", "GUI_telereport.py", telereport_structured_button),
     **telereport_structured_button_style
 )
 
@@ -5145,16 +5367,17 @@ price104_button.pack(pady=3, anchor="center")
 real_estate_back_button.pack(pady=3, anchor="w")
 
 # 🔥 功能分頁排列
-# 左欄：載入案件、讀取結構化JSON
-utility_load_data_button.pack(pady=3, anchor="e")
-read_json_button.pack(pady=3, anchor="e")
-# 中欄：匯入封存、匯出封存
-utility_import_archive_button.pack(pady=3, anchor="center")
-utility_export_archive_button.pack(pady=3, anchor="center")
-# 右欄：修改帳密、開啟工作資料夾、回至主頁
-utility_credential_button.pack(pady=3, anchor="w")
-utility_open_folder_button.pack(pady=3, anchor="w")
-utility_back_button.pack(pady=3, anchor="w")
+# 🔥 左右兩欄各 4 個按鈕（中間留空作為間距）
+# 左欄：載入案件、讀取結構化JSON、匯入封存、匯出封存
+utility_load_data_button.pack(pady=4, anchor="e")
+read_json_button.pack(pady=4, anchor="e")
+utility_import_archive_button.pack(pady=4, anchor="e")
+utility_export_archive_button.pack(pady=4, anchor="e")
+# 右欄：修改帳密、Chrome縮放設定、開啟工作資料夾、回至主頁
+utility_credential_button.pack(pady=4, anchor="w")
+utility_zoom_button.pack(pady=4, anchor="w")
+utility_open_folder_button.pack(pady=4, anchor="w")
+utility_back_button.pack(pady=4, anchor="w")
 
 # 🔥 土地使用分區分頁排列
 # 左欄：國土測繪圖資、高雄都市計畫
@@ -5651,6 +5874,11 @@ def update_message(message):
     if not message.endswith("\n"):
         message_box.insert(tk.END, "\n")
     message_box.yview(tk.END)
+    try:
+        # 🔥 把「選取(sel)」標籤提到所有色彩標籤之上，選取文字時藍底反白才看得到（否則被文字的黑底蓋住）
+        message_box.tag_raise("sel")
+    except Exception:
+        pass
     message_box.config(state=tk.DISABLED)
     message_box.update_idletasks()
 
@@ -5660,16 +5888,14 @@ def update_message(message):
                       '請按', 'Enter', '繼續', '是否']
     if any(keyword in message for keyword in input_keywords):
         try:
-            # 清除提示文字
+            # 🔥 先把視窗帶到前面、焦點「直接」給輸入框
+            #   （不要先 focus 主視窗，否則輸入框會先失焦→提示文字被加回→再清掉，造成 placeholder 閃一下）
+            root.lift()
+            input_field.focus_force()
+            # 取得焦點後再清掉提示文字，最終是「可直接輸入」的乾淨狀態
             if input_field.get() == "請在此輸入...":
                 input_field.delete(0, "end")
-                input_field.config(fg="black")
-            # 🔥 強制將主視窗和輸入框獲得焦點
-            # 先將主視窗置頂並獲得焦點
-            root.lift()
-            root.focus_force()
-            # 再將焦點強制設定到輸入框（使用 focus_force 而非 focus_set）
-            input_field.focus_force()
+            input_field.config(fg="black")
         except Exception:
             pass  # 如果發生錯誤（例如視窗已關閉），靜默忽略
 
@@ -6518,16 +6744,16 @@ if selected_json_path:
         datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else ""
 
         if lot_display and datetime_str:
-            json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+            json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
         elif lot_display:
-            json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+            json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
         else:
-            json_status_label.config(text=f"JSON: {datetime_str if datetime_str else filename}", fg='#006400')
+            json_status_label.config(text=f"{datetime_str if datetime_str else filename}←已做謄本結構化", fg='#006400')
     except:
-        json_status_label.config(text=f"JSON: {filename}", fg='#006400')
+        json_status_label.config(text=f"{filename}←已做謄本結構化", fg='#006400')
 else:
     # 🔥 不顯示完整路徑，避免擠掉右邊更新按鈕
-    json_status_label.config(text="JSON: 自動選擇（尚未指定）", fg='#FF8C00')
+    json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
 
 # 🔥 GitHub Release 版本檢查（多源：主程式 + 兩個附屬工具）
 GITHUB_REPO = "windskyshao/tw-land-tools"  # 主程式 repo（相容用）
@@ -7421,8 +7647,8 @@ def show_startup_reminder():
     update_divider()
     update_message("\033[38;5;208m🔥 【重要提醒】地籍資料查詢系統\033[0m")
     update_divider()
-    update_message("\033[97;41m 📍 首次使用請先執行【地籍便民系統】（橙色按鈕） \033[0m")
-    update_message("📁 將自動建立地段、地號資料夾作為儲存目錄")
+    update_message("\033[97;41m 📍 新批次請先執行【地籍便民系統】（橙色按鈕） \033[0m")
+    update_message("📁 將自動建立【地區地段-地號】資料夾作為儲存目錄")
     update_message("📋 建議執行順序：")
     update_message("   1️地籍便民系統 → 建立【資料夾】")
     update_message("   2️【謄本與土增稅】：")
@@ -7573,8 +7799,10 @@ def check_and_warn_data_consistency():
 
         # 更新視窗標題以顯示 data.json 的資訊
         if data_info:
-            location = f"{data_info['area']}{data_info['section']}-{data_info['lot_number']}"
+            location = f"{data_info['area']}{data_info['section']}-{data_info['lot_number']}(資料夾)"
             root.title(TITLE_WITH_LOCATION.format(version=VERSION, location=location))
+        else:
+            root.title(TITLE_WITH_LOCATION.format(version=VERSION, location="尚未查詢建立資料夾"))
 
         # 🔥 更新綠色 JSON 標籤以顯示結構化 JSON 的資訊（用於與標題比對）
         # 優先順序：1. 本地謄本資料 2. selected_json_path 3. 提示訊息
@@ -7586,7 +7814,7 @@ def check_and_warn_data_consistency():
             datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else filename
 
             lot_display = simplify_lot_number(f"{transcript_info['area']}{transcript_info['section']}-{transcript_info['lot_number']}")
-            json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+            json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
         elif selected_json_path and os.path.exists(selected_json_path):
             # 如果本地沒有謄本資料，但有已載入的 JSON，嘗試顯示它的資訊
             try:
@@ -7601,17 +7829,17 @@ def check_and_warn_data_consistency():
                     datetime_match = re.search(r'(\d{8}_\d{4})', filename)
                     datetime_str = _short_dt(datetime_match.group(1)) if datetime_match else filename
 
-                    json_status_label.config(text=f"JSON: {lot_display}", fg='#006400')
+                    json_status_label.config(text=f"{lot_display}←已做謄本結構化", fg='#006400')
                 else:
-                    json_status_label.config(text=f"JSON: {os.path.basename(selected_json_path)}", fg='#006400')
+                    json_status_label.config(text=f"{os.path.basename(selected_json_path)}←已做謄本結構化", fg='#006400')
             except:
-                json_status_label.config(text=f"JSON: {os.path.basename(selected_json_path)}", fg='#006400')
+                json_status_label.config(text=f"{os.path.basename(selected_json_path)}←已做謄本結構化", fg='#006400')
         elif data_info:
             # 如果沒有謄本資料，但有 data.json，顯示提示
-            json_status_label.config(text="JSON: 尚未產生結構化謄本資料", fg='#FF8C00')
+            json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
         else:
             # 完全沒有資料
-            json_status_label.config(text="JSON: 自動選擇（尚未指定）", fg='#FF8C00')
+            json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
 
         # 🔥 自動依 data.json 順序重排謄本（不彈窗）
         # 即使一致性檢查 OK 也要 call fix，才能處理「建物排在土地前」這類 layout 問題
@@ -7670,15 +7898,15 @@ def update_title_from_data_json():
                 lot_number = first_data.get('lot_number', '')
 
                 # 更新視窗標題
-                location = f"{area}{section}-{lot_number}"
+                location = f"{area}{section}-{lot_number}(資料夾)"
                 root.title(TITLE_WITH_LOCATION.format(version=VERSION, location=location))
                 print(f"[標題更新] {location}")
             else:
                 # data.json 存在但沒有資料
-                root.title(TITLE_FORMAT.format(version=VERSION))
+                root.title(TITLE_WITH_LOCATION.format(version=VERSION, location="尚未查詢建立資料夾"))
         else:
             # data.json 不存在
-            root.title(TITLE_FORMAT.format(version=VERSION))
+            root.title(TITLE_WITH_LOCATION.format(version=VERSION, location="尚未查詢建立資料夾"))
 
     except Exception as e:
         print(f"[警告] 更新視窗標題失敗：{e}")

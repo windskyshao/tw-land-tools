@@ -28,7 +28,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, ElementNotInteractableException, NoSuchElementException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -313,18 +313,17 @@ for data in data_list:
         except Exception:
             pass
 
-        if zoom_count > 0:
-            try:
-                body = driver.find_element(By.TAG_NAME, 'body')
-                body.click()
-                time.sleep(0.2)
+        # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+        try:
+            _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+            if os.path.exists(_zcp):
+                _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('tcdmap')
+                if _zov is not None:
+                    zoom_count = int(_zov)
+        except Exception:
+            pass
 
-                # 🔥 快速連續縮放，不需要每次都等待
-                for _ in range(zoom_count):
-                    keyboard.press_and_release('ctrl+-')
-                    time.sleep(0.1)  # 縮短等待時間
-            except Exception:
-                pass
+        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
         ensure_modal_closed()
     else:

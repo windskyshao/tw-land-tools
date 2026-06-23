@@ -32,7 +32,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
-from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
+from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window, apply_page_zoom
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -318,25 +318,17 @@ def main():
         except Exception as e:
             print(f"[頁面縮放] 偵測配置時發生錯誤: {e}，使用預設不縮放", flush=True)
 
-        if zoom_count > 0:
-            try:
-                # 🔥 使用 keyboard 庫發送系統級的 Ctrl + - 按鍵（真正的瀏覽器縮放）
-                # 先點擊頁面確保 Chrome 視窗有焦點
-                body = driver.find_element(By.TAG_NAME, 'body')
-                body.click()
-                time.sleep(0.5)
+        # 🔥 使用者在「Chrome縮放設定」面板調過的值優先（zoom_config.json）；沒調過才用上面的 DPI 預設
+        try:
+            _zcp = os.path.join(BASE_DIR, 'zoom_config.json')
+            if os.path.exists(_zcp):
+                _zov = json.load(open(_zcp, encoding='utf-8')).get('overrides', {}).get('gbmap')
+                if _zov is not None:
+                    zoom_count = int(_zov)
+        except Exception:
+            pass
 
-                # 🔥 根據 DPI 決定按幾次 Ctrl + -
-                print(f"[頁面縮放] 正在使用系統鍵盤縮放（按 {zoom_count} 次）...", flush=True)
-                for i in range(zoom_count):
-                    keyboard.press_and_release('ctrl+-')  # 系統級按鍵
-                    time.sleep(0.5)
-
-                print(f"[頁面縮放] ✓ 已使用系統鍵盤縮放至 {target_zoom}", flush=True)
-            except Exception as e:
-                print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
-        else:
-            print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
+        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
         # 執行查詢操作
         for index, data in enumerate(selected_data_list, 1):
