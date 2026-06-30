@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.7g"
-BUILD_DATE = "2026-06-23"
+VERSION = "1.1.8"
+BUILD_DATE = "2026-06-30"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
@@ -4548,6 +4548,19 @@ def show_main_page():
                 button.config(state=tk.NORMAL)
 
 # 互斥/啟動
+def _has_internet(timeout=3):
+    """快速檢查基本網路連線（連 8.8.8.8 / 1.1.1.1 的 53 埠）。回傳 True/False。
+    參考 V523 的 check_network_connectivity，只測「有沒有網路」這一層。"""
+    import socket
+    for host in ("8.8.8.8", "1.1.1.1"):
+        try:
+            s = socket.create_connection((host, 53), timeout=timeout)
+            s.close()
+            return True
+        except Exception:
+            continue
+    return False
+
 def toggle_buttons(button, original_text, script_name):
     global is_running
     if is_running:
@@ -4559,6 +4572,20 @@ def toggle_buttons(button, original_text, script_name):
             button.config(text=original_text)
         enable_all_buttons()
     else:
+        # 🔥 上網前先檢查網路：需連網的功能，偵測不到網路就先提醒（避免空等子程式 timeout）
+        _OFFLINE = {"GUI_transcript_pdf 1141021-01.py", "GUI_telereport.py", "read_json", "edit_data"}
+        if script_name not in _OFFLINE:
+            update_message("🔍 檢查網路連線…")
+            if _has_internet():
+                update_message("\033[38;5;46m✓ 網路連線正常\033[0m")
+            else:
+                update_message("\033[91m✗ 偵測不到網路連線\033[0m")
+                if not show_large_yesno(
+                    "網路連線提醒",
+                    "⚠️ 偵測不到網路連線\n\n這個功能需要連上網路使用。\n請先確認 Wi-Fi／網路線是否正常，再試一次。\n\n仍要繼續嗎？"
+                ):
+                    update_message("已取消（請檢查網路後再試）")
+                    return  # 使用者取消 → 不啟動（按鈕尚未變更，無需還原）
         button.config(text=f"關閉 {original_text}")
         # 🔥 立即禁用其他按鈕（讓使用者看到「正在執行」的狀態，包含對話框期間）
         disable_other_buttons(button)

@@ -416,7 +416,19 @@ def download_cpi_excel():
             flush_print("正在從主計總處網站取得最新 CPI 連結...", "important")
             main_url = "https://www.stat.gov.tw/cp.aspx?n=2665"
             
-            response = session.get(main_url, headers=headers, timeout=30)
+            # 🔥 連線逾時自動重試（主計總處網站偶爾很慢，重試常就通了）
+            response = None
+            for _try in range(2):
+                try:
+                    response = session.get(main_url, headers=headers, timeout=25)
+                    break
+                except Exception as _re:
+                    if _try < 1:
+                        flush_print("  連線逾時，3 秒後重試一次…", "important")
+                        import time as _t
+                        _t.sleep(3)
+                    else:
+                        raise
 
             if response.status_code == 200:
                 html_content = response.text
@@ -493,6 +505,21 @@ def download_cpi_excel():
                     flush_print(f"  ✗ 失敗：該網址可能已過期", "important")
             except Exception as e:
                 flush_print(f"  ✗ 失敗：{e}", "important")
+
+        # 🔥 方法2.5：線上全部失敗 → 改用本機最近一次下載的 CPI 檔（避免卡住要手動貼網址）
+        #    CPI 是「月」資料，差幾天通常仍正確；網路恢復後再跑一次即可取得最新。
+        try:
+            import glob
+            _cached = glob.glob("cpispleym_*.xls") + glob.glob("cpispleym_*.ods") + glob.glob("cpispleym.xls")
+            _cached = [f for f in _cached if os.path.exists(f)]
+            if _cached:
+                _newest = max(_cached, key=os.path.getmtime)
+                flush_print("\n" + "="*39, "important")
+                flush_print(f"\033[93m⚠️ 線上下載失敗，改用本機最近的 CPI 檔：{_newest}\033[0m", "important")
+                flush_print("\033[93m   （CPI 為月資料，通常仍可用；網路恢復後再跑一次可取得最新）\033[0m", "important")
+                return _newest
+        except Exception:
+            pass
 
         # 🔥 方法3：請用戶提供新網址（必須是最新資料）
         flush_print("\n" + "="*39, "important")

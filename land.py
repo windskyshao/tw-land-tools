@@ -681,6 +681,19 @@ def get_land_info():
         except Exception:
             pass  # 忽略移動失敗，繼續執行
 
+    # 🔥 確保停在「地籍」分頁：網站分頁為 TabbedPanels（地籍=button_cada / 門牌=button_addr
+    #    / 村里=button_vill / 坐標=button_coord）。全新載入預設本應是地籍，但載入時序或頁面
+    #    縮放動作偶爾會讓它切到村里等其他分頁，這裡明確再點一次地籍確保查詢欄位正確。
+    try:
+        cada_tab = WebDriverWait(driver, 10).until(
+            EC.element_to_be_clickable((By.ID, "button_cada")))
+        if "TabbedPanelsTabSelected" not in (cada_tab.get_attribute("class") or ""):
+            driver.execute_script("arguments[0].click();", cada_tab)
+            time.sleep(0.5)
+            print("[分頁] 已切回「地籍」分頁", flush=True)
+    except Exception as _e:
+        print(f"[分頁] 切換地籍分頁時略過：{_e}", flush=True)
+
     print("本程式將自動轉存各筆資料至JSON、PNG、PDF", flush=True)
     print("長按【ESC】鍵，可退出程式", flush=True)
     print("\033[93m請選擇【縣市】【地區】【地段】及輸入【地號】後，點擊【查詢】\033[0m", flush=True)

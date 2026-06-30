@@ -3786,6 +3786,14 @@ def open_data_editor():
     editor_window = tk.Toplevel(root)
     editor_window.title("物件資料編輯器")
 
+    # 🔥 防呆：捲動表單時，滑鼠滾輪若滑過下拉選單(Combobox)會誤改它的選項值
+    #    （例：履約保證 同意→不同意、空白→是），存檔後就跑掉了。
+    #    讓所有 Combobox 不吃滾輪（值不再被滾輪改變；展開後的清單仍可正常捲動）。
+    try:
+        editor_window.bind_class("TCombobox", "<MouseWheel>", lambda e: "break")
+    except Exception:
+        pass
+
     # 🔥 文字輸入欄的滑鼠右鍵選單（復原/剪下/複製/貼上/全選/清除）+ 快速鍵提示
     # 復原：Text 用原生 undo；Entry/Combobox 無原生 undo，改用自訂快照堆疊。
     _text_menu = tk.Menu(editor_window, tearoff=0)
@@ -7153,6 +7161,316 @@ def open_data_editor():
     selling_text.pack(side=tk.LEFT, padx=5)
     selling_text.bind('<Button-3>', _show_text_menu)  # 🔥 右鍵文字選單
     entries["訴求重點"] = selling_text
+
+    # === ✨ Google AI 生成行銷文（依物件資料自動撰寫，帶回上方訴求重點）===
+    def _ai_gather_fields():
+        """擷取對行銷有用的欄位，回傳 (是否租件, 資料文字)。"""
+        is_rent = (transaction_var.get() == "租件")
+
+        def val(k):
+            w = entries.get(k)
+            if w is None or isinstance(w, dict):
+                return ""
+            try:
+                if isinstance(w, tk.Text):
+                    return w.get("1.0", "end-1c").strip()
+                return str(w.get()).strip()
+            except Exception:
+                return ""
+
+        def is_on(k):
+            w = entries.get(k)
+            try:
+                return bool(w.get())
+            except Exception:
+                return False
+
+        lines = []
+        # 格局（房/廳/衛 合併）
+        g = ""
+        for f in ("房", "廳", "衛"):
+            v = val("格局_" + f)
+            if v and v != "0":
+                g += f"{v}{f}"
+        if g:
+            lines.append(f"格局：{g}")
+        # 車位
+        if val("車位_有無"):
+            types = []
+            if is_on("車位_型式_平面"):
+                types.append("平面")
+            if is_on("車位_型式_機械"):
+                types.append("機械")
+            cp = f"車位：{val('車位_有無')}"
+            if types:
+                cp += "（" + "、".join(types) + "）"
+            lines.append(cp)
+        # 一般有用欄位（白名單，排除編號/稅賦/經緯度/後台等無關行銷者）
+        COMMON = ["案名", "建物門牌", "土地標示", "所在商圈", "用途", "使用分區",
+                  "都市土地使用分區", "非都市土地使用地類別", "總建坪", "主建物坪數",
+                  "附屬建物坪數", "公共設施坪數", "總地坪", "增建面積", "地上層數",
+                  "地下層數", "電梯", "電梯數量", "建築結構", "竣工日期", "座向",
+                  "面寬", "深度", "面臨道路", "現況", "現況說明", "鄰近學校",
+                  "管理費", "工廠登記", "廠房保存登記", "天車", "型式"]
+        SALE = ["總價", "含車位價格", "土地單價", "建物單價"]
+        RENT = ["租金", "押金", "租期", "調幅", "履約保證", "租約公證", "整地期"]
+        # 為易誤解的欄位加上更清楚的標籤，避免 AI 把土地/建物搞混或誤判預售
+        LABELS = {
+            "總地坪": "土地坪數（地號基地總面積，區分所有建物本戶為持份）",
+            "總建坪": "建物坪數（總建坪）",
+            "主建物坪數": "主建物坪數",
+            "竣工日期": "建築完成日期（已完工成屋）",
+        }
+        for k in COMMON + (RENT if is_rent else SALE):
+            v = val(k)
+            if v and v not in ("無", "沒有", "0", "False", "0.0"):
+                lines.append(f"{LABELS.get(k, k)}：{v}")
+        return is_rent, "\n".join(lines)
+
+    def _ask_gemini_key(current=""):
+        """大字級對話框輸入 Gemini 金鑰，含可點擊自動開啟的免費申請連結。回傳金鑰或 None。"""
+        import webbrowser
+        parent = selling_text.winfo_toplevel()
+        win = tk.Toplevel(parent)
+        win.title("設定／更換 Google Gemini API 金鑰")
+        win.configure(bg="white")
+        win.resizable(False, False)
+        win.transient(parent)
+        result = {"key": None}
+        F = ("Microsoft JhengHei", 13)
+        FB = ("Microsoft JhengHei", 13, "bold")
+
+        frm = tk.Frame(win, bg="white")
+        frm.pack(fill="both", expand=True, padx=26, pady=22)
+        tk.Label(frm, text="請貼上 Google Gemini API 金鑰",
+                 font=FB, bg="white", justify="left").pack(anchor="w")
+        tk.Label(frm, text="（設定一次會自動記住；若免費額度用完，可在這裡改貼另一個 Google 帳號的金鑰繼續使用）",
+                 font=F, bg="white", fg="#555", justify="left", wraplength=560).pack(anchor="w", pady=(0, 10))
+
+        link_row = tk.Frame(frm, bg="white")
+        link_row.pack(anchor="w")
+        tk.Label(link_row, text="免費申請（點我開啟）：", font=F, bg="white").pack(side="left")
+        url = "https://aistudio.google.com/apikey"
+        link = tk.Label(link_row, text=url, font=("Microsoft JhengHei", 13, "underline"),
+                        fg="#1A73E8", bg="white", cursor="hand2")
+        link.pack(side="left")
+        link.bind("<Button-1>", lambda e: webbrowser.open(url))
+        tk.Label(frm, text="登入後按「Create API key」，複製整串貼到下面：",
+                 font=("Microsoft JhengHei", 11), fg="#888", bg="white",
+                 justify="left").pack(anchor="w", pady=(8, 2))
+
+        ent = tk.Entry(frm, font=F, width=48, relief="solid", bd=1)
+        ent.pack(fill="x", pady=(2, 6), ipady=4)
+        if current:
+            ent.insert(0, current)  # 更換金鑰時預填現有值
+        ent.focus_set()
+
+        btn_row = tk.Frame(frm, bg="white")
+        btn_row.pack(fill="x", pady=(12, 0))
+
+        def _ok():
+            result["key"] = ent.get().strip()
+            win.destroy()
+
+        def _cancel():
+            result["key"] = None
+            win.destroy()
+
+        tk.Button(btn_row, text="確定", font=FB, bg="#4285F4", fg="white", width=8,
+                  relief="flat", cursor="hand2", padx=10, pady=4, command=_ok).pack(side="right", padx=4)
+        tk.Button(btn_row, text="取消", font=F, bg="#E0E0E0", fg="black", width=8,
+                  relief="flat", cursor="hand2", padx=10, pady=4, command=_cancel).pack(side="right", padx=4)
+        ent.bind("<Return>", lambda e: _ok())
+        win.bind("<Escape>", lambda e: _cancel())
+
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        try:
+            x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        except Exception:
+            x, y = 200, 200
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        win.wait_window()
+        return result["key"]
+
+    def _edit_prompt_dialog(initial):
+        """顯示可編輯的提示詞；按「送出」回傳文字、按「取消」回傳 None。"""
+        parent = selling_text.winfo_toplevel()
+        win = tk.Toplevel(parent)
+        win.title("確認／修改提示詞")
+        win.configure(bg="white")
+        win.transient(parent)
+        result = {"text": None}
+        F = ("Microsoft JhengHei", 12)
+        FB = ("Microsoft JhengHei", 12, "bold")
+
+        frm = tk.Frame(win, bg="white")
+        frm.pack(fill="both", expand=True, padx=20, pady=16)
+        tk.Label(frm, text="以下是要送給 Google AI 的提示詞，可自行修改後再送出：",
+                 font=FB, bg="white", justify="left").pack(anchor="w", pady=(0, 8))
+
+        txt_wrap = tk.Frame(frm, bg="white")
+        txt_wrap.pack(fill="both", expand=True)
+        scroll = tk.Scrollbar(txt_wrap)
+        scroll.pack(side="right", fill="y")
+        txt = tk.Text(txt_wrap, font=F, width=74, height=20, wrap="word",
+                      relief="solid", bd=1, yscrollcommand=scroll.set)
+        txt.pack(side="left", fill="both", expand=True)
+        scroll.config(command=txt.yview)
+        txt.insert("1.0", initial)
+        txt.focus_set()
+
+        btn_row = tk.Frame(frm, bg="white")
+        btn_row.pack(fill="x", pady=(12, 0))
+
+        def _send():
+            result["text"] = txt.get("1.0", "end-1c").strip()
+            win.destroy()
+
+        def _cancel():
+            result["text"] = None
+            win.destroy()
+
+        tk.Button(btn_row, text="✨ 送出給 AI 生成", font=FB, bg="#4285F4", fg="white",
+                  relief="flat", cursor="hand2", padx=14, pady=5, command=_send).pack(side="right", padx=4)
+        tk.Button(btn_row, text="取消", font=F, bg="#E0E0E0", fg="black",
+                  relief="flat", cursor="hand2", padx=14, pady=5, command=_cancel).pack(side="right", padx=4)
+        win.bind("<Escape>", lambda e: _cancel())
+
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        try:
+            x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+            y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
+        except Exception:
+            x, y = 150, 100
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        win.grab_set()
+        win.wait_window()
+        return result["text"]
+
+    def _ai_generate():
+        cfg = load_config() or {}
+        api_key = (cfg.get("gemini_api_key") or "").strip()
+        if not api_key:
+            api_key = (_ask_gemini_key() or "").strip()
+            if not api_key:
+                return
+            cfg["gemini_api_key"] = api_key
+            try:
+                save_config(cfg, show_message=False)
+            except Exception:
+                pass
+        model = (cfg.get("gemini_model") or "gemini-2.5-flash").strip()
+
+        is_rent, data_text = _ai_gather_fields()
+        if not data_text.strip():
+            messagebox.showwarning("沒有資料", "請先填寫物件欄位，再生成行銷文。")
+            return
+        mode = "租賃" if is_rent else "銷售"
+        # 指示規則可由 config.json 的 gemini_instructions 覆寫（用 {mode} 代入銷售/租賃），
+        # 方便不重新打包就調整文案風格。
+        DEFAULT_RULES = (
+            "請以「{mode}」角度撰寫繁體中文房地產行銷文，務必遵守：\n"
+            "1. 此為已完工成屋，一律用現在式描述，禁止使用「預計」「將落成」等未來語氣。\n"
+            "2. 正確區分坪數：建物坪數與土地坪數不可混淆；若為公寓／華廈/大樓等區分所有建物，"
+            "土地屬「持份」，不可把地號基地總面積說成本戶獨有土地。\n"
+            "3. 內容分點涵蓋：本案亮點、附近環境優點(生活機能、學區、公園、山海景觀)、"
+            "重大建設(如捷運、國道、百貨、商場)、交通動線(到主要地點開車或步行幾分鐘、距離多遠)、"
+            "格局採光通風(可看建物測量成果圖、土地可看地籍圖)、周邊同類產品行情(查實價登錄)；"
+            "其中環境／建設／交通／行情若無確切資料，僅作概括描述，不要捏造具體建案名稱、路名或數字。\n"
+            "4. 全文共約4~5點，以「一、二、三、…」分點條列，每一點不超過36個中文字。\n"
+            "5. 只輸出分點內容，不要前言、標題或結語。"
+        )
+        rules = (cfg.get("gemini_instructions") or DEFAULT_RULES).replace("{mode}", mode)
+        # 🔥 若「訴求重點」欄位已有內容，一併納入並請 AI 加強修飾後融入
+        existing = selling_text.get("1.0", "end-1c").strip()
+        _parts = [f"你是專業房地產文案。以下為物件資料（皆為事實，未提供的數字請勿自行捏造）：\n{data_text}"]
+        if existing:
+            _parts.append("「訴求重點」欄位已有以下內容，請將其重點納入並加強修飾後融入行銷文：\n" + existing)
+        _parts.append(rules)
+        prompt = "\n\n".join(_parts)
+
+        # 🔥 先讓使用者確認／修改提示詞，按「送出」才生成、「取消」則不動作
+        prompt = _edit_prompt_dialog(prompt)
+        if not prompt or not prompt.strip():
+            return
+
+        ai_btn.config(state=tk.DISABLED, text="✨ 生成中…請稍候")
+
+        def worker():
+            msg = None
+            text = ""
+            offer_key = False  # 失敗時是否提議更換金鑰（額度滿／金鑰無效時）
+            try:
+                url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                       f"{model}:generateContent?key={api_key}")
+                resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]},
+                                     timeout=40)
+                if resp.status_code == 200:
+                    j = resp.json()
+                    text = j["candidates"][0]["content"]["parts"][0]["text"].strip()
+                else:
+                    try:
+                        ej = resp.json().get("error", {})
+                        status = ej.get("status", "")
+                        emsg = ej.get("message", "")
+                    except Exception:
+                        status, emsg = "", (resp.text or "")[:200]
+                    if resp.status_code == 429 or status == "RESOURCE_EXHAUSTED":
+                        offer_key = True
+                        msg = ("⚠️ 免費額度可能已用完，或呼叫太頻繁。\n\n"
+                               "可過幾分鐘（或明天額度重置後）再試。")
+                    elif resp.status_code in (400, 401, 403) and (
+                            "api key" in emsg.lower() or "API_KEY" in status
+                            or status in ("INVALID_ARGUMENT", "PERMISSION_DENIED", "UNAUTHENTICATED")):
+                        offer_key = True
+                        msg = "⚠️ API 金鑰無效或未授權。"
+                    else:
+                        msg = f"生成失敗（{resp.status_code} {status}）：\n{emsg[:150]}"
+            except Exception as e:
+                msg = f"連線失敗：{e}\n\n請確認網路是否正常。"
+
+            def done():
+                ai_btn.config(state=tk.NORMAL, text="✨ Google AI 生成行銷文")
+                if msg or not text:
+                    # 額度滿／金鑰無效時，才詢問是否更換金鑰（需要時才彈出）
+                    if offer_key and messagebox.askyesno(
+                            "生成失敗", (msg or "") + "\n\n要現在更換 API 金鑰嗎？"):
+                        _change_gemini_key()
+                    elif not offer_key:
+                        messagebox.showerror("生成失敗", msg or "未取得生成內容，請再試一次。")
+                else:
+                    selling_text.delete("1.0", "end")
+                    selling_text.insert("1.0", text)
+            selling_text.after(0, done)
+
+        threading.Thread(target=worker, daemon=True).start()
+
+    def _change_gemini_key():
+        cfg = load_config() or {}
+        new = _ask_gemini_key(current=(cfg.get("gemini_api_key") or ""))
+        if new is None:   # 按取消
+            return
+        cfg["gemini_api_key"] = new.strip()
+        try:
+            save_config(cfg, show_message=False)
+        except Exception:
+            pass
+        messagebox.showinfo("完成", "API 金鑰已更新。" if new.strip() else "已清除 API 金鑰。")
+
+    ai_btn_row = tk.Frame(selling_frame)
+    ai_btn_row.pack(fill=tk.X, pady=(0, 4))
+    tk.Label(ai_btn_row, text="", font=label_font, width=15).pack(side=tk.LEFT, padx=5)
+    ai_btn = tk.Button(ai_btn_row, text="✨ Google AI 生成行銷文",
+                       command=_ai_generate, bg="#4285F4", fg="white",
+                       font=label_font, cursor="hand2", relief=tk.RAISED, padx=10)
+    ai_btn.pack(side=tk.LEFT, padx=5)
+    tk.Label(ai_btn_row,
+             text="⚠️ AI 生成內容僅供參考，務必自行核對（行情、重大建設、交通等多為 AI 推測，可能與事實不符）",
+             font=label_font, fg="#C0392B").pack(side=tk.LEFT, padx=8)
 
     # === 另顯示於後台內容（文字框）===
     backend_text_row = tk.Frame(selling_frame)

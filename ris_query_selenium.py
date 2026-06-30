@@ -513,28 +513,55 @@ class RISQueryBot:
                 # 解析門牌號碼的各個部分
                 # 可能的格式：106號、1巷2號、5弄10號之2
 
+                # 🔥 解析「號」前，會把「巷/弄」的部分從字串移除，
+                #    避免把巷號（例：21巷）誤當成門牌「號」
+                num_str = number
+
                 # 巷
                 lane_match = re.search(r'([０-９0-9]+)巷', number)
                 if lane_match:
                     lane_value = to_fullwidth_number(lane_match.group(1))
-                    lane_input = self.driver.find_element(By.ID, "lane")
-                    lane_input.clear()
-                    lane_input.send_keys(lane_value)
-                    self.log(f"  ✓ 巷：{lane_value}")
+                    try:
+                        lane_input = self.driver.find_element(By.ID, "lane")
+                        # 🔥 改用 JavaScript 設值：send_keys 在新版網站會被欄位事件清掉
+                        #    （與「號」「樓」一致），設完再觸發 input 事件並驗證。
+                        self.driver.execute_script("arguments[0].value = arguments[1];", lane_input, lane_value)
+                        time.sleep(0.2)
+                        lane_input.send_keys('')  # 觸發 input 事件
+                        actual = lane_input.get_attribute('value')
+                        if actual:
+                            self.log(f"  ✓ 巷：{actual}")
+                        else:
+                            self.log(f"  ⚠ 巷欄位填入失敗（ID: lane）")
+                    except Exception as e:
+                        self.log(f"  ✗ 填入「巷」失敗：{e}")
+                    num_str = num_str.replace(lane_match.group(0), '', 1)
 
                 # 弄
                 alley_match = re.search(r'([０-９0-9]+)弄', number)
                 if alley_match:
                     alley_value = to_fullwidth_number(alley_match.group(1))
-                    alley_input = self.driver.find_element(By.ID, "alley")
-                    alley_input.clear()
-                    alley_input.send_keys(alley_value)
-                    self.log(f"  ✓ 弄：{alley_value}")
+                    try:
+                        alley_input = self.driver.find_element(By.ID, "alley")
+                        # 🔥 同上，改用 JavaScript 設值
+                        self.driver.execute_script("arguments[0].value = arguments[1];", alley_input, alley_value)
+                        time.sleep(0.2)
+                        alley_input.send_keys('')  # 觸發 input 事件
+                        actual = alley_input.get_attribute('value')
+                        if actual:
+                            self.log(f"  ✓ 弄：{actual}")
+                        else:
+                            self.log(f"  ⚠ 弄欄位填入失敗（ID: alley）")
+                    except Exception as e:
+                        self.log(f"  ✗ 填入「弄」失敗：{e}")
+                    num_str = num_str.replace(alley_match.group(0), '', 1)
 
                 # 號（主要門牌號碼）
-                # 需要排除巷、弄之後的號碼
-                # 🔥 「號」字是可選的，因為有些門牌格式可能是「471之1」而不是「471號之1」
-                number_match = re.search(r'[巷弄]?([０-９0-9]+)號?', number)
+                # 🔥 在「已移除巷/弄」的字串上解析：先抓「…號」前的數字；
+                #    若無「號」字（如 471之1），再退而取剩餘的第一個數字。
+                number_match = re.search(r'([０-９0-9]+)號', num_str)
+                if not number_match:
+                    number_match = re.search(r'([０-９0-9]+)', num_str)
                 if number_match:
                     # 取出數字並轉成半形（網站接受半形數字）
                     main_number_text = number_match.group(1)
@@ -649,20 +676,20 @@ class RISQueryBot:
             # 步驟 5: 驗證碼處理（最多重試 3 次）
             self.log("\n[步驟 5] 處理驗證碼...")
 
-            max_retries = 3
+            max_retries = 3  # 自動辨識 3 次（每次換新驗證碼且會驗證對錯），仍失敗就轉手動輸入
             captcha_success = False
 
             for attempt in range(1, max_retries + 1):
                 try:
                     captcha_image = self.driver.find_element(By.ID, "captchaImage_captchaKey")
                     captcha_input = self.driver.find_element(By.ID, "captchaInput_captchaKey")
-                    search_button = self.driver.find_element(By.ID, "goSearch")
+                    search_button = self.driver.find_element(By.ID, "main-query")
 
                     if attempt > 1:
                         self.log(f"\n⏳ 第 {attempt} 次嘗試辨識驗證碼...")
-                        # 點擊驗證碼圖片重新整理
+                        # 🔥 新版改用「產製新驗證碼」按鈕重新整理（不再是點圖片）
                         try:
-                            captcha_image.click()
+                            self.driver.find_element(By.ID, "imageBlock_captchaKey").click()
                             time.sleep(1.5)  # 🔥 增加等待時間，確保驗證碼完全載入
                             # 重新取得驗證碼元素（避免 stale element）
                             captcha_image = self.driver.find_element(By.ID, "captchaImage_captchaKey")
@@ -764,21 +791,25 @@ class RISQueryBot:
                     elapsed = int(time.time() - start_time)
                     remaining = max_wait_time - elapsed
 
-                    # 檢查是否有 jqGrid 結果表格
-                    jqgrid = self.driver.find_elements(By.ID, "jQGrid")
-                    if jqgrid and len(jqgrid) > 0:
-                        # 檢查是否有資料行
-                        data_rows = self.driver.find_elements(By.CSS_SELECTOR, "td[aria-describedby='jQGrid_v1']")
-                        if data_rows and len(data_rows) > 0:
-                            self.log(f"✓ 檢測到查詢結果（{elapsed} 秒）")
-                            result_found = True
-                            break
+                    # 🔥 新版結果在 DataTables #view-datatable（舊版 jQGrid 已移除）
+                    rows = self.driver.find_elements(By.CSS_SELECTOR, "#view-datatable tbody tr")
+                    # 有資料的列會有多個 td；查無資料時是單一 td.dt-empty
+                    data_rows = [r for r in rows
+                                 if len(r.find_elements(By.TAG_NAME, "td")) >= 2]
+                    if data_rows:
+                        self.log(f"✓ 檢測到查詢結果（{elapsed} 秒）")
+                        result_found = True
+                        break
 
-                    # 檢查是否有「查無資料」訊息
-                    empty_msg = self.driver.find_elements(By.CLASS_NAME, "ui-jqgrid-emptyrecords")
-                    if empty_msg and len(empty_msg) > 0:
-                        self.log(f"✗ 查無資料：{empty_msg[0].text}")
-                        return None
+                    # 查無資料（td.dt-empty「目前沒有資料」）
+                    # 🔥 只在「自動模式」（程式已自動送出查詢）時才據此判定查無資料；
+                    #    手動模式下表格一開始就是「目前沒有資料」，使用者還在看/輸入驗證碼、尚未送出，
+                    #    若據此就關閉會變成「還沒輸入就自動關閉」的 bug。手動模式只認「有資料列」或逾時。
+                    if captcha_success:
+                        empty_cell = self.driver.find_elements(By.CSS_SELECTOR, "#view-datatable td.dt-empty")
+                        if empty_cell and elapsed >= 5:
+                            self.log(f"✗ 查無資料：{empty_cell[0].text.strip()}")
+                            return None
 
                     # 檢查是否有錯誤訊息
                     error_msg = self.driver.find_elements(By.CLASS_NAME, "alert-danger")
@@ -931,11 +962,18 @@ class RISQueryBot:
             # 等待 jqGrid 表格載入
             time.sleep(2)
 
-            # 尋找 jqGrid 表格中的第一筆資料
-            # 門牌資料在 <td aria-describedby="jQGrid_v1"> 中
+            # 🔥 新版 DataTables #view-datatable：取第一筆「資料列」的門牌資料欄（第 2 個 td）
             try:
-                first_result = self.driver.find_element(By.CSS_SELECTOR, "td[aria-describedby='jQGrid_v1']")
-                full_address = first_result.text.strip()
+                first_row_el = None
+                for r in self.driver.find_elements(By.CSS_SELECTOR, "#view-datatable tbody tr"):
+                    if len(r.find_elements(By.TAG_NAME, "td")) >= 2:  # 資料列有多個 td；查無資料是單一 td.dt-empty
+                        first_row_el = r
+                        break
+                if first_row_el is None:
+                    raise NoSuchElementException("無資料列")
+                # 🔥 門牌資料欄會被 DataTables 響應式收合，但「整列文字」含完整門牌（含村里/鄰），例：
+                #    "1 高雄市楠梓區清豐里025鄰立仁街２１巷１２號二樓 民國113年11月19日 門牌初編"
+                full_address = (first_row_el.text or "").strip()
                 self.log(f"✓ 找到查詢結果：{full_address}")
 
                 # 解析地址：高雄市左營區福山里065鄰重惠街１０６號七樓
@@ -971,7 +1009,7 @@ class RISQueryBot:
                 self.log("⚠ 未找到查詢結果")
                 # 檢查是否有「查無資料」訊息
                 try:
-                    empty_msg = self.driver.find_element(By.CLASS_NAME, "ui-jqgrid-emptyrecords")
+                    empty_msg = self.driver.find_element(By.CSS_SELECTOR, "#view-datatable td.dt-empty")
                     if empty_msg:
                         self.log(f"✗ {empty_msg.text}")
                 except:
