@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8"
-BUILD_DATE = "2026-06-30"
+VERSION = "1.1.8a"
+BUILD_DATE = "2026-07-09"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
@@ -3735,6 +3735,10 @@ def convert_transcript_to_final_data(transcript_json_path):
                         if suffix in building_id_full:
                             district = building_id_full.split(suffix)[0] + suffix
                             break
+                    # 🔥 district 可能已含縣市前綴（例如「高雄市鼓山區」），
+                    #    組合前先去掉，避免變成「高雄市高雄市鼓山區…」重複縣市
+                    if city_name and district.startswith(city_name):
+                        district = district[len(city_name):]
                     full_addr = f"{city_name}{district}{address}" if (district and city_name) else address
                     if full_addr and full_addr not in all_addresses:
                         all_addresses.append(full_addr)
@@ -3811,11 +3815,17 @@ def convert_transcript_to_final_data(transcript_json_path):
                             pass
 
                 # === 停車位編號 ===
-                for i in range(20):
-                    key = "含停車位編號" if i == 0 else f"含停車位編號{i}"
+                # 🔥 相容兩種鍵名格式：電傳「含停車位編號」「含停車位編號1」；
+                #    電子謄本「含停車位編號」「含停車位編號_1_1」「含停車位編號_1_2」。
+                #    另車位編號常為全形數字（００２），需先轉半形才抓得到。
+                _fw2hw = str.maketrans('０１２３４５６７８９', '0123456789')
+                for key in list(標示部.keys()):
+                    if not key.startswith("含停車位編號"):
+                        continue
                     parking_value = 標示部.get(key, "")
                     if parking_value:
-                        match = _re_b.match(r'^\s*([A-Za-z0-9\-]+(?:號)?)', parking_value)
+                        pv = str(parking_value).translate(_fw2hw)
+                        match = _re_b.match(r'^\s*([A-Za-z0-9\-]+(?:號)?)', pv)
                         if match:
                             parking_num = match.group(1).strip().rstrip(',').strip()
                             if parking_num and parking_num not in parking_numbers:

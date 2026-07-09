@@ -6615,6 +6615,14 @@ def open_data_editor():
             # 解析門牌地址
             import re
 
+            # 🔥 正規化：去掉重複的「縣市」前綴（曾見門牌被存成「高雄市高雄市鼓山區…」，
+            #    會讓下方正則把第二個『高雄市』誤當成區、街道也跟著錯位）
+            _pm = re.match(r'(.+?[縣市])', address)
+            if _pm:
+                _pfx = _pm.group(1)
+                while address.startswith(_pfx + _pfx):
+                    address = address[len(_pfx):]
+
             # 嘗試解析：縣市、區鄉鎮、路街、門牌號碼
             # 範例：高雄市左營區重惠街１０６號七樓
             address_pattern = r'(.+?[縣市])(.+?[鄉鎮市區])(.+?[路街巷弄])(.+)'
@@ -6811,8 +6819,10 @@ def open_data_editor():
                                             "查詢完成",
                                             f"村里：{village}\n"
                                             f"鄰：第{neighbor}鄰\n\n"
-                                            f"⚠ 未在學區劃分表中找到該村里的學校資訊\n"
-                                            f"{website_tip}"
+                                            f"⚠ 學區資料中查無「{village}」的學校資訊。\n"
+                                            f"可能是近期「行政區域調整」產生的新里名，\n"
+                                            f"學區對照表尚未更新到這個里。\n\n"
+                                            f"{website_tip}（用「{village}」查詢）"
                                         )
 
                                 except ImportError:
