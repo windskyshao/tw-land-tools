@@ -261,12 +261,20 @@ def get_chrome_driver_service():
     print("[WebDriver] 使用系統 PATH 中的 ChromeDriver")
     return Service('chromedriver')
 
-def create_chrome_driver(options=None):
+def create_chrome_driver(options=None, stealth=False):
     """
     建立 Chrome WebDriver
 
     Args:
         options: ChromeOptions 物件（可選）
+        stealth: True 時略過「會暴露自動化身分」的命令列旗標（預設 False＝維持原行為）。
+                 用於有 Cloudflare/Turnstile 人機驗證的網站（如 luz.nlma.gov.tw）。
+                 ⚠ 下列旗標真實使用者絕不會有，Cloudflare 會直接判定為機器人：
+                   --disable-web-security（最明顯）、--disable-gpu（WebGL 指紋異常）、
+                   --blink-settings、--font-render-hinting 等。
+                 這些原本是為了「Chrome printToPDF 中文字型」而加；只用 save_screenshot
+                 的子程式（luz.py）不需要，關掉不影響輸出。
+                 淺色模式改由 prefs 達成（prefs 不是命令列開關，不會被偵測）。
 
     Returns:
         WebDriver 實例
@@ -274,22 +282,23 @@ def create_chrome_driver(options=None):
     if options is None:
         options = webdriver.ChromeOptions()
 
-    # 🔥 強制使用淺色模式（避免暗黑模式影響截圖品質）
-    # 1. 停用暗黑模式相關功能
-    options.add_argument('--disable-features=WebUIDarkMode,ForcedColors')
-    options.add_argument('--force-color-profile=srgb')
+    if not stealth:
+        # 🔥 強制使用淺色模式（避免暗黑模式影響截圖品質）
+        # 1. 停用暗黑模式相關功能
+        options.add_argument('--disable-features=WebUIDarkMode,ForcedColors')
+        options.add_argument('--force-color-profile=srgb')
 
-    # 2. 強制淺色主題（多種方法確保生效）
-    options.add_argument('--blink-settings=preferredColorScheme=1')  # 1=light
+        # 2. 強制淺色主題（多種方法確保生效）
+        options.add_argument('--blink-settings=preferredColorScheme=1')  # 1=light
 
-    # 🔥 PDF 中文字型修正：確保字型正確渲染
-    options.add_argument('--font-render-hinting=none')
-    options.add_argument('--disable-font-subpixel-positioning')
-    options.add_argument('--disable-lcd-text')
-    # 停用 GPU 加速渲染（避免字型渲染問題）
-    options.add_argument('--disable-gpu')
-    # 確保使用系統字型
-    options.add_argument('--disable-web-security')  # 允許讀取本地字型
+        # 🔥 PDF 中文字型修正：確保字型正確渲染
+        options.add_argument('--font-render-hinting=none')
+        options.add_argument('--disable-font-subpixel-positioning')
+        options.add_argument('--disable-lcd-text')
+        # 停用 GPU 加速渲染（避免字型渲染問題）
+        options.add_argument('--disable-gpu')
+        # 確保使用系統字型
+        options.add_argument('--disable-web-security')  # 允許讀取本地字型
 
     # 3. 設定 Chrome 偏好，強制淺色主題
     # 🔥 先取得現有的 prefs（如果有的話），避免覆蓋其他設定（例如下載目錄）

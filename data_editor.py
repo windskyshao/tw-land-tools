@@ -6625,7 +6625,11 @@ def open_data_editor():
 
             # 嘗試解析：縣市、區鄉鎮、路街、門牌號碼
             # 範例：高雄市左營區重惠街１０６號七樓
-            address_pattern = r'(.+?[縣市])(.+?[鄉鎮市區])(.+?[路街巷弄])(.+)'
+            # 🔥 區鄉鎮用 (?![鄉鎮市區]) 負向前瞻：非貪婪原本會在區名內部的行政字停下，
+            #    如「前鎮區」停在『鎮』→ 區只抓到「前鎮」、剩下的『區』被推進路街變「區光華二路」
+            #    →戶政司查街道查無資料。台南「新市區」也是同款(停在『市』)。
+            #    加前瞻讓它一定吃到最後一個行政字(區/鄉/鎮/市)後才收尾。
+            address_pattern = r'(.+?[縣市])(.+?[鄉鎮市區](?![鄉鎮市區]))(.+?[路街巷弄])(.+)'
             match = re.match(address_pattern, address)
 
             if not match:
@@ -6768,8 +6772,10 @@ def open_data_editor():
                                     from school_district_lookup import query_schools
 
                                     update_message(f"\n[資訊] 開始查詢{city_normalized}學區...")
-                                    # 傳入縣市、村里和鄰資訊
-                                    schools_result = query_schools(city_normalized, village, neighbor=neighbor, log_callback=update_message)
+                                    # 傳入縣市、村里、鄰、行政區
+                                    # 🔥 一定要帶 district：同名里會跨區（例：竹西里 前鎮區 vs 路竹區），
+                                    #    不帶行政區會把別區同名里的學校也撈進來（蔡文國小/路竹高中）。
+                                    schools_result = query_schools(city_normalized, village, neighbor=neighbor, district=district, log_callback=update_message)
 
                                     # 組合學校名稱
                                     school_names = []
@@ -7409,19 +7415,41 @@ def open_data_editor():
             return
 
         ai_btn.config(state=tk.DISABLED, text="✨ 生成中…請稍候")
+        # 🔥 把進度印到主控台，讓使用者知道正在跑（原本只有按鈕小字，不易察覺）
+        try:
+            update_message(f"[AI] 🚀 已送出，正在呼叫 Google Gemini（{model}）生成行銷文，約需 10~40 秒，請稍候…")
+        except Exception:
+            pass
 
         def worker():
             msg = None
             text = ""
             offer_key = False  # 失敗時是否提議更換金鑰（額度滿／金鑰無效時）
             try:
+                import requests  # 確保此執行緒作用域可用（模組頂層雖有，仍明確 import 保險）
                 url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                        f"{model}:generateContent?key={api_key}")
-                resp = requests.post(url, json={"contents": [{"parts": [{"text": prompt}]}]},
-                                     timeout=40)
+                payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                # 🔥 gemini-2.5-flash 是「思考模型」，關閉思考可加快回應，
+                #    並避免『思考佔滿輸出額度→回傳沒有文字(parts)』導致沒回填也沒訊息。
+                if model.startswith("gemini-2.5-flash"):
+                    payload["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 0}}
+                resp = requests.post(url, json=payload, timeout=90)
                 if resp.status_code == 200:
                     j = resp.json()
-                    text = j["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    # 🔥 穩健解析：合併所有 parts 的文字；若無文字給清楚原因(被擋/截斷)
+                    cands = j.get("candidates") or []
+                    if cands:
+                        parts = ((cands[0].get("content") or {}).get("parts")) or []
+                        text = "".join(p.get("text", "") for p in parts).strip()
+                        if not text:
+                            fr = cands[0].get("finishReason", "") or "未知"
+                            msg = (f"AI 沒有回傳文字（finishReason={fr}）。\n"
+                                   "可能被安全機制擋下、或內容過長被截斷，\n請調整提示詞後再試一次。")
+                    else:
+                        pf = j.get("promptFeedback", {}) or {}
+                        br = pf.get("blockReason", "") or "無候選內容"
+                        msg = f"AI 未產生內容（{br}）。\n請調整提示詞後再試。"
                 else:
                     try:
                         ej = resp.json().get("error", {})
@@ -7446,6 +7474,10 @@ def open_data_editor():
             def done():
                 ai_btn.config(state=tk.NORMAL, text="✨ Google AI 生成行銷文")
                 if msg or not text:
+                    try:
+                        update_message(f"[AI] ❌ 生成失敗：{(msg or '未取得生成內容').splitlines()[0]}")
+                    except Exception:
+                        pass
                     # 額度滿／金鑰無效時，才詢問是否更換金鑰（需要時才彈出）
                     if offer_key and messagebox.askyesno(
                             "生成失敗", (msg or "") + "\n\n要現在更換 API 金鑰嗎？"):
@@ -7455,6 +7487,14 @@ def open_data_editor():
                 else:
                     selling_text.delete("1.0", "end")
                     selling_text.insert("1.0", text)
+                    try:
+                        update_message(f"[AI] ✅ 生成完成，已回填「訴求重點」（{len(text)} 字）")
+                    except Exception:
+                        pass
+                    try:
+                        messagebox.showinfo("生成完成", "已將 AI 行銷文回填到「訴求重點」欄位，請自行核對後再使用。")
+                    except Exception:
+                        pass
             selling_text.after(0, done)
 
         threading.Thread(target=worker, daemon=True).start()

@@ -2489,15 +2489,43 @@ def parse_search_results():
                 # 獲取當前行的所有欄位
                 columns = row.find_elements(By.TAG_NAME, "td")
 
-                # 嘗試提取第一個欄位的 `<a>` 標籤
-                try:
-                    link_element = columns[0].find_element(By.TAG_NAME, "a")
-                    link_href = link_element.get_attribute("href")
-                    license_number = link_element.text.strip()
-                except NoSuchElementException:
-                    link_element = None
+                # 🔥 執照明細的連結機制會因網站改版而不同，需掃整列同時支援兩種：
+                #    (A) 舊版/他縣市：第一欄 <a href="http...">（用 GET 跳轉）
+                #    (B) 新版高雄 buildmis：<form action=... method=POST>+CSRF hidden+<button class=link-btn>，
+                #        target=_blank 開新分頁。這種沒有 <a>，且需 POST+CSRF，只能「點擊按鈕」讓瀏覽器自帶 token 送出。
+                link_element = None   # 可點擊/跳轉的元素
+                link_href = None      # 記錄用途：GET 網址 或 表單 action
+                link_mode = None      # 'get'（<a href>）或 'click'（POST 送出按鈕）
+                license_number = columns[0].text.strip()
+                # (A) 先找一般 <a href>
+                for a in row.find_elements(By.TAG_NAME, "a"):
+                    href = (a.get_attribute("href") or "").strip()
+                    if href.lower().startswith(("http://", "https://")):
+                        link_element, link_href, link_mode = a, href, 'get'
+                        if a.text.strip():
+                            license_number = a.text.strip()
+                        break
+                # (B) 沒 <a> → 找 POST 表單的送出按鈕
+                if link_element is None:
+                    btns = row.find_elements(
+                        By.CSS_SELECTOR, "form button, button.link-btn, form input[type='submit']")
+                    if btns:
+                        btn = btns[0]
+                        link_element, link_mode = btn, 'click'
+                        try:
+                            form = btn.find_element(By.XPATH, "./ancestor::form")
+                            link_href = (form.get_attribute("action") or "").strip() or "(POST表單)"
+                        except Exception:
+                            link_href = "(POST表單)"
+                        if btn.text.strip():
+                            license_number = btn.text.strip()
+                # (C) 兩種都沒有 → 真的無連結，印診斷 HTML 供日後追
+                if link_element is None:
                     link_href = "無"
-                    license_number = columns[0].text.strip()
+                    try:
+                        print(f"[診斷] 此列找不到連結，列HTML(前600字)：{(row.get_attribute('outerHTML') or '')[:600]}", flush=True)
+                    except Exception:
+                        pass
 
                 # 提取其他欄位數據
                 issue_date = columns[4].text.strip() if len(columns) > 4 else "N/A"
@@ -2512,6 +2540,7 @@ def parse_search_results():
                         "status": status,
                         "link_element": link_element,
                         "link_href": link_href,
+                        "link_mode": link_mode,
                     }
                 )
             except Exception as e:
@@ -2564,14 +2593,32 @@ def scroll_to_element(element):
 
 
 def save_page_as_pdf(filename):
+    # 先產生 PDF 位元組（與寫檔分開，寫檔失敗時才能改存替代檔而不用重印）
     try:
-        # print(f"正在將頁面保存為 PDF：{filename}", flush=True)
         pdf_settings = {"landscape": False, "printBackground": True}
         pdf_data = driver.execute_cdp_cmd("Page.printToPDF", pdf_settings)
-        time.sleep(2)
+        time.sleep(1)
+        data = base64.b64decode(pdf_data["data"])
+    except Exception as e:
+        print(f"\033[91m產生 PDF 時發生錯誤：{e}\033[0m", flush=True)
+        return
+
+    try:
         with open(filename, "wb") as f:
-            f.write(base64.b64decode(pdf_data["data"]))
+            f.write(data)
         print(f"已成功保存 PDF：\n\033[93m{filename}\033[0m", flush=True)
+    except PermissionError:
+        # 🔥 原檔很可能正被開啟(PDF 檢視器鎖住)導致無法覆寫 → 改存不衝突的檔名，確保不漏檔
+        base, ext = os.path.splitext(filename)
+        alt = f"{base}_{time.strftime('%Y%m%d_%H%M%S')}{ext}"
+        try:
+            with open(alt, "wb") as f:
+                f.write(data)
+            print(f"\033[93m原檔可能正被開啟(鎖住)無法覆寫，已改存為：\n{alt}\033[0m", flush=True)
+            print("\033[93m提示：若要更新原檔，請先關閉正在檢視的同名 PDF 再重查。\033[0m", flush=True)
+        except Exception as e2:
+            print(f"\033[91m保存 PDF 失敗（原檔被鎖、替代檔也寫入失敗）：{e2}\033[0m", flush=True)
+            print("\033[93m請先關閉正在開啟的同名 PDF，再重新查詢。\033[0m", flush=True)
     except Exception as e:
         print(f"\033[91m保存 PDF 時發生錯誤：{e}\033[0m", flush=True)
 
@@ -2973,25 +3020,81 @@ def _nlma_zoom_count():
     return zc
 
 def click_and_save_pdf(result, base_directory):
+    opened_new = False
+    origin_window = None
     try:
+        link_element = result.get("link_element")
+        link_mode = result.get("link_mode")
         link_href = result.get("link_href")
-        license_number = result.get("license_number")
-        if not link_href:
-            print(f"鏈接不存在，無法處理：{result}", flush=True)
-            return
-        print(f"準備跳轉到鏈接：{link_href}", flush=True)
-        driver.get(link_href)  # 使用 driver.get 跳轉到指定 URL
-        
-        # 等待特定元素載入，確認頁面完全加載
-        try:
-            WebDriverWait(driver, 5).until(
-                EC.presence_of_element_located((By.CLASS_NAME, "target-table"))  # 假設目標表格的類名為 target-table
-            )
-            print("目標內容已加載。", flush=True)
-        except TimeoutException:
-            print("目標內容加載超時，嘗試保存當前頁面內容。", flush=True)
+        license_number = result.get("license_number") or ""
 
-        # 🔥 跳轉後的新分頁也套用縮放（與其他頁面一致）
+        # 沒有可用的連結元素/模式（例如該列真的無連結）→ 乾淨略過，不去 driver.get("無") 爆 invalid argument
+        if link_element is None or link_mode not in ("get", "click"):
+            print(f"此筆沒有可下載的執照連結（{license_number or '無編號'}），略過下載。", flush=True)
+            return
+
+        origin_window = driver.current_window_handle
+        before = list(driver.window_handles)
+
+        if link_mode == "get":
+            # (A) 舊版/他縣市：<a href> 直接 GET 跳轉（同分頁）
+            print(f"準備跳轉到鏈接：{link_href}", flush=True)
+            driver.get(link_href)
+        else:
+            # (B) 新版高雄 buildmis：點擊 POST 表單送出按鈕，瀏覽器自帶 CSRF 送出，target=_blank 開新分頁
+            print(f"準備點擊送出以開啟執照明細（POST）：{link_href}", flush=True)
+            try:
+                driver.execute_script("arguments[0].scrollIntoView({block:'center'});", link_element)
+            except Exception:
+                pass
+            try:
+                link_element.click()
+            except Exception:
+                driver.execute_script("arguments[0].click();", link_element)
+            # 等新分頁出現並切過去（若沒開新分頁，視為同分頁導航）
+            try:
+                WebDriverWait(driver, 12).until(lambda d: len(d.window_handles) > len(before))
+                new_window = [h for h in driver.window_handles if h not in before][0]
+                driver.switch_to.window(new_window)
+                opened_new = True
+                print("已切換到執照明細分頁。", flush=True)
+            except TimeoutException:
+                print("未偵測到新分頁，改於當前分頁擷取。", flush=True)
+
+        # 先確保 DOM 框架載入完成（取代原本猜測的 target-table 類名）
+        try:
+            WebDriverWait(driver, 10).until(
+                lambda d: d.execute_script("return document.readyState") == "complete")
+        except Exception:
+            pass
+
+        # 🔥 明細頁是 SPA：框架載入後，表格內容才由 AJAX 抓回來填入。
+        #    只等 readyState 就列印，會得到「有標題、值全空」的 PDF。
+        #    改以「執照號碼是否出現在頁面文字」判斷資料已填入(明細頁最上方會顯示使用執照號碼)。
+        _full = re.sub(r'\s+', '', license_number or '')
+        _m = re.search(r'(\d{3,}(?:-\d+)?)號?', license_number or '')
+        _core = _m.group(1) if _m else ''   # 例：00865-01，靜態模板不會有這串，出現即代表資料已載入
+
+        def _detail_data_ready(d):
+            try:
+                body = re.sub(r'\s+', '', d.execute_script(
+                    "return document.body ? document.body.innerText : ''") or "")
+            except Exception:
+                return False
+            if _core and _core in body:
+                return True
+            return bool(_full) and _full in body
+
+        if _core or _full:
+            try:
+                WebDriverWait(driver, 20).until(_detail_data_ready)
+                print("執照明細資料已載入。", flush=True)
+            except TimeoutException:
+                print("等待執照明細資料逾時，仍嘗試擷取當前內容。", flush=True)
+        # 資料出現後再給短暫緩衝，讓表格/樣式渲染穩定再列印
+        time.sleep(1.5)
+
+        # 套用縮放（與其他頁面一致）
         try:
             apply_page_zoom(driver, _nlma_zoom_count())
         except Exception:
@@ -3000,18 +3103,28 @@ def click_and_save_pdf(result, base_directory):
         # 建立目標目錄
         pdf_directory = os.path.join(base_directory, "1.基本資料")
         os.makedirs(pdf_directory, exist_ok=True)
-    
+
         # 設置檔名
-        sanitized_name = license_number.replace("/", "_").replace("\\", "_")
+        sanitized_name = (license_number or "執照").replace("/", "_").replace("\\", "_").strip()
         filename = f"02_使用執照-{sanitized_name}.pdf"
         filepath = os.path.join(pdf_directory, filename)
-        
+
         # 保存頁面為 PDF
         save_page_as_pdf(filepath)
-        driver.back()
 
     except Exception as e:
         print(f"處理選項時發生錯誤：{e}", flush=True)
+    finally:
+        # 收尾：新分頁關掉並切回原結果視窗；同分頁 GET 則 back 回結果頁（讓後續多筆仍可續處理）
+        try:
+            if opened_new:
+                driver.close()
+                if origin_window:
+                    driver.switch_to.window(origin_window)
+            elif result.get("link_mode") == "get":
+                driver.back()
+        except Exception:
+            pass
 
 # 注册退出回调函数，确保程序无论如何退出都会发送通知
 def notify_main_program():

@@ -149,12 +149,247 @@ with open(get_data_json_path(), 'r', encoding='utf-8') as file:
 # 設定 WebDriver
 options = webdriver.ChromeOptions()
 options.add_argument("--disable-blink-features=AutomationControlled")
-options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; WOW64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/127.0.0.0 Safari/537.36")
+# 🔥 不要再寫死 User-Agent！
+#    本站(luz.nlma.gov.tw)已改掛 Cloudflare Turnstile 人機驗證。原本寫死 Chrome/127，
+#    但實機是 Chrome 150，UA 與瀏覽器真實 Client Hints(sec-ch-ua) 版本對不上 →
+#    Cloudflare 直接判定為機器人，導致「連手動點驗證方塊也一直失敗」。
+#    移除覆寫後由 Chrome 送出自己真實且一致的 UA，通過率才正常。
 options.add_experimental_option("excludeSwitches", ["enable-automation"])
 options.add_experimental_option('useAutomationExtension', False)
 
-# 使用 ChromeDriverManager 安裝 ChromeDriver 並應用選項
-driver = create_chrome_driver(options=options)
+# ─────────────────────────────────────────────────────────────────────────
+# 🔥 Cloudflare Turnstile 對策：附著模式（attach mode）
+#    本站(luz.nlma.gov.tw)已掛 Cloudflare 人機驗證。實測「改 UA」「拿掉自動化旗標」
+#    都仍被擋 —— 因為 Cloudflare 也會偵測 ChromeDriver 自身注入的痕跡(cdc_ 變數/CDP)，
+#    導致連「手動點驗證方塊」都失敗。
+#    解法：先用【一般方式】啟動 Chrome（完全不經 ChromeDriver，等同使用者自己開的），
+#          由使用者通過驗證取得 cf_clearance cookie 後，程式再【附著】上去接手自動化。
+#    設定檔固定於 chrome_profile_luz，cookie 會被記住，之後多半不必再驗。
+# ─────────────────────────────────────────────────────────────────────────
+LUZ_USE_ATTACH_MODE = True      # 若日後網站移除驗證，可改 False 回到原本模式
+LUZ_ASK_MANUAL_PASS = False     # （已停用）舊做法：接手前先手動查一次取得通行證。
+                                #  問題是按 Enter 後程式仍會從頭自動搜尋、又觸發驗證且必失敗，
+                                #  已改由 LUZ_MANUAL_SEARCH 在「搜尋那一步」交給使用者。
+LUZ_MANUAL_SEARCH = True        # ⚠ 實測結論：務必維持 True。
+                                # True =【搜尋】由使用者親手按、自行過驗證後按 Enter 接續（唯一可行）
+                                # False=程式用 execute_script 自動搜尋 → 2026-07-23 實測：
+                                #        驗證彈窗立刻出現，使用者點勾選框一律失敗，且會無限重複要求驗證、
+                                #        永遠不會通過。原因見下方 _luz_wait_if_challenge 的說明。
+LUZ_DEBUG_PORT = 9222
+LUZ_URL = "https://luz.tcd.gov.tw/WEB/"
+
+_luz_profile = os.path.join(BASE_DIR, "chrome_profile_luz")
+
+
+def _luz_find_chrome_exe():
+    """找出實體 chrome.exe（附著模式要用一般方式啟動它）"""
+    cands = [
+        os.path.join(os.environ.get('PROGRAMFILES', r'C:\Program Files'),
+                     r'Google\Chrome\Application\chrome.exe'),
+        os.path.join(os.environ.get('PROGRAMFILES(X86)', r'C:\Program Files (x86)'),
+                     r'Google\Chrome\Application\chrome.exe'),
+        os.path.join(os.environ.get('LOCALAPPDATA', ''),
+                     r'Google\Chrome\Application\chrome.exe'),
+    ]
+    for c in cands:
+        if c and os.path.exists(c):
+            return c
+    try:
+        import winreg
+        with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE,
+                            r"SOFTWARE\Microsoft\Windows\CurrentVersion\App Paths\chrome.exe") as k:
+            p = winreg.QueryValue(k, None)
+            if p and os.path.exists(p):
+                return p
+    except Exception:
+        pass
+    return None
+
+
+def _luz_port_open(port, host='127.0.0.1'):
+    import socket
+    try:
+        with socket.socket() as s:
+            s.settimeout(0.5)
+            return s.connect_ex((host, port)) == 0
+    except Exception:
+        return False
+
+
+def _luz_challenge_present(driver):
+    """頁面上是否正顯示 Cloudflare 人機驗證。"""
+    try:
+        if driver.find_elements(By.CSS_SELECTOR, "iframe[src*='challenges.cloudflare.com']"):
+            return True
+        src = driver.page_source or ""
+        for kw in ("正在進行驗證程序", "驗證您是人類", "Just a moment",
+                   "cf-challenge", "challenge-platform"):
+            if kw in src:
+                return True
+    except Exception:
+        pass
+    return False
+
+
+def _luz_wait_if_challenge(driver, max_wait=180):
+    """偵測 Cloudflare 人機驗證畫面；一旦出現就【暫停自動化】直到它通過。
+
+    ⚠ 這很重要：本站是在「點擊搜尋」時才觸發驗證。原本程式不會察覺，
+       驗證還開著就一路往下跑（縮回表框、點查詢、點地圖、再次搜尋…），
+       Cloudflare 看到「驗證期間仍有自動化互動」會直接判定失敗 → 永遠過不了。
+       改成偵測到就停手等待，期間完全不碰頁面。
+    """
+    import time as _t
+
+    def _present():
+        return _luz_challenge_present(driver)
+
+    if not _present():
+        return True
+
+    print("", flush=True)
+    print("\033[93m⚠ 偵測到 Cloudflare 人機驗證 → 已【暫停自動化】\033[0m", flush=True)
+    print("\033[93m   請到 Chrome 視窗點一下驗證方塊；期間程式不會再碰頁面。\033[0m", flush=True)
+    print("\033[93m   ※ 若顯示「驗證失敗」先別關掉，Turnstile 會自己重試，\033[0m", flush=True)
+    print("\033[93m     通常再等 7~10 秒就會自動通過、彈窗消失。\033[0m", flush=True)
+    print("\033[93m   通過後程式會自動偵測到並接著跑（會自動幫你重新查詢）。\033[0m", flush=True)
+    waited = 0
+    while waited < max_wait:
+        _t.sleep(2)
+        waited += 2
+        if not _present():
+            print("\033[92m✓ 驗證已通過，恢復自動化\033[0m", flush=True)
+            _t.sleep(2)   # 讓頁面把結果載完再繼續
+            return True
+        if waited % 20 == 0:
+            print(f"   仍在等待驗證…（{waited} 秒 / 上限 {max_wait} 秒）", flush=True)
+    print("\033[91m⚠ 等待驗證逾時，仍嘗試繼續\033[0m", flush=True)
+    return False
+
+
+def _luz_mark_profile_clean():
+    """把專用設定檔標記為『上次正常關閉』。
+
+    程式（或使用者按「關閉全國土地使用分區」）中途結束時，這顆 Chrome 是被強制結束的，
+    會在設定檔留下 crash 記號 → 下次啟動就跳「你要還原網頁嗎？Chrome 未正確關閉」。
+    啟動前先把記號改成正常，就不會再問。
+    """
+    try:
+        pref = os.path.join(_luz_profile, "Default", "Preferences")
+        if not os.path.exists(pref):
+            return
+        with open(pref, 'r', encoding='utf-8') as f:
+            _d = json.load(f)
+        _p = _d.setdefault("profile", {})
+        _p["exit_type"] = "Normal"
+        _p["exited_cleanly"] = True
+        with open(pref, 'w', encoding='utf-8') as f:
+            json.dump(_d, f)
+    except Exception:
+        pass
+
+
+def _luz_create_driver_attached():
+    """用一般方式開 Chrome（不經 ChromeDriver）再附著。失敗回傳 None 由呼叫端退回原模式。
+
+    註：本站的人機驗證是「點擊搜尋」時才觸發，開頁階段不會出現，
+        所以這裡不再要求使用者先按 Enter；真的跳驗證時，
+        由 _luz_wait_if_challenge() 在搜尋步驟自動暫停並等待。
+    """
+    import subprocess
+    import time as _t
+
+    chrome_exe = _luz_find_chrome_exe()
+    if not chrome_exe:
+        print("[附著模式] 找不到 chrome.exe，改用一般模式", flush=True)
+        return None
+
+    if _luz_port_open(LUZ_DEBUG_PORT):
+        print(f"[附著模式] 偵測到 {LUZ_DEBUG_PORT} 埠已有 Chrome，直接附著", flush=True)
+    else:
+        try:
+            os.makedirs(_luz_profile, exist_ok=True)
+            _luz_mark_profile_clean()   # 先清掉上次的 crash 記號
+            subprocess.Popen(
+                [chrome_exe,
+                 f"--remote-debugging-port={LUZ_DEBUG_PORT}",
+                 f"--user-data-dir={_luz_profile}",
+                 "--no-first-run", "--no-default-browser-check",
+                 # 🔥 不載入任何擴充功能：此設定檔只給自動查詢用，
+                 #    可避免 Chrome 跳出「已新增○○擴充功能」詢問視窗，頁面也更乾淨
+                 "--disable-extensions",
+                 # 🔥 即使真的留下 crash 記號，也不要顯示「還原網頁」氣泡擋住畫面
+                 "--hide-crash-restore-bubble",
+                 LUZ_URL],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            print(f"[附著模式] 已用一般方式開啟 Chrome（設定檔：{_luz_profile}）", flush=True)
+        except Exception as e:
+            print(f"[附著模式] 啟動 Chrome 失敗：{e}，改用一般模式", flush=True)
+            return None
+
+        # 等偵錯埠就緒（最多 25 秒）
+        for _ in range(50):
+            if _luz_port_open(LUZ_DEBUG_PORT):
+                break
+            _t.sleep(0.5)
+        else:
+            print("[附著模式] 等待偵錯埠逾時，改用一般模式", flush=True)
+            return None
+
+        # 🔥 先取得「通行證」再接手
+        #    實測：只要 ChromeDriver 已附著(CDP 連線存在)，且搜尋是用 execute_script 觸發
+        #    （非真人點擊），Cloudflare Turnstile 一律驗證失敗 —— 連手動點方塊也過不了。
+        #    唯一可靠解法：在「程式尚未接手」的乾淨 Chrome 裡，由使用者自己按一次搜尋、
+        #    完成驗證，取得 cf_clearance cookie（存在專用設定檔）。之後程式再附著操作，
+        #    帶著 cookie 就不會再被要求驗證。cookie 有效期間內，下次可直接按 Enter 略過。
+        if LUZ_ASK_MANUAL_PASS:
+            print("", flush=True)
+            print("\033[93m════════════ 首次請先取得「通行證」════════════\033[0m", flush=True)
+            print("\033[93m 本站按下【搜尋】時會跳 Cloudflare 人機驗證，\033[0m", flush=True)
+            print("\033[93m 而程式一旦接手就會被判定為機器人而驗證失敗。\033[0m", flush=True)
+            print("\033[93m 請在剛開啟的 Chrome 手動做「一次」查詢：\033[0m", flush=True)
+            print("\033[93m   ① 左側選 縣市／鄉鎮市（隨意）\033[0m", flush=True)
+            print("\033[93m   ② 按【搜尋】\033[0m", flush=True)
+            print("\033[93m   ③ 若跳出人機驗證，把它完成（這次會過）\033[0m", flush=True)
+            print("\033[93m 完成後回到本程式，於下方輸入框按 Enter，程式即接手。\033[0m", flush=True)
+            print("\033[93m（若先前已取得、通行證仍有效，可直接按 Enter 略過）\033[0m", flush=True)
+            print("\033[93m═══════════════════════════════════════════════\033[0m", flush=True)
+            try:
+                input()
+            except (EOFError, OSError):
+                print("[附著模式] 讀不到輸入，改為等待 60 秒讓你完成…", flush=True)
+                _t.sleep(60)
+
+    try:
+        attach_opts = webdriver.ChromeOptions()
+        attach_opts.add_experimental_option("debuggerAddress", f"127.0.0.1:{LUZ_DEBUG_PORT}")
+        from webdriver_helper import get_chrome_driver_service
+        d = webdriver.Chrome(service=get_chrome_driver_service(), options=attach_opts)
+        print("[附著模式] ✓ 已成功附著到你的 Chrome，接手自動化", flush=True)
+        return d
+    except Exception as e:
+        print(f"[附著模式] 附著失敗：{e}，改用一般模式", flush=True)
+        return None
+
+
+driver = None
+if LUZ_USE_ATTACH_MODE:
+    driver = _luz_create_driver_attached()
+
+if driver is None:
+    # 退路：原本的一般模式（stealth=True 仍可降低被偵測機率）
+    try:
+        os.makedirs(_luz_profile, exist_ok=True)
+        options.add_argument(f"--user-data-dir={_luz_profile}")
+    except Exception:
+        pass
+    driver = create_chrome_driver(options=options, stealth=True)
+    try:
+        driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {
+            "source": "Object.defineProperty(navigator, 'webdriver', {get: () => undefined});"
+        })
+    except Exception as _e:
+        print(f"[提示] 反偵測腳本注入略過：{_e}", flush=True)
 
 # 啟動後立即設定視窗大小和位置
 try:
@@ -438,12 +673,57 @@ def process_entry(driver, entry, idx, total):
         return False
 
     # ========== 步驟7：點擊「搜尋」按鈕 ==========
-    print("步驟7：點擊【搜尋】按鈕...", flush=True)
-    try:
-        driver.execute_script("ZoomToData(8,'CADANO_0101','CADA');")
-        print("  已執行搜尋", flush=True)
-    except Exception as e:
-        print(f"  搜尋失敗: {e}", flush=True)
+    # 🔥 本站在「按下搜尋」時觸發 Cloudflare Turnstile。
+    #    ★ 2026-07-23 實測結論（兩種都試過）：
+    #      ‧ 程式用 execute_script 觸發搜尋 → 驗證彈窗立刻出現，使用者點勾選框【一律失敗】，
+    #        且會無限重複要求驗證，永遠不會通過。
+    #      ‧ 由使用者【親手點搜尋鈕】觸發 → 第一次可能顯示失敗，但 Turnstile 會自動重試，
+    #        約 7~10 秒後【自動通過】。
+    #      → 關鍵不在「誰點驗證方塊」，而在「觸發這次請求的是不是真人手勢」。
+    #        Turnstile 會把 challenge 綁定到觸發它的那個事件；腳本呼叫沒有真人手勢信任分，
+    #        事後再怎麼點勾選框都補不回來。
+    #    因此保持：前面欄位由程式填，【搜尋】必須由使用者親手按。
+    #    因此改成：前面的縣市/鄉鎮市/段名/地號全部由程式填好，
+    #    「按搜尋 + 過驗證」交給使用者親手做（真人點擊才通得過），
+    #    完成後按 Enter，程式再接續後面的步驟（不會重跑搜尋）。
+    if LUZ_MANUAL_SEARCH:
+        print("", flush=True)
+        print("\033[93m════════ 請由你手動按下【搜尋】════════\033[0m", flush=True)
+        print(f"\033[93m 縣市／鄉鎮市／段名／地號({target_lot}) 已由程式填好。\033[0m", flush=True)
+        print("\033[93m ① 到 Chrome 左側面板，親自點一下【搜尋】\033[0m", flush=True)
+        print("\033[93m ② 若跳出人機驗證，請完成它\033[0m", flush=True)
+        print("\033[93m    第一次會失敗，請等幾秒後再重新點選即可成功！\033[0m", flush=True)
+        print("\033[93m    成功後，請自行再點擊【搜尋】一次後，\033[0m", flush=True)
+        print("\033[93m    滑鼠移至主程式輸入欄點擊一下後，按 Enter 接續\033[0m", flush=True)
+        print("\033[93m════════════════════════════════════\033[0m", flush=True)
+        try:
+            input()
+        except (EOFError, OSError):
+            print("  讀不到輸入，改等待 90 秒讓你完成…", flush=True)
+            time.sleep(90)
+        print("步驟7：（已由使用者手動搜尋並通過驗證）", flush=True)
+    else:
+        def _do_search(tag=""):
+            try:
+                driver.execute_script("ZoomToData(8,'CADANO_0101','CADA');")
+                print(f"  已執行搜尋{tag}", flush=True)
+            except Exception as e:
+                print(f"  搜尋失敗: {e}", flush=True)
+
+        print("步驟7：點擊【搜尋】按鈕...", flush=True)
+        _do_search()
+        time.sleep(2)
+        # 🔥 程式觸發的搜尋一樣會跳驗證。偵測到就停手，等使用者點過驗證方塊
+        #    （第一次可能顯示失敗，Turnstile 會自動重試，約 7~10 秒後通過）
+        if _luz_challenge_present(driver):
+            _luz_wait_if_challenge(driver)
+            # 網站左側面板明示：「驗證完成後，請重新查詢。」
+            # 第一次的搜尋請求已被驗證攔截掉，通過後一定要再送一次才會有結果。
+            print("  驗證已通過 → 依網站規則自動重新查詢一次…", flush=True)
+            time.sleep(1)
+            _do_search("（驗證後重查）")
+            time.sleep(2)
+            _luz_wait_if_challenge(driver)   # 極少數情況會再驗一次
 
     # 🔍 診斷：搜尋後 pin 狀態（判斷 pin 有沒有出現）
     time.sleep(2)
@@ -537,18 +817,26 @@ def process_entry(driver, entry, idx, total):
 
     # ========== 步驟7.8～7.10：重新顯示錨點(pin)，讓最終截圖更明確 ==========
     #   查詢結果確認後，再展開選單→重新搜尋(pin 重現)→收回選單
+    # 🔥 手動搜尋模式下略過：7.9 會再跑一次 ZoomToData（等於程式自動搜尋），
+    #    那正是會觸發 Cloudflare 驗證、且程式觸發必失敗的動作，還可能讓驗證框擋住截圖。
+    #    少了 pin 只是標示沒那麼醒目，查詢結果本身仍完整。
     try:
-        print("步驟7.8：重新展開系統功能選單...", flush=True)
-        driver.execute_script("loadmenu();")
-        time.sleep(1)
-        print("步驟7.9：再次搜尋（讓錨點重新出現）...", flush=True)
-        driver.execute_script("ZoomToData(8,'CADANO_0101','CADA');")
-        time.sleep(2)
-        print("步驟7.10：再次縮回系統功能選單...", flush=True)
-        driver.execute_script("loadmenu();")
-        time.sleep(1)
-        _imgs2 = driver.execute_script("return document.querySelectorAll('#mapDiv_graphics_layer image').length;")
-        print(f"  錨點已重新顯示（image={_imgs2}）", flush=True)
+        if LUZ_MANUAL_SEARCH:
+            print("步驟7.8～7.10：手動搜尋模式，略過『重新搜尋讓錨點重現』（避免再觸發驗證）", flush=True)
+        else:
+            print("步驟7.8：重新展開系統功能選單...", flush=True)
+            driver.execute_script("loadmenu();")
+            time.sleep(1)
+            print("步驟7.9：再次搜尋（讓錨點重新出現）...", flush=True)
+            driver.execute_script("ZoomToData(8,'CADANO_0101','CADA');")
+            time.sleep(2)
+            # 🔥 再次搜尋同樣可能觸發 Cloudflare 驗證 → 一樣先停手等它過
+            _luz_wait_if_challenge(driver)
+            print("步驟7.10：再次縮回系統功能選單...", flush=True)
+            driver.execute_script("loadmenu();")
+            time.sleep(1)
+            _imgs2 = driver.execute_script("return document.querySelectorAll('#mapDiv_graphics_layer image').length;")
+            print(f"  錨點已重新顯示（image={_imgs2}）", flush=True)
     except Exception as e:
         print(f"  重新顯示錨點失敗（不影響截圖）: {e}", flush=True)
 
