@@ -7379,7 +7379,11 @@ def open_data_editor():
                 save_config(cfg, show_message=False)
             except Exception:
                 pass
-        model = (cfg.get("gemini_model") or "gemini-2.5-flash").strip()
+        # 🔥 預設用 gemini-flash-latest（最新 flash 別名，新用戶可用、不會被停用）。
+        #    註：gemini-2.5-flash 已「不再開放新用戶」，新建金鑰呼叫會回 404 NOT_FOUND，
+        #    舊金鑰仍可用；故保留 config 既有值，但於下方 worker 遇 404 時自動退回本別名。
+        FALLBACK_MODEL = "gemini-flash-latest"
+        model = (cfg.get("gemini_model") or FALLBACK_MODEL).strip()
 
         is_rent, data_text = _ai_gather_fields()
         if not data_text.strip():
@@ -7427,14 +7431,32 @@ def open_data_editor():
             offer_key = False  # 失敗時是否提議更換金鑰（額度滿／金鑰無效時）
             try:
                 import requests  # 確保此執行緒作用域可用（模組頂層雖有，仍明確 import 保險）
-                url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                       f"{model}:generateContent?key={api_key}")
-                payload = {"contents": [{"parts": [{"text": prompt}]}]}
-                # 🔥 gemini-2.5-flash 是「思考模型」，關閉思考可加快回應，
-                #    並避免『思考佔滿輸出額度→回傳沒有文字(parts)』導致沒回填也沒訊息。
-                if model.startswith("gemini-2.5-flash"):
-                    payload["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 0}}
-                resp = requests.post(url, json=payload, timeout=90)
+
+                def _post(model_name):
+                    url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                           f"{model_name}:generateContent?key={api_key}")
+                    payload = {"contents": [{"parts": [{"text": prompt}]}]}
+                    # 🔥 gemini-2.5-flash 是「思考模型」，關閉思考可加快回應，
+                    #    並避免『思考佔滿輸出額度→回傳沒有文字(parts)』導致沒回填也沒訊息。
+                    #    （gemini-flash-latest 不吃 thinkingBudget=0，故僅對 2.5-flash 加）
+                    if model_name.startswith("gemini-2.5-flash"):
+                        payload["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 0}}
+                    return requests.post(url, json=payload, timeout=90)
+
+                resp = _post(model)
+                # 🔥 模型被停用(404 NOT_FOUND，如新金鑰呼叫 gemini-2.5-flash)→ 自動退回可用別名並記住
+                if resp.status_code == 404 and model != FALLBACK_MODEL:
+                    try:
+                        update_message(f"[AI] 模型 {model} 不可用(可能已對新用戶停用)，改用 {FALLBACK_MODEL} 重試…")
+                    except Exception:
+                        pass
+                    resp = _post(FALLBACK_MODEL)
+                    if resp.status_code == 200:
+                        try:
+                            cfg["gemini_model"] = FALLBACK_MODEL
+                            save_config(cfg, show_message=False)   # 寫回 config，之後不再 404
+                        except Exception:
+                            pass
                 if resp.status_code == 200:
                     j = resp.json()
                     # 🔥 穩健解析：合併所有 parts 的文字；若無文字給清楚原因(被擋/截斷)
