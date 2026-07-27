@@ -484,12 +484,33 @@ def login():
         password.send_keys(PASSWORD)
         # print("已成功輸入密碼", flush=True)
 
-        login_button = WebDriverWait(driver, 3).until(
-            EC.element_to_be_clickable((By.ID, "but"))
-        )
-        login_button.click()
+        # 🔥 #but 只是外層 <div>；真正的送出鈕是它裡面的 <input type="image">（登入圖）。
+        #    點 <div>（尤其 JS 點）不會送出表單→看似點了卻沒登入。改點裡面的 image submit。
+        try:
+            login_button = WebDriverWait(driver, 5).until(
+                EC.presence_of_element_located((By.CSS_SELECTOR, "#but input[type='image'], #but input[type='submit'], #login input[type='image']"))
+            )
+        except TimeoutException:
+            login_button = driver.find_element(By.ID, "but")  # 後備：真的找不到才點外框
+
+        # V523 首頁有 demo-icon 等元素浮在登入 iframe 上，實體點擊會被命中檢查擋掉
+        # → 先試實體點擊（會觸發表單送出），被攔截就退回 JS 點擊（繞過遮擋，image submit 一樣會送出表單）。
+        try:
+            driver.execute_script("arguments[0].scrollIntoView({block:'center'});", login_button)
+        except Exception:
+            pass
+        try:
+            login_button.click()
+        except Exception as _e:
+            print(f"  登入鈕實體點擊被攔截({type(_e).__name__})，改用 JS 點擊送出鈕…", flush=True)
+            driver.execute_script("arguments[0].click();", login_button)
+            # 保險：若 image submit 的 JS click 未觸發送出，直接提交 <form id='login'>
+            try:
+                driver.execute_script("var f=document.getElementById('login'); if(f){f.submit();}")
+            except Exception:
+                pass
         # print("已成功點擊登入按鈕", flush=True)
-        time.sleep(0.5)  # 等待登入完成
+        time.sleep(1.0)  # 等待登入送出/導頁
 
         # 回到主框架
         driver.switch_to.default_content()
@@ -513,6 +534,38 @@ def open_query_page():
 
     # 🔥 等待頁面完全載入
     time.sleep(2)
+
+    # 🔥 V523 登入後常跳出廣告/空白(about:blank)彈窗，會蓋住畫面、且可能讓自動化停在錯的分頁，
+    #    導致後面找不到表單欄位(#county)而一直卡住。這裡把非 V523 的多餘分頁關掉，
+    #    並確保 selenium 停在 V523 內容分頁再繼續。
+    def _is_v523_win(u):
+        # 🔥 要比對「主機名」而非整串網址！facebook.com/v523.com.tw 這種網址雖含「v523.com.tw」
+        #    卻是 Facebook 粉專分頁，不能當成 V523 自己的分頁而保留。
+        u = (u or "").lower()
+        return u.startswith(("http://www.v523.com.tw", "https://www.v523.com.tw",
+                             "http://v523.com.tw", "https://v523.com.tw"))
+    try:
+        handles = list(driver.window_handles)
+        if len(handles) > 1:
+            main_handle = None
+            for h in handles:
+                try:
+                    driver.switch_to.window(h)
+                    u = driver.current_url or ""
+                except Exception:
+                    continue
+                if _is_v523_win(u):
+                    main_handle = h          # V523 內容分頁 → 保留
+                else:
+                    try:
+                        driver.close()        # about:blank／Facebook 粉專／廣告彈窗 → 關掉
+                    except Exception:
+                        pass
+            remaining = driver.window_handles
+            driver.switch_to.window(main_handle if main_handle in remaining else remaining[0])
+            print(f"[視窗] 已關閉多餘/廣告/空白分頁，停留在 V523 主視窗（剩 {len(remaining)} 個）", flush=True)
+    except Exception as _e:
+        print(f"[視窗] 清理分頁時略過：{_e}", flush=True)
 
     # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 或小螢幕下的排版問題）
     # 根據 DPI 決定縮放次數：150% → 2次(80%)，175% → 3次(75%)

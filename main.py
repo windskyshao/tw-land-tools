@@ -1492,6 +1492,9 @@ def read_output(process):
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
                     if current_running_button == start_land_button:
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
+                        # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
+                        if _pending_structuring_after_land:
+                            root.after(1500, _resume_structuring_after_land)
 
                     # 🔥 恢復按鈕狀態
                     if continuous_mode_active:
@@ -1536,6 +1539,9 @@ def read_output(process):
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
                     if current_running_button == start_land_button:
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
+                        # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
+                        if _pending_structuring_after_land:
+                            root.after(1500, _resume_structuring_after_land)
 
                     # 🔥 恢復按鈕狀態
                     if continuous_mode_active:
@@ -4380,6 +4386,10 @@ def start_subprocess_internal(script_name):
             base_dir = os.path.dirname(os.path.abspath(__file__))
         cmd += ['--base-dir', base_dir]
 
+        # 🔥 電傳謄本結構化：帶入本次要預設開啟的「0.謄本」資料夾（電子謄本結構化改用 settings.json，不走此參數）
+        if script_name == "GUI_telereport.py" and _transcript_source_dir and _transcript_source_dir != '__SKIP__':
+            cmd += ['--source-dir', _transcript_source_dir]
+
         # 稅務腳本帶入 JSON 參數
         if script_name in ('kaohsiung_tax.py', 'finance_tax.py'):
             if selected_json_path:
@@ -5159,16 +5169,152 @@ def _confirm_batch_before_structuring(display_name):
     win.wait_window()
     return result['v']
 
+_pending_structuring_after_land = None  # (display_name, script_name, button)：地籍便民跑完要自動回來做的結構化
+
+def _resume_structuring_after_land():
+    """地籍便民查詢完成後，自動接續開啟原本要做的謄本結構化。"""
+    global _pending_structuring_after_land
+    pend = _pending_structuring_after_land
+    _pending_structuring_after_land = None
+    if not pend:
+        return
+    display_name, script_name, button = pend
+    # 若此刻仍有子程式在跑（例如使用者又手動開了別的），就不硬插隊
+    if is_running:
+        update_message(f"[提示] 目前有其他程式執行中，請結束後再手動點【{display_name}】")
+        return
+    update_message("")
+    update_message(f"[自動接續] 地籍便民已完成 → 準備開啟【{display_name}】")
+    # 🔥 前置：建 0.謄本、可選匯入既有謄本、設定工具預設開該資料夾
+    if _prep_transcript_source(display_name, script_name) is None:
+        update_message(f"[提示] 已取消開啟【{display_name}】")
+        return
+    toggle_buttons(button, display_name, script_name)
+
+_transcript_source_dir = None  # 本次結構化要讓工具預設開啟的「0.謄本」路徑（供 toggle_buttons 組指令用）
+
+def _prep_transcript_source(display_name, script_name):
+    """結構化前置：確保案件資料夾的「0.謄本」存在、可選把既有謄本複製進去，
+       並設定結構化工具預設開啟「0.謄本」。
+       回傳：路徑字串=成功(要設此來源)、'__SKIP__'=無案件資料夾照原本開、None=使用者取消不開。"""
+    global _transcript_source_dir
+    import json as _json
+    import shutil as _shutil
+    _transcript_source_dir = None
+
+    # 1) 目前案件資料夾（data.json 第一筆）
+    case_dir = None
+    try:
+        jp = get_data_json_path()
+        if os.path.exists(jp):
+            with open(jp, 'r', encoding='utf-8') as f:
+                dl = _json.load(f)
+            if dl:
+                d0 = dl[0]
+                fn = f"{d0.get('area','')}{d0.get('section','')}-{d0.get('lot_number','')}"
+                if fn.strip('-'):
+                    case_dir = get_work_folder(fn)
+    except Exception:
+        case_dir = None
+
+    if not case_dir:
+        # 沒有案件資料夾 → 不設 0.謄本，照原本方式開工具（不擋流程）
+        return '__SKIP__'
+
+    # 2) 確保 0.謄本 子資料夾
+    trans_dir = os.path.join(case_dir, "0.謄本")
+    try:
+        os.makedirs(trans_dir, exist_ok=True)
+    except Exception as e:
+        messagebox.showerror("錯誤", f"建立「0.謄本」資料夾失敗：\n{e}")
+        return None
+
+    # 3) 詢問是否把已自行調閱的謄本複製進來
+    ans = messagebox.askyesnocancel(
+        f"{display_name}｜匯入既有謄本",
+        "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
+        f"存放位置：\n{trans_dir}\n\n"
+        "「是」＝選擇檔案複製進來（可多選）\n"
+        "「否」＝略過，直接開啟工具\n"
+        "「取消」＝先不開")
+    if ans is None:
+        return None  # 取消
+
+    if ans:  # 是 → 多選檔案複製
+        try:
+            cfg = load_config() or {}
+        except Exception:
+            cfg = {}
+        init_dir = cfg.get("transcript_import_last_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
+        if not os.path.isdir(init_dir):
+            init_dir = os.path.expanduser("~")
+        files = filedialog.askopenfilenames(
+            title="選擇已調閱的謄本檔（可多選，通常是 PDF）",
+            initialdir=init_dir,
+            filetypes=[("謄本檔 PDF", "*.pdf"), ("所有檔案", "*.*")])
+        if files:
+            copied, skipped = 0, 0
+            for src in files:
+                try:
+                    base = os.path.basename(src)
+                    dst = os.path.join(trans_dir, base)
+                    # 同名檔已存在且內容相同 → 略過；不同 → 加序號避免覆蓋
+                    if os.path.exists(dst):
+                        if os.path.getsize(dst) == os.path.getsize(src):
+                            skipped += 1
+                            continue
+                        stem, ext = os.path.splitext(base)
+                        n = 2
+                        while os.path.exists(os.path.join(trans_dir, f"{stem}_{n}{ext}")):
+                            n += 1
+                        dst = os.path.join(trans_dir, f"{stem}_{n}{ext}")
+                    _shutil.copy2(src, dst)
+                    copied += 1
+                except Exception as e:
+                    update_message(f"[複製失敗] {os.path.basename(src)}：{e}")
+            update_message(f"[匯入] 已複製 {copied} 個謄本到「0.謄本」" + (f"（{skipped} 個已存在略過）" if skipped else ""))
+            # 記住這次的來源資料夾，下次直接停在這
+            try:
+                cfg["transcript_import_last_dir"] = os.path.dirname(files[0])
+                save_config(cfg, show_message=False)
+            except Exception:
+                pass
+
+    # 4) 讓工具預設開「0.謄本」
+    #    電子謄本結構化：讀自己的 settings.json 的 source_directory → 這裡先幫它寫好（不必改那支 exe）
+    if script_name == "GUI_transcript_pdf 1141021-01.py":
+        try:
+            base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+            sf = os.path.join(base_dir, "settings.json")
+            st = {}
+            if os.path.exists(sf):
+                with open(sf, 'r', encoding='utf-8') as f:
+                    st = _json.load(f) or {}
+            st["source_directory"] = trans_dir
+            with open(sf, 'w', encoding='utf-8') as f:
+                _json.dump(st, f, ensure_ascii=False, indent=2)
+        except Exception as e:
+            update_message(f"[提示] 設定電子謄本結構化來源資料夾失敗（不影響開啟）：{e}")
+    #    電傳謄本結構化：用 --source-dir 參數帶入（toggle_buttons 組指令時加）
+    _transcript_source_dir = trans_dir
+    return trans_dir
+
 def _guard_structuring(display_name, script_name, button):
     """謄本結構化按鈕的守門：啟動前先確認批次；關閉時直接放行。"""
+    global _pending_structuring_after_land
     # 正在執行（這次點擊是要關閉）→ 直接交給 toggle_buttons 停止，不需確認
     if is_running:
         toggle_buttons(button, display_name, script_name)
         return
     choice = _confirm_batch_before_structuring(display_name)
     if choice == 'proceed':
+        # 🔥 前置：建 0.謄本、可選匯入既有謄本、設定工具預設開該資料夾
+        if _prep_transcript_source(display_name, script_name) is None:
+            return  # 使用者在匯入步驟按了取消
         toggle_buttons(button, display_name, script_name)
     elif choice == 'goto_land':
+        # 🔥 記住待辦：地籍便民查完後，自動回來開啟原本要做的結構化（不必再手動點一次）
+        _pending_structuring_after_land = (display_name, script_name, button)
         show_main_page()  # 切回主頁，讓使用者看到地籍便民執行狀態
         toggle_buttons(start_land_button, "地籍便民系統", "land.py")
     # cancel → 什麼都不做
