@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8c"
-BUILD_DATE = "2026-07-27"
+VERSION = "1.1.8d"
+BUILD_DATE = "2026-08-17"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
@@ -438,6 +438,57 @@ def get_screenshot_path():
         print(f"[錯誤] 取得截圖路徑失敗：{e}")
         return None
 
+# === 全國土地使用分區(luz) 備用讀取：高雄都市計畫彙整檔不存在時改用它 ===
+def _load_luz_zone_fallback(target_lots=None):
+    """高雄都市計畫彙整檔不存在時，改用全國土地使用分區(luz)備用 json 取得使用分區。
+       回傳與 load_urban_planning_data 相同格式的 dict，或 None。
+       （luz 的全國 API 只有使用分區，沒有建蔽率/容積率，故那兩項留空。）"""
+    import glob
+    try:
+        luz_files = []
+        if os.path.exists('data.json'):
+            with open('data.json', 'r', encoding='utf-8') as f:
+                dl = json.load(f)
+            if dl:
+                d0 = dl[0]
+                bf = f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}"
+                luz_files.extend(glob.glob(os.path.join(bf, "4.其他相關", "全國土地使用分區資料-*.json")))
+        if not luz_files and not target_lots:
+            luz_files = glob.glob(os.path.join("*", "4.其他相關", "全國土地使用分區資料-*.json"))
+        if not luz_files:
+            return None
+        zones = set()
+        details = []
+        for lf in luz_files:
+            try:
+                arr = json.load(open(lf, encoding='utf-8'))
+            except Exception:
+                continue
+            for rec in (arr or []):
+                qr = rec.get('查詢結果', {}) or {}
+                use = qr.get('使用分區') or ''
+                if use:
+                    zones.add(use)
+                    details.append({
+                        '使用分區': use, '建蔽率': '', '容積率': '',
+                        '地段': rec.get('段名', ''), '地號': rec.get('地號', ''),
+                        '計畫區名稱': qr.get('計畫區名稱', ''),
+                        '來源': '全國土地使用分區(備用)',
+                    })
+        if not zones:
+            return None
+        print(f"[OK] 高雄都市計畫無彙整檔 → 改用全國土地使用分區(luz)備用：使用分區={sorted(zones)}")
+        return {
+            'zones': sorted(zones),
+            'building_coverage_ratios': [],
+            'floor_area_ratios': [],
+            'details': details,
+        }
+    except Exception as e:
+        print(f"[提示] 讀取 luz 備用檔失敗：{e}")
+        return None
+
+
 # === 讀取都市計畫分區 JSON 資料 ===
 def load_urban_planning_data(target_lots=None):
     """
@@ -517,7 +568,11 @@ def load_urban_planning_data(target_lots=None):
                     print(f"[提示] 找到多個檔案，使用第一個：{json_path}")
 
         if not json_path:
-            print(f"[提示] 找不到都市計畫資料彙整檔案")
+            print(f"[提示] 找不到都市計畫資料彙整檔案，改找全國土地使用分區(luz)備用檔…")
+            _luz = _load_luz_zone_fallback(target_lots)
+            if _luz:
+                return _luz
+            print(f"[提示] 也找不到 luz 備用檔")
             return None
 
         # 🔥 讀取統一的 JSON 檔案

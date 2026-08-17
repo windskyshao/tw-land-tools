@@ -167,6 +167,14 @@ options.add_experimental_option('useAutomationExtension', False)
 #    設定檔固定於 chrome_profile_luz，cookie 會被記住，之後多半不必再驗。
 # ─────────────────────────────────────────────────────────────────────────
 LUZ_USE_ATTACH_MODE = True      # 若日後網站移除驗證，可改 False 回到原本模式
+LUZ_MANUAL_ALL = True           # 🔥 全手動模式：程式只自動填欄位，之後【搜尋+查詢+點地號+過驗證+調整畫面】
+                                #  全由使用者做，畫面確定後按 Enter → 程式才截圖並擷取分區文字，再走下一筆。
+                                #  這是唯一能同時「有原生資訊框+有文字+不用跟 Cloudflare 纏」的方式。
+LUZ_DO_IDENTIFY = False         # 是否要「查地號」帶出分區資訊框(左側查詢結果)。（LUZ_MANUAL_ALL=True 時由使用者手動查，此旗標不影響）
+                                #  True：程式自動點【查詢】鈕，但「點圖釘查地號」由使用者親手點
+                                #        (手動模式)——因為程式點 identify 會觸發隱形 Cloudflare 直接失敗，
+                                #        只有真人點擊才通過。想要地號分區資訊框就用 True。
+                                #  False：完全略過查地號，搜尋完直接截圖(只有圖釘+分區顏色，沒有資訊框)。
 LUZ_ASK_MANUAL_PASS = False     # （已停用）舊做法：接手前先手動查一次取得通行證。
                                 #  問題是按 Enter 後程式仍會從頭自動搜尋、又觸發驗證且必失敗，
                                 #  已改由 LUZ_MANUAL_SEARCH 在「搜尋那一步」交給使用者。
@@ -229,6 +237,88 @@ def _luz_challenge_present(driver):
     except Exception:
         pass
     return False
+
+
+def _luz_extract_zone(driver):
+    """從『查詢結果』面板擷取分區文字（使用者手動查地號後，面板還在畫面上時呼叫）。
+       回傳 dict：{'rows': {欄位:值...}, 'raw': 整段文字}；擷取不到回 {}。"""
+    try:
+        js = r"""
+        var el = document.querySelector('#identify_result');
+        var dlg = el ? el.closest('.ui-dialog') : null;
+        if(!el && !dlg) return null;
+        var out = {rows:{}, raw:''};
+        var box = dlg || el;
+        out.raw = ((box.innerText)||'').replace(/\s+\n/g,'\n').trim();
+        var trs = (el||box).querySelectorAll('tr');
+        for(var i=0;i<trs.length;i++){
+            var tds = trs[i].querySelectorAll('td,th');
+            if(tds.length>=2){
+                var k=((tds[0].innerText)||'').trim();
+                var v=((tds[1].innerText)||'').trim();
+                if(k && k.length<=12) out.rows[k]=v;
+            }
+        }
+        return JSON.stringify(out);
+        """
+        s = driver.execute_script(js)
+        if not s:
+            return {}
+        d = json.loads(s)
+        return d if (d.get('rows') or d.get('raw')) else {}
+    except Exception as e:
+        print(f"  擷取分區文字失敗: {e}", flush=True)
+        return {}
+
+
+def _luz_shot_and_pdf(driver, base_directory, base_filename):
+    """截圖存 PNG + 轉 PDF 到 1.基本資料。回傳 True/False。"""
+    screenshot_path = os.path.join(base_directory, "1.基本資料", "png", base_filename + ".png")
+    pdf_path = os.path.join(base_directory, "1.基本資料", base_filename + ".pdf")
+    try:
+        driver.save_screenshot(screenshot_path)
+        print(f"\033[93m網頁截圖已保存為 {screenshot_path}\033[0m", flush=True)
+    except Exception as e:
+        print(f"截圖時發生錯誤: {e}", flush=True)
+        return False
+    try:
+        img = Image.open(screenshot_path)
+        pdf = FPDF(orientation='L', unit='mm', format='A4')
+        pdf.add_page()
+        a4_width_mm, a4_height_mm = 297, 210
+        dpi = 300
+        scale_factor = dpi / 72
+        img_width_px = int(a4_width_mm * scale_factor)
+        img_height_px = int(a4_height_mm * scale_factor)
+        img_resized = img.resize((img_width_px, img_height_px), Image.Resampling.LANCZOS)
+        img_resized.save(screenshot_path, dpi=(dpi, dpi))
+        pdf.image(screenshot_path, x=0, y=0, w=a4_width_mm, h=a4_height_mm)
+        pdf.output(pdf_path)
+        print(f"\033[93mPDF 已經儲存至 {pdf_path}\033[0m", flush=True)
+    except Exception as e:
+        print(f"將 PNG 轉成 PDF 時發生錯誤: {e}", flush=True)
+    return True
+
+
+def _luz_save_zone(city, area, section, lot, zone):
+    """把一筆分區文字加入累積清單並寫出 4.其他相關/全國土地使用分區資料-*.json（備用，高雄仍以高雄都市計畫優先）。"""
+    if not zone:
+        print("  [分區文字] 這次沒抓到查詢結果面板內容（可能沒查地號、或面板已關閉）。", flush=True)
+        return
+    try:
+        rows = zone.get('rows', {}) or {}
+        _use = rows.get('使用分區') or rows.get('分區') or rows.get('土地使用分區') or ''
+        print(f"  [分區文字] 地號={lot} 使用分區={_use or '(詳見原始文字)'}", flush=True)
+        _luz_zone_all.append({
+            "縣市": city, "鄉鎮市區": area, "段名": section, "地號": lot,
+            "查詢結果": rows, "原始文字": zone.get('raw', '')
+        })
+        os.makedirs(os.path.dirname(_luz_zone_json), exist_ok=True)
+        with open(_luz_zone_json, 'w', encoding='utf-8') as f:
+            json.dump(_luz_zone_all, f, ensure_ascii=False, indent=2)
+        print(f"  [已存] 分區文字 → {_luz_zone_json}", flush=True)
+    except Exception as e:
+        print(f"  存分區 json 失敗: {e}", flush=True)
 
 
 def _luz_wait_if_challenge(driver, max_wait=180):
@@ -495,6 +585,11 @@ first_lot = first_entry['lot_number']
 base_directory = get_work_folder(f"{first_region}{first_section}-{first_lot}")
 os.makedirs(os.path.join(base_directory, "1.基本資料", "png"), exist_ok=True)
 
+# 🔥 累積各筆分區文字，存到 4.其他相關/全國土地使用分區資料-<案件>.json（作為備用；高雄仍以高雄都市計畫優先）
+_luz_zone_all = []
+_luz_zone_json = os.path.join(base_directory, "4.其他相關",
+                              f"全國土地使用分區資料-{first_region}{first_section}-{first_lot}.json")
+
 # 決定要處理的地號清單
 # 決定要處理的地號清單：
 #   1) --indices 優先：依使用者勾選的 index 順序挑選
@@ -660,9 +755,30 @@ def process_entry(driver, entry, idx, total):
         lot_input = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.ID, "CADANO_0101"))
         )
-        lot_input.clear()
-        lot_input.send_keys(target_lot)
-        print(f"  已輸入地號: {target_lot}", flush=True)
+        # 🔥 用 JS 直接設值＋觸發事件，避免逐鍵 send_keys 時網站輸入遮罩把「-」吃掉
+        #    （實測第 2 筆「2880-4」會被吃成「28804」→ 格式不正確）
+        driver.execute_script("""
+            var el=arguments[0], v=arguments[1];
+            el.focus(); el.value=''; el.value=v;
+            el.dispatchEvent(new Event('input',{bubbles:true}));
+            el.dispatchEvent(new Event('change',{bubbles:true}));
+            el.dispatchEvent(new KeyboardEvent('keyup',{bubbles:true}));
+        """, lot_input, str(target_lot))
+        time.sleep(0.3)
+        _got = (lot_input.get_attribute('value') or '').strip()
+        if _got != str(target_lot).strip():
+            # 退路：clear + 逐鍵輸入
+            try:
+                lot_input.clear()
+            except Exception:
+                pass
+            lot_input.send_keys(str(target_lot))
+            time.sleep(0.3)
+            _got = (lot_input.get_attribute('value') or '').strip()
+        if _got == str(target_lot).strip():
+            print(f"  已輸入地號: {_got}", flush=True)
+        else:
+            print(f"\033[91m  ⚠ 地號輸入異常：欄位顯示「{_got}」，目標是「{target_lot}」，請人工確認\033[0m", flush=True)
         lot_ok = True
         time.sleep(0.5)
     except Exception as e:
@@ -686,7 +802,25 @@ def process_entry(driver, entry, idx, total):
     #    因此改成：前面的縣市/鄉鎮市/段名/地號全部由程式填好，
     #    「按搜尋 + 過驗證」交給使用者親手做（真人點擊才通得過），
     #    完成後按 Enter，程式再接續後面的步驟（不會重跑搜尋）。
-    if LUZ_MANUAL_SEARCH:
+    if LUZ_MANUAL_ALL:
+        # 🔥 全手動模式：搜尋/查詢/點地號/過驗證/調整畫面全部你自己做，好了按 Enter → 截圖+抓文字
+        print("", flush=True)
+        print("\033[93m════════ 請自行完成查詢並確認畫面 ════════\033[0m", flush=True)
+        print(f"\033[93m 縣市／鄉鎮市／段名／地號({target_lot}) 已由程式填好。請你操作：\033[0m", flush=True)
+        print("\033[93m ① 按左側的【定位】(不是搜尋) → 地圖出現紅色錨點；若跳驗證完成它\033[0m", flush=True)
+        print("\033[93m    (第一次失敗別關，等幾秒會過；過了再按一次【定位】)\033[0m", flush=True)
+        print("\033[93m ② 出現錨點後，按工具列的【查詢】鈕\033[0m", flush=True)
+        print("\033[93m ③ 在地圖上『紅色錨點(地號)位置』點一下 → 左邊出現分區資訊；若跳驗證完成它\033[0m", flush=True)
+        print("\033[93m ④ 縮回左側面板、把畫面／縮放調整到你要截的樣子\033[0m", flush=True)
+        print("\033[93m ★ 全部完成、畫面確定後，回主程式輸入欄按 Enter → 我就截圖並抓分區文字，再做下一筆\033[0m", flush=True)
+        print("\033[93m═══════════════════════════════════════════\033[0m", flush=True)
+        try:
+            input()
+        except (EOFError, OSError):
+            print("  讀不到輸入，改等待 90 秒讓你完成…", flush=True)
+            time.sleep(90)
+        print("步驟7：（已由使用者手動查詢並確認畫面）", flush=True)
+    elif LUZ_MANUAL_SEARCH:
         print("", flush=True)
         print("\033[93m════════ 請由你手動按下【搜尋】════════\033[0m", flush=True)
         print(f"\033[93m 縣市／鄉鎮市／段名／地號({target_lot}) 已由程式填好。\033[0m", flush=True)
@@ -725,6 +859,14 @@ def process_entry(driver, entry, idx, total):
             time.sleep(2)
             _luz_wait_if_challenge(driver)   # 極少數情況會再驗一次
 
+    # 🔥 全手動模式：使用者已完成查詢並確認畫面(按了 Enter) →
+    #    直接「抓分區文字 + 截圖 + 存檔」，跳過所有會弄亂畫面的自動步驟(縮回/放大/平移/倒數)，本筆結束。
+    if LUZ_MANUAL_ALL:
+        zone = _luz_extract_zone(driver)
+        _luz_save_zone(target_city, target_area, target_section, target_lot, zone)
+        base_filename = f"07_全國土地使用分區-{target_area}{target_section}-{target_lot}"
+        return _luz_shot_and_pdf(driver, base_directory, base_filename)
+
     # 🔍 診斷：搜尋後 pin 狀態（判斷 pin 有沒有出現）
     time.sleep(2)
     _d = driver.execute_script("return [document.querySelectorAll('svg image').length, document.querySelectorAll('#mapDiv_graphics_layer image').length, document.querySelectorAll('#mapDiv_graphics_layer circle').length];")
@@ -751,26 +893,48 @@ def process_entry(driver, entry, idx, total):
     print(f"  [記住] 錨點中心座標 = {_pin_xy}", flush=True)
 
     # ========== 步驟7.6：點工具列「查詢」鈕（進入查詢/identify 模式）==========
-    print("步驟7.6：點工具列【查詢】鈕...", flush=True)
-    try:
-        time.sleep(0.5)
+    if LUZ_DO_IDENTIFY:
+        print("步驟7.6：點工具列【查詢】鈕...", flush=True)
         try:
-            # w2ui 工具列按鈕：點該按鈕元素觸發 onclick（最接近真人點擊）
-            _q_btn = driver.find_element(By.CSS_SELECTOR, "#tb_layout_main_toolbar_item_itemrdo3 table.w2ui-button")
-            driver.execute_script("arguments[0].click();", _q_btn)
-        except Exception:
-            # 退路：直接呼叫 w2ui 工具列的 click
-            driver.execute_script("w2ui['layout_main_toolbar'].click('itemrdo3');")
-        print("  已點擊【查詢】鈕（進入查詢模式）", flush=True)
-    except Exception as e:
-        print(f"  點擊【查詢】鈕失敗: {e}", flush=True)
-    _c = driver.execute_script("return document.querySelectorAll('svg image').length;")
-    print(f"  [診斷-查詢後] svgImgs={_c}", flush=True)
+            time.sleep(0.5)
+            try:
+                # w2ui 工具列按鈕：點該按鈕元素觸發 onclick（最接近真人點擊）
+                _q_btn = driver.find_element(By.CSS_SELECTOR, "#tb_layout_main_toolbar_item_itemrdo3 table.w2ui-button")
+                driver.execute_script("arguments[0].click();", _q_btn)
+            except Exception:
+                # 退路：直接呼叫 w2ui 工具列的 click
+                driver.execute_script("w2ui['layout_main_toolbar'].click('itemrdo3');")
+            print("  已點擊【查詢】鈕（進入查詢模式）", flush=True)
+        except Exception as e:
+            print(f"  點擊【查詢】鈕失敗: {e}", flush=True)
+        _c = driver.execute_script("return document.querySelectorAll('svg image').length;")
+        print(f"  [診斷-查詢後] svgImgs={_c}", flush=True)
+    else:
+        print("步驟7.6：手動模式略過（不進查詢模式，避免空的『查詢結果』框出現在截圖）", flush=True)
 
     # ========== 步驟7.7：用記住的座標點地圖查詢，並「驗證地號」，不對就自動微調重點 ==========
-    print("步驟7.7：在錨點座標點地圖（查詢該地號）...", flush=True)
+    print("步驟7.7：查地號（帶出分區資訊）...", flush=True)
     try:
-        if not _pin_xy:
+        if not LUZ_DO_IDENTIFY:
+            print("  設定為略過查地號：搜尋後圖釘已標在地號、分區顏色也都在，截圖已足夠（無資訊框）。", flush=True)
+        elif LUZ_MANUAL_SEARCH:
+            # 🔥 程式點地圖查地號(identify)會觸發隱形 Cloudflare 挑戰、直接失敗(沒有可點的方塊)；
+            #    必須由「你的真人點擊」觸發才會通過(跟搜尋同理)。已幫你進入查詢模式，請親手點圖釘。
+            print("", flush=True)
+            print("\033[93m════════ 請點一下地圖上的『紅色圖釘』查地號 ════════\033[0m", flush=True)
+            print("\033[93m 已幫你按好【查詢】鈕（進入查詢模式）。\033[0m", flush=True)
+            print("\033[93m 請在地圖上『紅色圖釘』的位置點一下 → 左邊會出現該地號的分區資訊；\033[0m", flush=True)
+            print("\033[93m 若跳出人機驗證，請完成它（第一次失敗別關，等幾秒會自動通過）。\033[0m", flush=True)
+            print("\033[93m 資訊出現後，回主程式輸入欄按 Enter 截圖。\033[0m", flush=True)
+            print("\033[93m（不需要地號資訊、只要地圖，也可直接按 Enter）\033[0m", flush=True)
+            print("\033[93m══════════════════════════════════════════\033[0m", flush=True)
+            try:
+                input()
+            except (EOFError, OSError):
+                print("  讀不到輸入，改等待 40 秒讓你點圖釘…", flush=True)
+                time.sleep(40)
+            print("步驟7.7：（已由使用者手動點圖釘查地號）", flush=True)
+        elif not _pin_xy:
             print("  沒有記住錨點座標（搜尋後 pin 未出現，略過）", flush=True)
         else:
             bx, by = int(_pin_xy[0]), int(_pin_xy[1])
@@ -795,21 +959,34 @@ def process_entry(driver, entry, idx, total):
             """
             # 先試 pin 中心，不對再上下左右微調
             candidates = [(0, 0), (0, -8), (0, 8), (-7, 0), (7, 0), (0, -15), (-7, -8), (7, -8)]
-            matched = False
-            for dx, dy in candidates:
-                cx, cy = bx + dx, by + dy
-                driver.execute_script(_CLICK_JS, cx, cy)
-                lot = None
-                for _ in range(6):  # 等查詢結果，最多約 3 秒
-                    time.sleep(0.5)
-                    lot = driver.execute_script(_READ_LOT_JS)
-                    if lot:
-                        break
-                print(f"  試點 @({cx},{cy}) → 查到地號={lot}", flush=True)
-                if lot and str(lot).strip() == target:
-                    print(f"  ✓ 查詢結果正確：地號 {lot}", flush=True)
-                    matched = True
-                    break
+
+            def _run_candidates():
+                """逐點點地圖查地號；查到目標回 True。點地圖(identify)也會觸發 Cloudflare，
+                   偵測到就暫停等使用者完成驗證，再重點一次。"""
+                for dx, dy in candidates:
+                    cx, cy = bx + dx, by + dy
+                    driver.execute_script(_CLICK_JS, cx, cy)
+                    lot = None
+                    for _ in range(6):  # 等查詢結果，最多約 3 秒
+                        time.sleep(0.5)
+                        # 🔥 查地號這步同樣可能跳 Cloudflare → 偵測到就暫停等你過，再重點一次
+                        if _luz_challenge_present(driver):
+                            _luz_wait_if_challenge(driver)
+                            driver.execute_script(_CLICK_JS, cx, cy)
+                        lot = driver.execute_script(_READ_LOT_JS)
+                        if lot:
+                            break
+                    print(f"  試點 @({cx},{cy}) → 查到地號={lot}", flush=True)
+                    if lot and str(lot).strip() == target:
+                        print(f"  ✓ 查詢結果正確：地號 {lot}", flush=True)
+                        return True
+                return False
+
+            matched = _run_candidates()
+            # 🔥 若整輪都 None、且畫面上有驗證框（第一次點就跳出、把 identify 全擋掉）→ 等你過驗證後再整輪重試一次
+            if not matched and _luz_challenge_present(driver):
+                _luz_wait_if_challenge(driver)
+                matched = _run_candidates()
             if not matched:
                 print(f"  ⚠ 試了 {len(candidates)} 個位置仍未對到目標地號 {target}（地號可能太小，請人工確認）", flush=True)
     except Exception as e:
