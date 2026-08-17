@@ -4786,6 +4786,53 @@ def open_data_editor():
     增建面積_entry = create_field(area_frame, "增建面積：", "增建面積", data, width=20)
     total_building_entry = create_field(area_frame, "總建坪：", "總建坪", data, width=20)
 
+    # === B1：建物持分（產權建坪）===
+    # 主建物/附屬/總建坪維持「登記全棟」；此處另呈現賣方持分與換算後的產權建坪。
+    建物權利範圍_entry = create_field(area_frame, "建物權利範圍：", "建物權利範圍", data, width=28)
+    產權建坪_entry = create_field(area_frame, "產權建坪(持分後)：", "產權建坪", data, width=20)
+
+    _bld_owners_ui = data.get("建物所有權人清單", []) or []
+    _seller_ratio = [1.0]
+
+    def _ratio_from_text(txt):
+        import re as _reR
+        m = _reR.search(r"(\d+)\s*分之\s*(\d+)", str(txt).replace("全部", ""))
+        if m and int(m.group(1)) > 0:
+            return int(m.group(2)) / int(m.group(1))
+        return 1.0
+
+    _seller_ratio[0] = _ratio_from_text(data.get("建物權利範圍", ""))
+
+    def _update_proprietary_ping():
+        try:
+            total = float(str(total_building_entry.get()).replace(",", "") or 0)
+        except Exception:
+            total = 0.0
+        產權建坪_entry.delete(0, tk.END)
+        產權建坪_entry.insert(0, f"{total * _seller_ratio[0]:.2f}")
+
+    if len(_bld_owners_ui) >= 2:
+        seller_row = tk.Frame(area_frame)
+        seller_row.pack(fill=tk.X, pady=2)
+        tk.Label(seller_row, text="賣方(建物持分)：", font=label_font, width=30, anchor="e").pack(side=tk.LEFT, padx=5)
+        _opts = [f"{o.get('所有權人','')}　{o.get('權利範圍','')}（{o.get('百分比','')}）" for o in _bld_owners_ui]
+        seller_var = tk.StringVar(value=_opts[0])
+
+        def _on_seller(choice):
+            idx = _opts.index(choice) if choice in _opts else 0
+            o = _bld_owners_ui[idx]
+            _seller_ratio[0] = float(o.get("ratio", 1.0) or 1.0)
+            建物權利範圍_entry.delete(0, tk.END)
+            建物權利範圍_entry.insert(0, f"{o.get('所有權人','')} {o.get('權利範圍','')}（{o.get('百分比','')}）")
+            _update_proprietary_ping()
+
+        om = tk.OptionMenu(seller_row, seller_var, *_opts, command=_on_seller)
+        om.config(font=("Microsoft JhengHei", 11))
+        om.pack(side=tk.LEFT, padx=5)
+        tk.Label(seller_row, text="（換賣方會重算產權建坪）",
+                 font=("Microsoft JhengHei", 9), fg='#666666').pack(side=tk.LEFT)
+
+
     # 🔥 自動計算總建坪（各項加總）
     def calculate_total_building_area(event=None):
         """自動加總：主建物各層 + 附屬建物 + 公共設施 + 增建面積 = 總建坪"""
@@ -4847,6 +4894,12 @@ def open_data_editor():
             total_building_entry.delete(0, tk.END)
             if total > 0:
                 total_building_entry.insert(0, f"{total:.2f}")
+
+            # B1：連動更新產權建坪（依目前賣方持分）
+            try:
+                _update_proprietary_ping()
+            except Exception:
+                pass
 
         except Exception:
             pass

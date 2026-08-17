@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8d"
+VERSION = "1.1.8e"
 BUILD_DATE = "2026-08-17"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
@@ -3499,6 +3499,9 @@ def convert_transcript_to_final_data(transcript_json_path):
             "附屬建物坪數": "",
             "公共設施坪數": "",
             "總建坪": "",
+            "建物權利範圍": "",
+            "產權建坪": "",
+            "建物所有權人清單": [],
             "謄本登記總面積": "",
             "增建面積": "",
             "竣工日期": "",
@@ -3918,6 +3921,42 @@ def convert_transcript_to_final_data(transcript_json_path):
             data_final["公共設施"] = 共有部分明細
             data_final["公共設施坪數"] = f"{公設總坪數:.2f}"
             data_final["總建坪"] = f"{main_building_total + 附屬總坪數 + 公設總坪數:.2f}"
+
+            # === B1：建物持分 → 產權建坪 ===
+            # 主建物/附屬坪數維持「登記全棟」；另計賣方持分後的產權建坪，
+            # 並保留全部建物所有權人清單，供編輯器選賣方、換算產權坪。
+            import re as _reB1
+            _bld_owners = []
+            for _o in (primary_building.get("所有權部", []) or []):
+                if not isinstance(_o, dict):
+                    continue
+                _nm = _o.get("所有權人", "") or _o.get("姓名", "")
+                _rng = (_o.get("權利範圍", "") or "").strip()
+                _ratio = 1.0
+                _mm = _reB1.search(r"(\d+)\s*分之\s*(\d+)", _rng.replace("全部", ""))
+                if _mm and int(_mm.group(1)) > 0:
+                    _ratio = int(_mm.group(2)) / int(_mm.group(1))
+                if _nm or _rng:
+                    _bld_owners.append({
+                        "所有權人": _nm,
+                        "權利範圍": _rng if _rng else "全部",
+                        "ratio": round(_ratio, 6),
+                        "百分比": f"{_ratio*100:.2f}%",
+                    })
+            _total_bld_ping = main_building_total + 附屬總坪數 + 公設總坪數
+            data_final["建物所有權人清單"] = _bld_owners
+            _is_shared = (len(_bld_owners) > 1) or (len(_bld_owners) == 1 and _bld_owners[0]["ratio"] < 0.9999)
+            if _is_shared and _bld_owners:
+                _seller = _bld_owners[0]
+                data_final["建物權利範圍"] = f"{_seller['所有權人']} {_seller['權利範圍']}（{_seller['百分比']}）"
+                data_final["產權建坪"] = f"{_total_bld_ping * _seller['ratio']:.2f}"
+                update_message(f"  [注意] 建物為持分共有（{len(_bld_owners)} 人）；總建坪維持登記全棟 {_total_bld_ping:.2f} 坪")
+                for _o in _bld_owners:
+                    update_message(f"     - {_o['所有權人']}：{_o['權利範圍']}（{_o['百分比']}）")
+                update_message(f"  預設賣方＝{_seller['所有權人']}，產權建坪 {data_final['產權建坪']} 坪（可在編輯器改選賣方）")
+            else:
+                data_final["建物權利範圍"] = (_bld_owners[0]["權利範圍"] if _bld_owners else "全部")
+                data_final["產權建坪"] = f"{_total_bld_ping:.2f}"
 
             if parking_numbers:
                 data_final["車位"]["編號"] = "、".join(parking_numbers)
@@ -5248,6 +5287,53 @@ def _resume_structuring_after_land():
 
 _transcript_source_dir = None  # 本次結構化要讓工具預設開啟的「0.謄本」路徑（供 toggle_buttons 組指令用）
 
+def _ask_yesno_cancel_big(title, message):
+    """大字版 是/否/取消 對話框，取代內建 messagebox.askyesnocancel（內建字無法放大）。
+    回傳 True(是) / False(否) / None(取消或關閉)。視窗依內容自動調整大小，字放大也不會被裁切。"""
+    dlg = tk.Toplevel(root)
+    dlg.title(title)
+    dlg.transient(root)
+    dlg.configure(bg="white")
+    result = [None]
+
+    tk.Label(dlg, text=message, font=("Microsoft JhengHei", 14),
+             bg="white", fg="#222222", justify="left", wraplength=560).pack(
+             padx=28, pady=(24, 18), anchor="w")
+
+    btn_frame = tk.Frame(dlg, bg="white")
+    btn_frame.pack(pady=(0, 22))
+
+    def _choose(v):
+        result[0] = v
+        dlg.destroy()
+
+    tk.Button(btn_frame, text="是(Y)", command=lambda: _choose(True),
+              font=("Microsoft JhengHei", 13, "bold"),
+              bg="#4CAF50", fg="white", width=9, height=1).pack(side=tk.LEFT, padx=8)
+    tk.Button(btn_frame, text="否(N)", command=lambda: _choose(False),
+              font=("Microsoft JhengHei", 13),
+              bg="#1976D2", fg="white", width=9, height=1).pack(side=tk.LEFT, padx=8)
+    tk.Button(btn_frame, text="取消", command=lambda: _choose(None),
+              font=("Microsoft JhengHei", 13),
+              bg="#9E9E9E", fg="white", width=9, height=1).pack(side=tk.LEFT, padx=8)
+
+    dlg.protocol("WM_DELETE_WINDOW", lambda: _choose(None))
+    dlg.resizable(False, False)
+
+    # 依內容自動計算大小並置中，避免字放大後被裁切
+    dlg.update_idletasks()
+    w = max(dlg.winfo_reqwidth(), 460)
+    h = dlg.winfo_reqheight()
+    x = (dlg.winfo_screenwidth() - w) // 2
+    y = (dlg.winfo_screenheight() - h) // 3
+    dlg.geometry(f"{w}x{h}+{x}+{y}")
+
+    dlg.grab_set()
+    dlg.focus_set()
+    root.wait_window(dlg)
+    return result[0]
+
+
 def _prep_transcript_source(display_name, script_name):
     """結構化前置：確保案件資料夾的「0.謄本」存在、可選把既有謄本複製進去，
        並設定結構化工具預設開啟「0.謄本」。
@@ -5285,7 +5371,7 @@ def _prep_transcript_source(display_name, script_name):
         return None
 
     # 3) 詢問是否把已自行調閱的謄本複製進來
-    ans = messagebox.askyesnocancel(
+    ans = _ask_yesno_cancel_big(
         f"{display_name}｜匯入既有謄本",
         "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
         f"存放位置：\n{trans_dir}\n\n"
