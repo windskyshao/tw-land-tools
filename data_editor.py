@@ -4249,7 +4249,11 @@ def open_data_editor():
         lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
     )
     
-    canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    _scroll_win_id = canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+    # 🔥 內層框寬度綁定畫布寬度：否則內層框會依「最寬那一列」自動撐寬，
+    #    害置中的按鈕/地圖以過寬的內層框為基準置中→看起來偏右（DPI 縮放愈大偏愈多）。
+    #    綁成畫布寬度後，「置中」就以看得到的視窗為準，各種縮放都正確置中。
+    canvas.bind("<Configure>", lambda e: canvas.itemconfig(_scroll_win_id, width=e.width), add="+")
     canvas.configure(yscrollcommand=scrollbar.set)
 
     # 🔥 綁定滑鼠滾輪事件
@@ -7616,9 +7620,18 @@ def open_data_editor():
                        command=_ai_generate, bg="#4285F4", fg="white",
                        font=label_font, cursor="hand2", relief=tk.RAISED, padx=10)
     ai_btn.pack(side=tk.LEFT, padx=5)
-    tk.Label(ai_btn_row,
+    # ⚠️ 提醒文字改放「獨立一列」＋自動換行（wraplength 綁定列寬），
+    #    避免一整條長字超出視窗寬度被左右切掉（尤其內層框寬度綁定視窗後）。
+    ai_warn_row = tk.Frame(selling_frame)
+    ai_warn_row.pack(fill=tk.X, pady=(0, 4))
+    tk.Label(ai_warn_row, text="", font=label_font, width=15).pack(side=tk.LEFT, padx=5)
+    ai_warn_lbl = tk.Label(ai_warn_row,
              text="⚠️ AI 生成內容僅供參考，務必自行核對（行情、重大建設、交通等多為 AI 推測，可能與事實不符）",
-             font=label_font, fg="#C0392B").pack(side=tk.LEFT, padx=8)
+             font=label_font, fg="#C0392B", justify=tk.LEFT, anchor="w")
+    ai_warn_lbl.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=8)
+    # 綁在「字標籤自己的寬度」設定換行寬度（不是整列寬，因前面還有對齊空白格），
+    # 才不會把換行寬設得比標籤可用空間還大而被切；寬度由 fill 決定、不會回饋成迴圈。
+    ai_warn_lbl.bind("<Configure>", lambda e: ai_warn_lbl.config(wraplength=max(200, e.width - 10)))
 
     # === 另顯示於後台內容（文字框）===
     backend_text_row = tk.Frame(selling_frame)
