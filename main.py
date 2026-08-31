@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8f"
+VERSION = "1.1.8g"
 BUILD_DATE = "2026-08-31"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
@@ -53,6 +53,107 @@ FEEDBACK_TOKEN = "ksp-fb-2026-x7q2"  # ⚠️ 需與 Render 環境變數 FEEDBAC
 
 # 📖 線上使用說明（fyy 提供）
 HELP_URL = "https://fyy-l8a3.onrender.com/help"
+
+# 📇 通訊錄雲端同步（走 fyy bot → MongoDB；個資不進公開 GitHub）
+CONTACTS_BASE_URL = "https://fyy-l8a3.onrender.com"
+CONTACTS_DL_TOKEN = "ksp-contacts-dl-2026"  # 需與 Render 環境變數 CONTACTS_DL_TOKEN 一致
+
+def has_contacts_admin():
+    """本機 config.json 是否有管理者上傳權杖（有才顯示『上傳通訊錄』鈕）。"""
+    try:
+        from config_manager import load_config
+        return bool((load_config() or {}).get('contacts_admin_token'))
+    except Exception:
+        return False
+
+def update_contacts_from_cloud():
+    """從雲端下載最新通訊錄覆蓋本機。回傳 (ok:bool, msg:str)。"""
+    try:
+        import requests, os as _os, shutil as _sh
+        from base_dir_helper import get_base_dir
+        r = requests.get(CONTACTS_BASE_URL + "/contacts/download",
+                         headers={'X-Contacts-Token': CONTACTS_DL_TOKEN}, timeout=60)
+        if r.status_code == 404:
+            return False, "雲端還沒有通訊錄（請管理者先上傳一次）"
+        if r.status_code != 200:
+            return False, "下載失敗（伺服器回應 %s）" % r.status_code
+        content = r.content
+        if not content or len(content) < 100:
+            return False, "下載到的檔案是空的"
+        dest = _os.path.join(get_base_dir(), '通訊錄.xlsx')
+        try:
+            if _os.path.exists(dest):
+                _sh.copy2(dest, dest + '.bak_before_cloud_update')
+        except Exception:
+            pass
+        with open(dest, 'wb') as f:
+            f.write(content)
+        updated = r.headers.get('X-Contacts-Updated', '')
+        try:
+            from config_manager import load_config, save_config
+            _cfg = load_config() or {}
+            _cfg['contacts_synced_version'] = updated or ''
+            save_config(_cfg, show_message=False)
+        except Exception:
+            pass
+        return True, "已更新通訊錄" + (("（雲端版本：%s）" % updated) if updated else "")
+    except Exception as e:
+        return False, "更新失敗：%s" % e
+
+def upload_contacts_to_cloud():
+    """管理者把本機通訊錄上傳雲端。需 config.json 的 contacts_admin_token。回傳 (ok, msg)。"""
+    try:
+        import requests, os as _os
+        from base_dir_helper import get_base_dir
+        try:
+            from config_manager import load_config
+            admin_token = (load_config() or {}).get('contacts_admin_token', '')
+        except Exception:
+            admin_token = ''
+        if not admin_token:
+            return False, "此電腦沒有管理者權杖，無法上傳（僅管理者可上傳）"
+        src = _os.path.join(get_base_dir(), '通訊錄.xlsx')
+        if not _os.path.exists(src):
+            return False, "找不到本機 通訊錄.xlsx"
+        with open(src, 'rb') as f:
+            raw = f.read()
+        files = {'file': ('通訊錄.xlsx', raw,
+                          'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet')}
+        r = requests.post(CONTACTS_BASE_URL + "/contacts/upload",
+                          headers={'X-Contacts-Admin-Token': admin_token},
+                          files=files, timeout=60)
+        if r.status_code == 403:
+            return False, "權杖不正確，上傳被拒"
+        if r.status_code != 200:
+            return False, "上傳失敗（伺服器回應 %s）" % r.status_code
+        return True, "已上傳雲端，其他人按『更新通訊錄』即可同步"
+    except Exception as e:
+        return False, "上傳失敗：%s" % e
+
+def get_contacts_cloud_meta():
+    """回傳雲端通訊錄 (updated_str, exists_bool)；失敗回 (None, False)。"""
+    try:
+        import requests
+        r = requests.get(CONTACTS_BASE_URL + "/contacts/meta",
+                         headers={'X-Contacts-Token': CONTACTS_DL_TOKEN}, timeout=30)
+        if r.status_code != 200:
+            return None, False
+        d = r.json()
+        return d.get('updated', ''), bool(d.get('exists'))
+    except Exception:
+        return None, False
+
+def contacts_has_update():
+    """雲端是否有比本機更新的通訊錄。回傳 (has_update:bool, cloud_updated:str)。"""
+    updated, exists = get_contacts_cloud_meta()
+    if not exists or updated is None:
+        return False, ''
+    try:
+        from config_manager import load_config
+        synced = (load_config() or {}).get('contacts_synced_version', '')
+    except Exception:
+        synced = ''
+    return (updated != synced), updated
 
 # 🔥 處理 PyInstaller 打包後的路徑問題
 import sys
@@ -124,6 +225,11 @@ def setup_data_editor_module():
     data_editor.load_final_data = load_final_data
     data_editor.save_final_data = save_final_data
     data_editor.load_contacts_from_excel = load_contacts_from_excel
+    data_editor.update_contacts_from_cloud = update_contacts_from_cloud
+    data_editor.upload_contacts_to_cloud = upload_contacts_to_cloud
+    data_editor.has_contacts_admin = has_contacts_admin
+    data_editor.get_contacts_cloud_meta = get_contacts_cloud_meta
+    data_editor.contacts_has_update = contacts_has_update
     data_editor.load_urban_planning_data = load_urban_planning_data
     data_editor.get_city_from_district = get_city_from_district
     data_editor.extract_district_from_address = extract_district_from_address

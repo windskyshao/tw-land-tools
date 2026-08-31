@@ -8734,6 +8734,7 @@ def open_data_editor():
     agent_store_vars = []  # 店別選擇
     agent_name_vars = []  # 姓名選擇
     agent_name_combos = []  # 姓名下拉選單（用於更新選項）
+    agent_store_combos = []  # 店別下拉（更新通訊錄後刷新用）
     agent_phone_labels = []  # 電話顯示
     set_default_var = tk.BooleanVar(value=False)  # 🔥 預設勾選框變數
 
@@ -8750,6 +8751,7 @@ def open_data_editor():
                                     values=[""] + stores_list, state="readonly")
         store_combo.pack(side=tk.LEFT, padx=5)
         agent_store_vars.append(store_var)
+        agent_store_combos.append(store_combo)
 
         # 姓名下拉選單（初始為空）
         name_var = tk.StringVar(value="")
@@ -8845,6 +8847,92 @@ def open_data_editor():
                 agent_phone_labels[i].config(text="(通訊錄中無此人)", fg="orange")
 
     entries["承辦人列表"] = agent_name_vars
+
+    # === 🔥 通訊錄雲端同步（全體：更新；管理者：上傳）===
+    contacts_sync_row = tk.Frame(agent_frame)
+    contacts_sync_row.pack(fill=tk.X, pady=(8, 2))
+    tk.Label(contacts_sync_row, text="找不到人？先更新通訊錄 →",
+             font=("Microsoft JhengHei", 10), fg='#555555').pack(side=tk.LEFT, padx=5)
+
+    def _refresh_agent_dropdowns():
+        """重新讀通訊錄並就地刷新所有店別/姓名下拉（不必重開編輯器）。"""
+        try:
+            new_data = load_func('通訊錄.xlsx')
+            new_stores = new_data.get('stores', [])
+            new_by_store = new_data.get('contacts_by_store', {})
+            stores_list[:] = new_stores
+            contacts_by_store.clear()
+            contacts_by_store.update(new_by_store)
+            for _combo in agent_store_combos:
+                _combo['values'] = [""] + new_stores
+            for _i in range(len(agent_store_vars)):
+                _sel = agent_store_vars[_i].get()
+                if _sel and _sel in contacts_by_store:
+                    agent_name_combos[_i]['values'] = [""] + [c['name'] for c in contacts_by_store[_sel]]
+        except Exception as _e:
+            update_message("[提示] 刷新承辦人下拉失敗：%s" % _e)
+
+    def _on_update_contacts():
+        fn = globals().get('update_contacts_from_cloud', None)
+        if fn is None:
+            show_large_message("提示", "此版本尚未支援雲端通訊錄更新。")
+            return
+        ok, msg = fn()
+        if ok:
+            _refresh_agent_dropdowns()
+            try:
+                update_contacts_btn.config(text="🔄 更新通訊錄", bg="#4CAF50")
+            except Exception:
+                pass
+            show_large_message("更新通訊錄", "OK " + msg + "\n\n名單已即時刷新。")
+        else:
+            show_large_message("更新通訊錄", "無法更新：" + msg)
+
+    update_contacts_btn = tk.Button(contacts_sync_row, text="🔄 更新通訊錄", command=_on_update_contacts,
+              font=("Microsoft JhengHei", 10, "bold"),
+              bg='#4CAF50', fg='white')
+    update_contacts_btn.pack(side=tk.LEFT, padx=5)
+
+    # 背景偵測雲端有無新版通訊錄（Render 可能冷啟動→用執行緒，不卡編輯器開啟）
+    def _check_contacts_update_bg():
+        _chk = globals().get('contacts_has_update', None)
+        if _chk is None:
+            return
+        try:
+            has_new, _ = _chk()
+        except Exception:
+            has_new = False
+        if has_new:
+            def _mark():
+                try:
+                    update_contacts_btn.config(text="🔄 更新通訊錄 ⚠有新版", bg="#FF9800")
+                except Exception:
+                    pass
+            try:
+                editor_window.after(0, _mark)
+            except Exception:
+                pass
+    try:
+        import threading as _th
+        _th.Thread(target=_check_contacts_update_bg, daemon=True).start()
+    except Exception:
+        pass
+
+    # 管理者專用：上傳通訊錄（只有本機 config.json 有 contacts_admin_token 才顯示）
+    _has_admin = globals().get('has_contacts_admin', None)
+    if _has_admin and _has_admin():
+        def _on_upload_contacts():
+            fn = globals().get('upload_contacts_to_cloud', None)
+            if fn is None:
+                return
+            if not show_large_yesno("上傳通訊錄",
+                                    "確定把『本機的通訊錄』上傳到雲端、覆蓋大家的版本嗎？"):
+                return
+            ok, msg = fn()
+            show_large_message("上傳通訊錄", ("OK " if ok else "失敗：") + msg)
+        tk.Button(contacts_sync_row, text="⬆️ 上傳通訊錄(管理者)", command=_on_upload_contacts,
+                  font=("Microsoft JhengHei", 10),
+                  bg='#1976D2', fg='white').pack(side=tk.LEFT, padx=5)
 
     # 🔥 儲存預設承辦人的函數
     def save_default_agent():
