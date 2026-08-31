@@ -565,7 +565,18 @@ def wait_for_enter():
 def get_land_info():
     # 🔥 保險提醒：萬一 Chrome 仍跳出地理位置權限窗，告訴使用者怎麼點
     print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
-    driver.get('https://easymap.land.moi.gov.tw/Index')
+    # 🔥 2026-08 地籍便民改版：舊網址 easymap.land.moi.gov.tw 已停用（進入會跳「請更新書籤」alert、
+    #    並將於 2026-11-19 後停止使用、自動導向新站）。新域名 easymap.moi.gov.tw/Index 是同一個
+    #    OpenLayers「舊版」app（select_city_id / land_button / mapTile_id / olControl 等 ID 全部保留），
+    #    故只換域名即可沿用原本流程；新的 Z10Web/Normal 是 Cesium 改寫版、選取器全不同，不要用。
+    driver.get('https://easymap.moi.gov.tw/Index')
+    # 🔥 保險：萬一仍被導到會跳 alert 的頁面，先關掉避免卡住自動化（正常新網址不會跳）
+    try:
+        WebDriverWait(driver, 1.5).until(EC.alert_is_present())
+        driver.switch_to.alert.accept()
+        print("已關閉網站提示視窗", flush=True)
+    except Exception:
+        pass
     # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
     try:
         driver.set_window_size(base_width, base_height)

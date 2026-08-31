@@ -92,6 +92,57 @@ def get_chromedriver_version(driver_path):
 
     return None
 
+def _curl_path():
+    """回傳可用的 curl 路徑（Windows 10/11 內建 System32\\curl.exe，走 Schannel、不依賴 Python 的 OpenSSL）。"""
+    import shutil as _sh
+    c = _sh.which('curl')
+    if c and os.path.exists(c):
+        return c
+    for cand in (r'C:\Windows\System32\curl.exe',):
+        if os.path.exists(cand):
+            return cand
+    return None
+
+
+def _http_get_bytes(url, timeout=30):
+    """抓取 URL 內容（bytes）。優先用系統 curl，失敗才退回 urllib。
+    修正：主程式以子程序啟動時，嵌入式 Python 的 _ssl 載入 OpenSSL DLL 失敗
+    （_ssl.c:4192 DSO LOAD_FAILED）會讓 urllib 的 HTTPS 全掛 → ChromeDriver 更新下載失敗。
+    curl 走 Windows Schannel，不碰 Python 的 OpenSSL，可繞過此問題。"""
+    curl = _curl_path()
+    if curl:
+        try:
+            r = subprocess.run([curl, '-fsSL', '--max-time', str(timeout), url],
+                               capture_output=True, timeout=timeout + 15,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if r.returncode == 0 and r.stdout:
+                return r.stdout
+            print(f"[WebDriver] curl 取得失敗（code {r.returncode}），改用 urllib...", flush=True)
+        except Exception as _e:
+            print(f"[WebDriver] curl 例外（{_e}），改用 urllib...", flush=True)
+    import urllib.request
+    with urllib.request.urlopen(url, timeout=timeout) as resp:
+        return resp.read()
+
+
+def _http_download_file(url, dest, timeout=180):
+    """下載 URL 到 dest。優先 curl，失敗退回 urllib。"""
+    curl = _curl_path()
+    if curl:
+        try:
+            r = subprocess.run([curl, '-fsSL', '--max-time', str(timeout), '-o', dest, url],
+                               capture_output=True, timeout=timeout + 15,
+                               creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if r.returncode == 0 and os.path.exists(dest) and os.path.getsize(dest) > 0:
+                return True
+            print(f"[WebDriver] curl 下載失敗（code {r.returncode}），改用 urllib...", flush=True)
+        except Exception as _e:
+            print(f"[WebDriver] curl 下載例外（{_e}），改用 urllib...", flush=True)
+    import urllib.request
+    urllib.request.urlretrieve(url, dest)
+    return os.path.exists(dest) and os.path.getsize(dest) > 0
+
+
 def download_chromedriver(chrome_version, target_path):
     """
     下載對應版本的 ChromeDriver
@@ -115,8 +166,7 @@ def download_chromedriver(chrome_version, target_path):
         # 使用 Chrome for Testing 的 JSON API 取得對應版本
         api_url = "https://googlechromelabs.github.io/chrome-for-testing/known-good-versions-with-downloads.json"
 
-        with urllib.request.urlopen(api_url, timeout=30) as response:
-            data = json.loads(response.read().decode('utf-8'))
+        data = json.loads(_http_get_bytes(api_url, timeout=30).decode('utf-8'))
 
         # 尋找對應主版本號的最新版本
         matching_versions = []
@@ -146,7 +196,7 @@ def download_chromedriver(chrome_version, target_path):
 
         # 下載 ZIP 檔案
         zip_path = os.path.join(os.path.dirname(target_path), "chromedriver_temp.zip")
-        urllib.request.urlretrieve(download_url, zip_path)
+        _http_download_file(download_url, zip_path)
 
         # 解壓縮
         print(f"[WebDriver] 正在解壓縮...")
