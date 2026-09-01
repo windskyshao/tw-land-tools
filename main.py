@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8h"
+VERSION = "1.1.8i"
 BUILD_DATE = "2026-09-01"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
@@ -7790,17 +7790,47 @@ def _load_image_as_png_bytes(path):
         return None
 
 
+def _get_lan_ip():
+    """取本機區網IP(如 192.168.x.x)；連外用UDP socket探出對外介面IP，不會真的送資料。"""
+    import socket as _s
+    ip = ''
+    try:
+        _sk = _s.socket(_s.AF_INET, _s.SOCK_DGRAM)
+        _sk.connect(('8.8.8.8', 80))
+        ip = _sk.getsockname()[0]
+        _sk.close()
+    except Exception:
+        try:
+            ip = _s.gethostbyname(_s.gethostname())
+        except Exception:
+            ip = ''
+    return ip
+
+
 def _send_feedback_request(name, category, message, png_bytes):
     """把回饋 POST 到 bot（JSON + base64 截圖）。回傳 (ok, info)。"""
     import urllib.request
     import json as _json
     import base64 as _b64
+    import socket as _sock  # noqa
+    try:
+        import getpass as _gp
+        _user = _gp.getuser()
+    except Exception:
+        _user = ''
+    try:
+        _host = _sock.gethostname()
+    except Exception:
+        _host = ''
     payload = {
         'token': FEEDBACK_TOKEN,
         'version': VERSION,
         'name': name or '匿名',
         'category': category or '',
         'message': message or '',
+        'hostname': _host,
+        'username': _user,
+        'lan_ip': _get_lan_ip(),
         'screenshot_b64': _b64.b64encode(png_bytes).decode('ascii') if png_bytes else ''
     }
     data = _json.dumps(payload).encode('utf-8')
