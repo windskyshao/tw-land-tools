@@ -220,7 +220,7 @@ try:
 except Exception:
     pass
 
-apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
+apply_page_zoom(driver, zoom_count, key='geologycloud', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
 if zoom_count > 0:
     time.sleep(1)  # 縮放後等待頁面穩定
 

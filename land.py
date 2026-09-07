@@ -649,7 +649,7 @@ def get_land_info():
         pass
 
     time.sleep(1)  # 等待頁面完全載入
-    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
+    apply_page_zoom(driver, zoom_count, key='land', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
     # 等待下拉選單出現
     select_element = WebDriverWait(driver, 10).until(

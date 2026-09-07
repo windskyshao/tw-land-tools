@@ -490,7 +490,7 @@ def _force_chrome_foreground(driver):
         print(f"[頁面縮放] 拉前景失敗：{e}", flush=True)
         return False
 
-apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
+apply_page_zoom(driver, zoom_count, key='nlscmaps', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
 
 # 🔥 關閉「提醒您」彈窗（本網站內容僅供參考…）
 # 這個彈窗是頁面載入後才彈出來的，加上 JS 主動 polling 等它出現

@@ -309,7 +309,7 @@ def initialize_page(driver, url):
     except Exception:
         pass
 
-    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
+    apply_page_zoom(driver, zoom_count, key='urbangis', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證→還原前景（避免打字跑到Chrome）
 
     # 關閉所有「關閉」按鈕的彈出視窗
     try:

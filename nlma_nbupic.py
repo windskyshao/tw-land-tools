@@ -286,7 +286,7 @@ def open_nbupic(city_name):
 
     # 🔥 頁面縮放（可在主程式「Chrome縮放設定」面板調整，key=nlma_nbupic）
     try:
-        apply_page_zoom(driver, _nbupic_zoom_count())
+        apply_page_zoom(driver, _nbupic_zoom_count(), key='nlma_nbupic', base_dir=BASE_DIR)
     except Exception:
         pass
     return True

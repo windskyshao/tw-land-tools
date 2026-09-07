@@ -544,22 +544,81 @@ def restore_foreground(hwnd):
         pass
 
 
-def apply_page_zoom(driver, zoom_count):
-    """把瀏覽器縮放到指定級數（按 zoom_count 次 Ctrl+-）。
-    先拉前景→Ctrl+0 重設回100%→按 Ctrl+- 縮到目標→用前後 devicePixelRatio 比值驗證實際%。
-    zoom_count<=0 不縮放。各子程式共用，確保 keyboard 縮放真的送進 Chrome。"""
+def _zoom_count_by_dpi(dpi, logical_width):
+    """依「執行時實際 DPI(重設回100%後的 devicePixelRatio=作業系統縮放)」＋螢幕邏輯寬度決定縮放級數。
+    取代舊做法(讀 window_config.json 的 dpi_scale)——那只在主程式啟動時寫入，使用者改了顯示縮放
+    又沒重啟主程式時會過期→縮放判斷錯誤。規則沿用原本：>=175%→4(67%)、>=150%→2(80%)、
+    >=125%且邏輯寬<1200(小螢幕)→2(80%)、其餘→0(不縮放)。"""
+    try:
+        d = float(dpi or 0)
+    except Exception:
+        d = 0.0
+    try:
+        w = int(logical_width or 0)
+    except Exception:
+        w = 0
+    if d >= 1.75:
+        return 4
+    if d >= 1.5:
+        return 2
+    if d >= 1.25 and 0 < w < 1200:
+        return 2
+    return 0
+
+
+def _read_zoom_override(key, base_dir):
+    """讀 zoom_config.json 裡該功能(key)的使用者自訂縮放級數；沒有回 None。"""
+    if not key or not base_dir:
+        return None
+    try:
+        import os as _os, json as _json
+        p = _os.path.join(base_dir, 'zoom_config.json')
+        if _os.path.exists(p):
+            with open(p, encoding='utf-8') as f:
+                v = (_json.load(f) or {}).get('overrides', {}).get(key)
+            if v is not None:
+                return int(v)
+    except Exception:
+        pass
+    return None
+
+
+def apply_page_zoom(driver, zoom_count, key=None, base_dir=None):
+    """把瀏覽器縮放到適合目前螢幕的級數（按 N 次 Ctrl+-）。各子程式共用。
+
+    級數決定順序（🔥 2026-09 起改為「執行時偵測」，不再信任可能過期的 window_config dpi）：
+    1) 若 zoom_config.json 有該功能(key)的使用者自訂 → 完全照辦（含 0=不縮放）。
+    2) 否則自動：先看 screen.width(邏輯寬度)夠寬(>=1400，如1920@100%/125%)就不縮放、也不憂前景；
+       否則重設回100%後讀 devicePixelRatio(=OS實際縮放)，用它＋邏輯寬度決定級數。
+    傳入的 zoom_count 只當沒有 key 時的退路。"""
     import time
     from selenium.webdriver.common.by import By
-    if not zoom_count or zoom_count <= 0:
-        print("[頁面縮放] 螢幕配置正常，不需要縮放", flush=True)
-        return None
+
+    override = _read_zoom_override(key, base_dir)
+    logical_w = 0
+    if override is not None:
+        final_count = override
+        if final_count <= 0:
+            print("[頁面縮放] 採用使用者設定：不縮放(100%)", flush=True)
+            return None
+        print(f"[頁面縮放] 採用使用者設定：縮放 {final_count} 次", flush=True)
+    else:
+        try:
+            logical_w = driver.execute_script("return screen.width") or 0
+        except Exception:
+            logical_w = 0
+        if logical_w and logical_w >= 1400:
+            print(f"[頁面縮放] 螢幕邏輯寬度 {logical_w} 夠寬，不需縮放", flush=True)
+            return None
+        final_count = None
+
     try:
         import keyboard
     except Exception as e:
         print(f"[頁面縮放] 無 keyboard 模組：{e}", flush=True)
         return None
+
     STEP_PCT = {1: '90%', 2: '80%', 3: '75%', 4: '67%', 5: '50%'}
-    target = STEP_PCT.get(zoom_count, f'{zoom_count}次')
     _prev_fg = None
     try:
         _prev_fg = bring_chrome_foreground(driver)
@@ -568,14 +627,24 @@ def apply_page_zoom(driver, zoom_count):
         except Exception:
             pass
         time.sleep(0.4)
-        keyboard.press_and_release('ctrl+0')   # 先重設回100%（絕對縮放、跨筆不累加）
+        keyboard.press_and_release('ctrl+0')
         time.sleep(0.5)
         try:
             dpr0 = driver.execute_script("return window.devicePixelRatio;")
         except Exception:
             dpr0 = None
-        print(f"[頁面縮放] 縮放中（按 {zoom_count} 次，目標 {target}）...", flush=True)
-        for _ in range(zoom_count):
+
+        if final_count is None:
+            final_count = _zoom_count_by_dpi(dpr0, logical_w)
+            if not final_count or final_count <= 0:
+                print(f"[頁面縮放] 實際 DPI({dpr0}) 不需縮放（已重設回100%）", flush=True)
+                restore_foreground(_prev_fg)
+                return None
+            print(f"[頁面縮放] 依執行時實際 DPI({dpr0})、邏輯寬 {logical_w} 判定：縮放 {final_count} 次", flush=True)
+
+        target = STEP_PCT.get(final_count, f'{final_count}次')
+        print(f"[頁面縮放] 縮放中（按 {final_count} 次，目標 {target}）...", flush=True)
+        for _ in range(final_count):
             keyboard.press_and_release('ctrl+-')
             time.sleep(0.4)
         actual = None
@@ -597,16 +666,6 @@ def apply_page_zoom(driver, zoom_count):
     except Exception as e:
         print(f"[頁面縮放] 設定縮放時發生錯誤: {e}", flush=True)
         return None
-    finally:
-        # 🔥 縮放完把 OS 前景還給原本的視窗（通常是主程式），
-        #    否則 Chrome 還在前景，使用者打字會跑到 Chrome（要再點輸入框才正常）
-        try:
-            restore_foreground(_prev_fg)
-        except Exception:
-            pass
-
-
-# 向後相容：提供舊的函數名稱
 def get_webdriver(options=None):
     """向後相容的函數名稱"""
     return create_chrome_driver(options)

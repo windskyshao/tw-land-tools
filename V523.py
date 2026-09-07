@@ -600,7 +600,7 @@ def open_query_page():
     except Exception:
         pass
 
-    apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
+    apply_page_zoom(driver, zoom_count, key='V523', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
     return zoom_count > 0  # 返回是否設定了縮放，供 finally 區塊使用
 

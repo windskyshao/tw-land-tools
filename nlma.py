@@ -685,7 +685,7 @@ def run_query_session():
         except Exception:
             pass
 
-        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
+        apply_page_zoom(driver, zoom_count, key='nlma', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
         # 4. 設置查詢結果和狀態變量
         all_results = {}  # 用於儲存所有有效結果
@@ -1395,7 +1395,7 @@ def select_city(city_name):
 
                         if zoom_count > 0:
                             time.sleep(0.5)  # 等待新視窗完全載入
-                        apply_page_zoom(driver, zoom_count)  # 共用：拉前景→Ctrl+0→縮放→驗證
+                        apply_page_zoom(driver, zoom_count, key='nlma', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
                 except Exception:
                     pass  # 靜默處理縮放錯誤
         # print(f"當前視窗網址: {driver.current_url}", flush=True)
@@ -3096,7 +3096,7 @@ def click_and_save_pdf(result, base_directory):
 
         # 套用縮放（與其他頁面一致）
         try:
-            apply_page_zoom(driver, _nlma_zoom_count())
+            apply_page_zoom(driver, _nlma_zoom_count(), key='nlma', base_dir=BASE_DIR)
         except Exception:
             pass
 
