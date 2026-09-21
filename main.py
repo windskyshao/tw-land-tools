@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8k"
+VERSION = "1.1.8l"
 BUILD_DATE = "2026-09-21"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
@@ -8308,8 +8308,10 @@ def check_and_warn_data_consistency():
             except Exception as e:
                 print(f"[警告] 解析 selected_json_path 失敗：{e}")
 
-        # 🔥 全部檢查跑完後再決定要不要秀診斷訊息：正常時靜默通過，有問題時才一次秀出
-        if (not is_consistent) or warning_msg:
+        # 🔥 全部檢查跑完後再決定要不要秀診斷訊息：正常時靜默通過，「真的資料對不上」時才一次秀出。
+        #    「找不到謄本結構化資料」(is_consistent=True，只是謄本沒結構化或段名造字抽不到) 不算問題→靜默，
+        #    以免一堆技術訊息(PROGRAM_DIR/路徑…)每次啟動嚇到使用者。
+        if (not is_consistent) or (warning_msg and "找不到謄本結構化資料" not in warning_msg):
             for _ln in diag_lines:
                 update_message(_ln)
 

@@ -7523,14 +7523,31 @@ def open_data_editor():
                         payload["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 0}}
                     return requests.post(url, json=payload, timeout=90)
 
-                resp = _post(model)
+                def _post_with_retry(model_name, retries=3):
+                    # 503/500/502/504 = Google 伺服器暫時過載/異常 -> 等一下自動重試(指數退避)
+                    import time as _t
+                    _last = None
+                    for _i in range(retries):
+                        _last = _post(model_name)
+                        if _last.status_code in (500, 502, 503, 504) and _i < retries - 1:
+                            _wait = 2 * (_i + 1)
+                            try:
+                                update_message(f"[AI] 伺服器忙碌（{_last.status_code}），{_wait} 秒後自動重試…（{_i+2}/{retries}）")
+                            except Exception:
+                                pass
+                            _t.sleep(_wait)
+                            continue
+                        return _last
+                    return _last
+
+                resp = _post_with_retry(model)
                 # 🔥 模型被停用(404 NOT_FOUND，如新金鑰呼叫 gemini-2.5-flash)→ 自動退回可用別名並記住
                 if resp.status_code == 404 and model != FALLBACK_MODEL:
                     try:
                         update_message(f"[AI] 模型 {model} 不可用(可能已對新用戶停用)，改用 {FALLBACK_MODEL} 重試…")
                     except Exception:
                         pass
-                    resp = _post(FALLBACK_MODEL)
+                    resp = _post_with_retry(FALLBACK_MODEL)
                     if resp.status_code == 200:
                         try:
                             cfg["gemini_model"] = FALLBACK_MODEL
@@ -7568,6 +7585,10 @@ def open_data_editor():
                             or status in ("INVALID_ARGUMENT", "PERMISSION_DENIED", "UNAUTHENTICATED")):
                         offer_key = True
                         msg = "⚠️ API 金鑰無效或未授權。"
+                    elif resp.status_code in (500, 502, 503, 504) or status in ("UNAVAILABLE", "INTERNAL"):
+                        msg = ("⚠️ Google AI 伺服器暫時忙碌／過載（%s %s）。\n\n"
+                               "這是 Google 端的暫時狀況，不是金鑰或程式問題。\n"
+                               "程式已自動重試仍未成功，請過幾秒～幾分鐘再按一次即可。" % (resp.status_code, status or "UNAVAILABLE"))
                     else:
                         msg = f"生成失敗（{resp.status_code} {status}）：\n{emsg[:150]}"
             except Exception as e:
