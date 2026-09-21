@@ -1271,6 +1271,46 @@ def generate_unique_filename(directory, base_name):
     return new_filename
 
 
+def _repair_seg_by_case(s, case_dir, case_key):
+    """造字段名回填：以『案件根源 data.json 的 section』(查詢時就存好的乾淨段名)為主要依據，
+    退而用案件資料夾名/案件key，把從 PDF 抽出、缺造字的段名(例「厦莊段」被抽成「莊段」)補回，
+    連缺字位置的空白也一併吸收，讓存檔檔名的段名完整正確。"""
+    try:
+        if not s:
+            return s
+        cands = []
+        # 1) 根源：data.json 的 section（權威來源；資料夾名/case_key 也是從它衍生的）
+        try:
+            entry = read_first_entry_from_json(get_data_json_path())
+            sec = re.sub(r'\s+', '', str((entry or {}).get('section', '') or ''))
+            if sec.endswith('段') and len(sec) >= 2:
+                cands.append(sec)
+        except Exception:
+            pass
+        # 2) 退路：案件資料夾名 / case_key
+        for src in [x for x in (case_dir and os.path.basename(str(case_dir)), case_key) if x]:
+            cands += re.findall(r'[區鄉鎮市]([\u4e00-\u9fff]{1,4}段)', str(src))
+        # 去重保序
+        seen = set()
+        ordered = []
+        for c in cands:
+            if c and c not in seen:
+                seen.add(c)
+                ordered.append(c)
+        for full in ordered:
+            if full in s:
+                continue
+            core = full[:-1]
+            for k in range(len(core)):
+                broken = core[:k] + core[k + 1:] + '段'
+                if len(broken) >= 2 and broken != full and broken in s:
+                    missing = core[k]
+                    s = re.sub(r'(?<!' + re.escape(missing) + r')[ \u3000\r\n\t]?' + re.escape(broken), full, s)
+                    print(f"[段名回填] {broken} → {full}（補回「{missing}」）", flush=True)
+                    break
+    except Exception as _e:
+        print(f"[段名回填] 略過：{_e}", flush=True)
+    return s
 def rename_pdf(original_path, output_dir=None, auto_confirm=False, custom_dir_options=None, selected_output_dir=None):
     # 🔥 分流設定（來自 handle_preview_print）：auto/per_file 需等解析出段名後再決定資料夾
     _routing = selected_output_dir if isinstance(selected_output_dir, dict) else {}
@@ -1353,6 +1393,11 @@ def rename_pdf(original_path, output_dir=None, auto_confirm=False, custom_dir_op
 
         # 提取和清理文本
         cleaned_text = clean_text(text)
+        # 🔧 造字段名回填（提前到「擷取段名之前」）：造字(例「厦莊段」的「厦」)被PDF字型丟掉→
+        #    段名變「 莊段」帶空格，會害①段名擷取正則([^\s]*?段)抓不到→段名空→自動分流誤丟「下載的謄本」；
+        #    ②檔名段名缺字。先補在文字上，讓「段名擷取／自動分流／命名」三者一次全對。
+        #    正確段名來源以 data.json 的 section 為主(案件根源)，退回案件資料夾名/case_key。
+        cleaned_text = _repair_seg_by_case(cleaned_text, _case_dir, _case_key)
         類別, 段名, 地號和建號 = extract_info_enhanced(cleaned_text)
         
         # 顯示提取到的資訊

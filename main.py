@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8j"
-BUILD_DATE = "2026-09-07"
+VERSION = "1.1.8k"
+BUILD_DATE = "2026-09-21"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
@@ -3774,7 +3774,43 @@ def convert_transcript_to_final_data(transcript_json_path):
                 else:
                     # 無法解析，保留原始字串
                     data_final["土地標示"] = f"{city_name}{ordered[0]}"
-            
+
+            # 🔥 土地標示仍為空 → 改用 data.json(案件根源)組。
+            #    常見於：段名含造字(例「厦莊段」的「厦」)被PDF字型丟掉→謄本地號建號抽不到→前面組不出來。
+            #    data.json 的 area/section/lot 是查詢時就存好的，永遠正確，拿它當權威來源。
+            if not data_final.get("土地標示"):
+                try:
+                    def _simp_lot_dj(s):
+                        s = str(s or '').strip().replace('地號', '').replace('建號', '')
+                        try:
+                            if '-' in s:
+                                _a, _b = s.split('-', 1)
+                                _a, _b = int(_a), int(_b)
+                                return f"{_a}" if _b == 0 else f"{_a}-{_b}"
+                            if len(s) >= 8:
+                                _a, _b = int(s[:4]), int(s[4:])
+                                return f"{_a}" if _b == 0 else f"{_a}-{_b}"
+                            return str(int(s))
+                        except Exception:
+                            return s
+                    if os.path.exists('data.json'):
+                        with open('data.json', 'r', encoding='utf-8') as _f:
+                            _dl = json.load(_f)
+                        from collections import OrderedDict as _OD
+                        _groups = _OD()
+                        for _d in (_dl if isinstance(_dl, list) else []):
+                            _a = (_d.get('area', '') or '').strip()
+                            _s = (_d.get('section', '') or '').strip()
+                            _l = (_d.get('lot_number', '') or '').strip()
+                            if _a and _s and _l:
+                                _groups.setdefault((_a, _s), []).append(_simp_lot_dj(_l))
+                        if _groups:
+                            (_ga, _gs), _glots = next(iter(_groups.items()))
+                            data_final["土地標示"] = f"{city_name}{_ga}{_gs} {','.join(_glots)}地號"
+                            update_message(f"  [土地標示] 謄本段名造字抽不到，改用 data.json 組：{data_final['土地標示']}")
+                except Exception as _e:
+                    update_message(f"  [土地標示] 由 data.json 組失敗：{_e}")
+
             # 🔥 總地坪（已考慮權利範圍）
             if total_land_area_m2 > 0:
                 total_land_ping = total_land_area_m2 * 0.3025
