@@ -1494,6 +1494,49 @@ def select_district(city, area):
     except TimeoutException:
         print("無法找到或選擇縣市+地區的下拉選單（找不到 #dist）", flush=True)
 
+def _is_rare_placeholder_char(c):
+    """判斷是不是『無法比對的字』：地政造字(PUA 私用區)、方框、問號等。
+    政府系統把罕用字(例:磘)存成自家造字碼 U+E025，跟 data.json 的正確字永遠對不起來。"""
+    o = ord(c)
+    return (0xE000 <= o <= 0xF8FF) or (0xF0000 <= o <= 0x10FFFD) or c in '□◇◆�?？〓'
+
+
+def _disp_rare(s):
+    """把造字換成【?】再顯示，免得終端機拿私用區碼亂配字形，害人看錯字。"""
+    return ''.join('〔?〕' if _is_rare_placeholder_char(c) else c for c in (s or ''))
+
+
+def _match_section_with_rare_char(target, options):
+    """地政造字容錯比對。
+    網站選項:'磚子<U+E025>段'(造字)  /  data.json:'磚子磘段'(正確字) -> 完全比對必定失敗。
+    做法:把任一邊的造字/方框當成『任意一個字』,其餘字元必須完全相同且總長度相同。
+    只有『唯一命中』才自動選(多筆命中寧可讓使用者選,避免選錯段)。
+    回傳命中的 index,沒有或多筆則回傳 None。"""
+    target = (target or '').strip()
+    if not target:
+        return None
+    hits = []
+    for idx, opt in enumerate(options):
+        o = (opt or '').strip()
+        if not o or len(o) != len(target):
+            continue
+        ok = True
+        for a, b in zip(target, o):
+            if a == b:
+                continue
+            if _is_rare_placeholder_char(a) or _is_rare_placeholder_char(b):
+                continue  # 任一邊是造字 -> 視為萬用字元
+            ok = False
+            break
+        if ok:
+            hits.append(idx)
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        print(f"[造字比對] 有 {len(hits)} 個選項都符合，為避免選錯段，改由您手動選擇", flush=True)
+    return None
+
+
 def select_section(section_name):
     def _real_section_options(d):
         try:
@@ -1522,10 +1565,19 @@ def select_section(section_name):
             print(f"\033[96m已選擇地段：{section_name}\033[0m", flush=True)
             return True  # 正確跳出
         else:
+            # 🔥 造字容錯：政府系統把罕用字存成 PUA 造字碼(例:磚子<U+E025>段)，
+            #    跟 data.json 的正確段名(磚子磘段)完全比對必定失敗 -> 用萬用字元比對救回來
+            _rare_idx = _match_section_with_rare_char(section_name, options)
+            if _rare_idx is not None:
+                section_select.select_by_index(_rare_idx)
+                print(f"[96m已選擇地段：{_disp_rare(options[_rare_idx])}"
+                      f"（地政造字自動對應 data.json 的「{section_name}」）[0m", flush=True)
+                return True
+
             print(f"無法找到地段：{section_name}，可用選項為：", flush=True)
             while True: #加入了 While 無限迴圈，強制使用者在這裏輸入。
                 for index, option in enumerate(options): #使用 enumerate 添加 index 
-                    print(f"{index}. {option}", flush=True)  #印出index 和 option
+                    print(f"{index}. {_disp_rare(option)}", flush=True)  #印出index 和 option(造字顯示成【?】)
                 
                 selected_input = input(f"請根據選項編號手動輸入要選擇的地段選項（0-{len(options) - 1}), 輸入【q】退出當前查詢，或輸入【0】完全退出程式：").strip().lower()
                 if selected_input == 'q':
@@ -1541,7 +1593,7 @@ def select_section(section_name):
                     selected_index = int(selected_input)
                     if 0 <= selected_index < len(options): #確認選擇選項正確
                         section_select.select_by_index(selected_index)
-                        print(f"您選擇的地段是: {options[selected_index]}", flush =True)
+                        print(f"您選擇的地段是: {_disp_rare(options[selected_index])}", flush =True)
                         return True
                     else :
                         print("您輸入的數字不在此選單中，請重新輸入:", flush =True);

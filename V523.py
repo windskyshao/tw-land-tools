@@ -976,9 +976,68 @@ def press_ok_button():
         print(f"[DEBUG] ✗ 處理確定按鈕時發生錯誤: {e}", flush=True)
         print("確定按鈕處理失敗", flush=True)
 
+def open_print_panel():
+    """V523 2026-09 改版：【分區列印】被收進【圖資列印】彈出面板裡，
+    面板沒開 -> 按鈕根本不在 DOM 上。這裡負責先把面板打開。"""
+    # 已經開著(找得到分區列印)就不用再開
+    try:
+        if driver.find_elements(By.XPATH, "//div[contains(@onclick,'funPrintBasic(2)')]"):
+            print("[DEBUG] 列印面板已開啟", flush=True)
+            return True
+    except Exception:
+        pass
+
+    opened = False
+    # 方法1: 點側邊欄的【圖資列印】(onclick="tuzilieyin();")
+    try:
+        panel_btn = WebDriverWait(driver, 5).until(
+            EC.element_to_be_clickable((By.XPATH, "//div[contains(@onclick,'tuzilieyin')]"))
+        )
+        driver.execute_script("arguments[0].click();", panel_btn)
+        print("[DEBUG] ✓ 已點擊【圖資列印】開啟列印面板", flush=True)
+        opened = True
+    except Exception:
+        pass
+
+    # 方法2: 文字尋找【圖資列印】
+    if not opened:
+        try:
+            panel_btn = driver.find_element(
+                By.XPATH, "//*[contains(text(),'圖資列印')]/ancestor-or-self::div[@onclick][1]")
+            driver.execute_script("arguments[0].click();", panel_btn)
+            print("[DEBUG] ✓ 已用文字找到【圖資列印】並點擊", flush=True)
+            opened = True
+        except Exception:
+            pass
+
+    # 方法3: 直接呼叫網頁函式
+    if not opened:
+        try:
+            driver.execute_script("tuzilieyin();")
+            print("[DEBUG] ✓ 已用 JS tuzilieyin() 開啟列印面板", flush=True)
+            opened = True
+        except Exception as e:
+            print(f"[DEBUG] ⚠ 無法開啟【圖資列印】面板: {e}", flush=True)
+            return False
+
+    # 等面板裡的【分區列印】出現
+    try:
+        WebDriverWait(driver, 6).until(
+            EC.presence_of_element_located((By.XPATH, "//div[contains(@onclick,'funPrintBasic(2)')]"))
+        )
+        time.sleep(0.3)
+        return True
+    except Exception:
+        print("[DEBUG] ⚠ 列印面板已開，但仍找不到【分區列印】", flush=True)
+        return False
+
+
 def get_pdf_page():
     try:
         print("[DEBUG] 開始尋找【分區列印】按鈕...", flush=True)
+
+        # 🔥 V523 2026-09 改版：先點【圖資列印】把列印面板叫出來
+        open_print_panel()
 
         # 🔥 使用多種方式尋找「分區列印」按鈕
         pdf_button = None
@@ -996,7 +1055,7 @@ def get_pdf_page():
         if not pdf_button:
             try:
                 pdf_button = WebDriverWait(driver, 3).until(
-                    EC.element_to_be_clickable((By.XPATH, "//font[contains(text(),'分區列印')]"))
+                    EC.element_to_be_clickable((By.XPATH, "//*[self::font or self::span or self::b][contains(text(),'分區列印')]/ancestor-or-self::*[@onclick][1] | //*[self::font or self::span or self::b][contains(text(),'分區列印')]"))
                 )
                 print("[DEBUG] ✓ 方法2: 透過文字找到按鈕", flush=True)
             except:
@@ -1016,7 +1075,7 @@ def get_pdf_page():
 
                 while current_scroll_position < int(max_scroll_height):
                     try:
-                        pdf_button = driver.find_element(By.XPATH, "//font[contains(text(),'分區列印')]")
+                        pdf_button = driver.find_element(By.XPATH, "//*[self::font or self::span or self::b][contains(text(),'分區列印')]/ancestor-or-self::*[@onclick][1] | //*[self::font or self::span or self::b][contains(text(),'分區列印')]")
                         if pdf_button.is_displayed():
                             print(f"[DEBUG] ✓ 方法3: 在滾動位置 {current_scroll_position} 找到按鈕", flush=True)
                             break
@@ -1036,15 +1095,20 @@ def get_pdf_page():
         driver.execute_script("arguments[0].scrollIntoView(true);", pdf_button)
         time.sleep(0.5)
 
-        # 🔥 直接使用 JavaScript 執行 funPrintBasic(2) 函數
-        print("[DEBUG] 嘗試直接執行 funPrintBasic(2) 函數...", flush=True)
+        # 🔥 優先直接點按鈕(新版 onclick 含 funPrintBasic(2) + 關閉列印面板)
+        print("[DEBUG] 點擊【分區列印】...", flush=True)
         try:
-            driver.execute_script("funPrintBasic(2);")
-            print("【分區列印】透過 JS 函數觸發成功", flush=True)
-        except Exception as js_err:
-            print(f"[DEBUG] JS 函數執行失敗: {js_err}，改用點擊方式", flush=True)
             driver.execute_script("arguments[0].click();", pdf_button)
             print("【分區列印】點擊成功", flush=True)
+        except Exception as click_err:
+            print(f"[DEBUG] 點擊失敗: {click_err}，改用 JS 函數", flush=True)
+            driver.execute_script("funPrintBasic(2);")
+            print("【分區列印】透過 JS 函數觸發成功", flush=True)
+            # JS 退路不會關面板，手動關掉免得擋住後續截圖
+            try:
+                driver.execute_script("try{layui.layer.closeAll();}catch(e){}")
+            except Exception:
+                pass
 
         time.sleep(1)  # 等待新視窗開啟（增加等待時間）
 

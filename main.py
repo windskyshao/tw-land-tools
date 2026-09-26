@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8l"
-BUILD_DATE = "2026-09-21"
+VERSION = "1.1.8m"
+BUILD_DATE = "2026-09-23"
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"

@@ -226,6 +226,51 @@ if zoom_count > 0:
 
 driver.implicitly_wait(10)
 
+def _dismiss_extra_popups(driver, rounds=3):
+    """關掉「多出來的公告彈窗」(例：政府臨時維護公告「北部六縣市…更新」)，避免擋住後續操作。
+    先按 ESC，再點掉任何可見的『知道了/確定/關閉/OK/×/data-dismiss』鈕；全程 try/except，沒有就跳過、不弄壞。"""
+    from selenium.webdriver.common.keys import Keys
+    import time as _t
+    for _r in range(rounds):
+        _closed = False
+        try:
+            driver.find_element(By.TAG_NAME, "body").send_keys(Keys.ESCAPE)
+        except Exception:
+            pass
+        try:
+            _xp = ("//button[normalize-space()='我知道了' or normalize-space()='知道了' or normalize-space()='確定'"
+                   " or normalize-space()='關閉' or normalize-space()='OK' or contains(@class,'close')"
+                   " or contains(@class,'btn-close') or @data-dismiss='modal' or @data-bs-dismiss='modal']"
+                   " | //a[normalize-space()='我知道了' or normalize-space()='知道了' or normalize-space()='確定'"
+                   " or normalize-space()='關閉' or contains(@class,'close')]"
+                   " | //*[contains(@class,'modal') or contains(@class,'popup') or contains(@class,'dialog')]"
+                   "//*[@aria-label='Close' or @aria-label='close' or normalize-space()='×' or normalize-space()='✕']")
+            for _b in driver.find_elements(By.XPATH, _xp):
+                try:
+                    if _b.is_displayed():
+                        driver.execute_script("arguments[0].click();", _b)
+                        _closed = True
+                        print("已關閉多餘公告彈窗。", flush=True)
+                except Exception:
+                    pass
+        except Exception:
+            pass
+        try:
+            _n = driver.execute_script(
+                "var n=0;"
+                "document.querySelectorAll('.sweet-alert button.confirm, .swal2-confirm, .swal-button--confirm').forEach(function(b){try{b.click();n++;}catch(e){}});"
+                "document.querySelectorAll('.sweet-overlay, .sweet-alert, .swal-overlay, .swal2-container, .modal-backdrop').forEach(function(e){try{e.style.display='none';if(e.parentNode)e.parentNode.removeChild(e);n++;}catch(e2){}});"
+                "return n;")
+            if _n:
+                _closed = True
+                print("已清除遮罩/公告彈窗(sweet-overlay 等)。", flush=True)
+        except Exception:
+            pass
+        _t.sleep(0.4)
+        if not _closed:
+            break
+
+
 # 點擊 "我知道了" 按鈕（有縮放時跳過，因為按鈕可能已消失）
 if zoom_count == 0:
     try:
@@ -236,6 +281,9 @@ if zoom_count == 0:
         print("已點擊「我知道了」按鈕。", flush=True)
     except TimeoutException:
         print("無法找到「我知道了」按鈕。", flush=True)
+
+# 🔥 關掉可能多出來的公告彈窗(例：政府臨時維護公告)，避免擋住後續搜尋操作
+_dismiss_extra_popups(driver)
 
 # 列表來收集所有 PNG 路徑和標識符
 all_png_files = []
@@ -253,6 +301,9 @@ for index, data in enumerate(data_list):
     print(f"處理資料 {index+1}/{len(data_list)}: 城市 = {city}, 區域 = {area}, 段 = {section}, 地號 = {lot_number}, 座標 = {coordinates}", flush=True)
 
     try:
+        # 🔥 每筆查詢前先清掉可能跳出的公告遮罩(政府維護公告 sweet-overlay 會擋住點擊)
+        _dismiss_extra_popups(driver, rounds=1)
+
         # 輸入座標到搜尋欄位
         search_input = WebDriverWait(driver, 10).until(
             EC.element_to_be_clickable((By.CSS_SELECTOR, "#map-geocoding-input input[type='text']"))
@@ -268,8 +319,12 @@ for index, data in enumerate(data_list):
         actions.move_to_element(search_icon).perform()
         time.sleep(0.5)
 
-        # 點擊搜尋按鈕
-        search_icon.click()
+        # 點擊搜尋按鈕(若仍被遮罩擋住 -> 再清一次並改用 JS 強制點)
+        try:
+            search_icon.click()
+        except Exception:
+            _dismiss_extra_popups(driver, rounds=2)
+            driver.execute_script("arguments[0].click();", search_icon)
         print("已點擊搜尋按鈕。", flush=True)
 
         # 等待結果列表項目顯示並點擊
