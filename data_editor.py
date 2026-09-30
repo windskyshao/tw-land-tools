@@ -7540,20 +7540,40 @@ def open_data_editor():
                         return _last
                     return _last
 
-                resp = _post_with_retry(model)
-                # 🔥 模型被停用(404 NOT_FOUND，如新金鑰呼叫 gemini-2.5-flash)→ 自動退回可用別名並記住
-                if resp.status_code == 404 and model != FALLBACK_MODEL:
-                    try:
-                        update_message(f"[AI] 模型 {model} 不可用(可能已對新用戶停用)，改用 {FALLBACK_MODEL} 重試…")
-                    except Exception:
-                        pass
-                    resp = _post_with_retry(FALLBACK_MODEL)
-                    if resp.status_code == 200:
+                # 🔥 模型候選鏈：一個不行就自動換下一個
+                #    2026-09-30 實測：Google 免費層的 **flash 系列被擠爆**，
+                #    gemini-flash-latest / 2.5-flash / 3.5-flash 一律回 503 high demand；
+                #    但 **flash-lite 系列還很順**（5~9 秒就回），pro 則是 429 額度用完。
+                #    所以：503(忙)、404(停用)、429(額度滿) 都直接換下一個模型，別死等。
+                _chain = []
+                for _m in (model, FALLBACK_MODEL, "gemini-flash-lite-latest", "gemini-3.5-flash-lite"):
+                    if _m and _m not in _chain:
+                        _chain.append(_m)
+
+                resp = None
+                _used_model = None
+                for _i, _m in enumerate(_chain):
+                    if _i > 0:
                         try:
-                            cfg["gemini_model"] = FALLBACK_MODEL
-                            save_config(cfg, show_message=False)   # 寫回 config，之後不再 404
+                            update_message(f"[AI] 改用備援模型 {_m} 重試…（第 {_i+1}/{len(_chain)} 個）")
                         except Exception:
                             pass
+                    # 第一個模型多試幾次（可能只是一時尖峰），後面的備援模型試一次就換，別讓使用者乾等
+                    resp = _post_with_retry(_m, retries=(2 if _i == 0 else 1))
+                    if resp.status_code == 200:
+                        _used_model = _m
+                        break
+                    if resp.status_code not in (404, 429, 500, 502, 503, 504):
+                        break   # 金鑰錯、參數錯等 -> 換模型也沒用，直接報錯
+
+                # 成功的模型跟原本設定不同 -> 寫回 config，下次直接用能用的那個
+                if _used_model and _used_model != model:
+                    try:
+                        cfg["gemini_model"] = _used_model
+                        save_config(cfg, show_message=False)
+                        update_message(f"[AI] ✓ 已改用 {_used_model}（已記住，下次直接用這個）")
+                    except Exception:
+                        pass
                 if resp.status_code == 200:
                     j = resp.json()
                     # 🔥 穩健解析：合併所有 parts 的文字；若無文字給清楚原因(被擋/截斷)

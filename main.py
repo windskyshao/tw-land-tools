@@ -44,19 +44,46 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8m"
-BUILD_DATE = "2026-09-23"
+VERSION = "1.1.8n"
+BUILD_DATE = "2026-09-30"
+
+# ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
+#   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
+#   改成：先讀 config.json（.gitignore 已排除，不會進版控），讀不到才用內建預設值
+#   （舊機器或還沒建設定檔時不會壞）。要換權杖時改 config.json 與 Render 兩邊即可。
+def _secret(key, default=""):
+    """取程式共用權杖。順序：app_tokens.py（不進版控、但會被打包進 exe）→ config.json → 空。
+
+    ★不可把值寫死在這裡：main.py 會推上 GitHub（私有備份），寫死就永久留在版本歷史。
+    ★也不放 config.json：那是使用者個人設定（含帳密與憑證 PIN），不能跟著打包發給同事。
+    讀不到就回空字串 → 對應功能停用，不會拿錯誤的權杖去打 API。
+    """
+    try:
+        import app_tokens                      # 直接 import，PyInstaller 才會把它收進 exe
+        v = getattr(app_tokens, key, "")
+        if v and not str(v).startswith("REPLACED"):
+            return v
+    except Exception:
+        pass
+    try:
+        import json as _json
+        import os as _os
+        _p = _os.path.join(_os.path.dirname(_os.path.abspath(__file__)), "config.json")
+        with open(_p, encoding="utf-8") as _f:
+            return (_json.load(_f).get("secrets", {}) or {}).get(key) or default
+    except Exception:
+        return default
 
 # 💬 意見回饋：送到 fyy（阿生生）bot → 由 bot 推播到開發者的 LINE
 FEEDBACK_URL = "https://fyy-l8a3.onrender.com/feedback"
-FEEDBACK_TOKEN = "ksp-fb-2026-x7q2"  # ⚠️ 需與 Render 環境變數 FEEDBACK_TOKEN 設成完全一樣
+FEEDBACK_TOKEN = _secret("FEEDBACK_TOKEN")   # 值放 config.json 的 secrets 區,與 Render 環境變數一致  # ⚠️ 需與 Render 環境變數 FEEDBACK_TOKEN 設成完全一樣
 
 # 📖 線上使用說明（fyy 提供）
 HELP_URL = "https://fyy-l8a3.onrender.com/help"
 
 # 📇 通訊錄雲端同步（走 fyy bot → MongoDB；個資不進公開 GitHub）
 CONTACTS_BASE_URL = "https://fyy-l8a3.onrender.com"
-CONTACTS_DL_TOKEN = "ksp-contacts-dl-2026"  # 需與 Render 環境變數 CONTACTS_DL_TOKEN 一致
+CONTACTS_DL_TOKEN = _secret("CONTACTS_DL_TOKEN")   # 值放 config.json 的 secrets 區,與 Render 環境變數一致  # 需與 Render 環境變數 CONTACTS_DL_TOKEN 一致
 
 def has_contacts_admin():
     """本機 config.json 是否有管理者上傳權杖（有才顯示『上傳通訊錄』鈕）。"""

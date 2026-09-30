@@ -1302,12 +1302,24 @@ def _repair_seg_by_case(s, case_dir, case_key):
                 continue
             core = full[:-1]
             for k in range(len(core)):
-                broken = core[:k] + core[k + 1:] + '段'
-                if len(broken) >= 2 and broken != full and broken in s:
-                    missing = core[k]
-                    s = re.sub(r'(?<!' + re.escape(missing) + r')[ \u3000\r\n\t]?' + re.escape(broken), full, s)
-                    print(f"[段名回填] {broken} → {full}（補回「{missing}」）", flush=True)
-                    break
+                missing = core[k]
+                left = core[:k]
+                right = core[k + 1:] + '段'
+                if len(left) + len(right) < 2:
+                    continue
+                # 🔥 造字被 PDF 字型丟掉後，「缺字的位置」可能是空白、換行，也可能什麼都沒有。
+                #    舊寫法是「先把造字刪掉再用 in 去找」（例找「磚子段」），
+                #    但實際文字是「磚子 段」——空白夾在中間 -> 永遠找不到。
+                #    改用正則，在缺字處允許 0~1 個空白/換行。
+                pat = re.escape(left) + r'\s{0,2}' + re.escape(right)
+                if not left:
+                    pat = r'(?<!' + re.escape(missing) + r')' + pat
+                if re.search(pat, s):
+                    s2 = re.sub(pat, full, s)
+                    if s2 != s:
+                        s = s2
+                        print(f"[段名回填] {left}〔{missing}〕{right} → {full}", flush=True)
+                        break
     except Exception as _e:
         print(f"[段名回填] 略過：{_e}", flush=True)
     return s

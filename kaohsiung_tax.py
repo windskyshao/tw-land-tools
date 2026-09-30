@@ -228,7 +228,28 @@ def _norm(s: str) -> str:
     return re.sub(r"\s+", "", (s or "").strip())
 
 def zfill8_digits(s: str) -> str:
-    return re.sub(r"\D", "", s or "").zfill(8)[:8]
+    """地號轉 8 碼：**母號 4 碼 + 子號 4 碼**。
+    例：4884 → 48840000、4884-9 → 48840009、53 → 00530000、00530001 → 00530001。
+
+    ⚠️ 舊寫法是 `re.sub(r"\D","",s).zfill(8)`，有兩個致命問題：
+      1. zfill 是**左補零**，會把母號 4884 當成子號 → 00004884
+         → 資料夾變成「…段-0-4884」，而且**會把錯的地號填進政府網站查詢**。
+      2. 連字號被直接刪掉再整串補零 → 4884-9 變成 00048849
+         （母號0004、子號8849），**完全是另一筆土地**。
+    （地號=母4+子4；建號是母5+子3，別拿這支去算建號）"""
+    raw = (s or "").strip()
+    if not raw:
+        return "0" * 8
+    digits = re.sub(r"\D", "", raw)
+    if "-" in raw:
+        parts = raw.split("-", 1)
+        m = re.sub(r"\D", "", parts[0])[:4]
+        c = re.sub(r"\D", "", parts[1])[:4]
+    elif len(digits) == 8:
+        return digits          # 已經是母4+子4 的 8 碼
+    else:
+        m, c = digits[:4], ""
+    return (m.zfill(4) + c.zfill(4))[:8]
 
 def to_roc7(s: str) -> str:
     s = (s or "").strip()
@@ -580,6 +601,54 @@ def accept_any_alert(driver):
 def _human_pause(a=0.6, b=1.2):
     time.sleep(random.uniform(a, b))
 
+# ========= 地政造字容錯比對（與 nlma.py / urbangis.py 同一套）=========
+# 政府各系統對罕用字的存法不一樣：
+#   高雄土增稅估算      → '磚子?段'      （半形問號 U+003F）
+#   urbangis 定位查詢 → '磚子?段'      （半形問號）
+#   高雄 buildmis      → '磚子段' （PUA 造字碼）
+# → 跟 data.json 的正確字「磚子磘段」完全比對必定失敗，要把這些字當萬用字元
+
+
+def _is_rare_placeholder_char(c):
+    """判斷是不是『無法比對的字』：造字(PUA 私用區)、方框、問號等。"""
+    o = ord(c)
+    return (0xE000 <= o <= 0xF8FF) or (0xF0000 <= o <= 0x10FFFD) or c in '□◇◆�?？〓'
+
+
+def _disp_rare(x):
+    """把造字換成〔?〕再顯示，免得終端機拿私用區碼亂配字形害人看錯字。"""
+    return ''.join('〔?〕' if _is_rare_placeholder_char(c) else c for c in (x or ''))
+
+
+def _match_section_with_rare_char(target, options, quiet=False):
+    """把任一邊的造字/問號/方框當成『任意一個字』，其餘字元必須完全相同且總長度相同。
+    只有『唯一命中』才自動選（多筆命中寧可讓使用者選，避免「磚子磘段」誤選成「一小段」）。
+    回傳命中的 index，沒有或多筆則回傳 None。"""
+    target = (target or '').strip()
+    if not target:
+        return None
+    hits = []
+    for idx, opt in enumerate(options):
+        o = (opt or '').strip()
+        if not o or len(o) != len(target):
+            continue
+        ok = True
+        for a, b in zip(target, o):
+            if a == b:
+                continue
+            if _is_rare_placeholder_char(a) or _is_rare_placeholder_char(b):
+                continue
+            ok = False
+            break
+        if ok:
+            hits.append(idx)
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1 and not quiet:
+        print(f"[造字比對] 有 {len(hits)} 個選項都符合，為避免選錯段，改由您手動選擇")
+    return None
+
+
 # ========= DOM：選行政區 + 段小段（修正版） =========
 def select_district_and_section_with_memory(driver, district_text: str, section_hint: str, wait_sec: int = 15):
     """
@@ -716,6 +785,17 @@ def select_district_and_section_with_memory(driver, district_text: str, section_
             print(f"SUCCESS: {match_info}")
             break
     
+    # 策略1.5: 地政造字容錯（政府把罕用字存成「?」或造字碼，例「磚子?段」vs「磚子磘段」）
+    #         放在包含/模糊比對之前，因為它比那些精確（要求等長且其餘字全同）
+    if not chosen:
+        print("策略1.5 - 地政造字容錯比對...")
+        _texts = [t.replace("　", "").replace(" ", "") for (_o, t, _v) in valid_options]
+        _ridx = _match_section_with_rare_char(want, _texts)
+        if _ridx is not None:
+            chosen = valid_options[_ridx][0]
+            match_info = f"造字容錯比對: '{_disp_rare(valid_options[_ridx][1])}'"
+            print(f"SUCCESS: {match_info}（自動對應 data.json 的「{want}」）")
+
     # 策略2: 包含匹配
     if not chosen:
         print("策略2 - 包含匹配...")

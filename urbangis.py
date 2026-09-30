@@ -346,7 +346,7 @@ import re
 import csv
 
 # 函式：擷取分區查詢彈出視窗的資料（不含建蔽率/容積率）
-def extract_zone_data(driver, area='', section=''):
+def extract_zone_data(driver, area='', section='', lot_number='', wait_secs=25):
     """
     從分區查詢彈出視窗中擷取土地資訊
     🔥 注意：分區查詢彈窗不包含建蔽率/容積率，這兩項只在都市計畫圖街廓資訊中才有
@@ -358,8 +358,29 @@ def extract_zone_data(driver, area='', section=''):
         section: 地段（例如：'仁德段'）
     """
     try:
-        # 等待分區查詢彈出視窗出現
-        time.sleep(2)
+        # 🔥 原本只 sleep(2) 就抓畫面文字 -> 政府網站慢的時候資料還沒顯示，會抓到一片空白（全部未取得）。
+        #    改成輪詢等「使用分區/公告現值真的出現」，而且**比對地號**，
+        #    避免抓到上一筆殘留在畫面上的舊資料。
+        page_text = ''
+        _deadline = time.time() + wait_secs
+        _ok = False
+        while time.time() < _deadline:
+            try:
+                page_text = driver.execute_script("return document.body.innerText;") or ''
+            except Exception:
+                page_text = ''
+            _flat = re.sub(r'[\s　]+', '', page_text)
+            if '使用分區' in _flat and '公告現值' in _flat:
+                if not lot_number:
+                    _ok = True
+                    break
+                _m = re.search(r'地號[:：]([0-9\-]+)', _flat)
+                if _m and _m.group(1).strip() == str(lot_number).strip():
+                    _ok = True
+                    break
+            time.sleep(0.8)
+        if not _ok:
+            print(f"[等待] {wait_secs} 秒內未等到分區資料顯示（或地號對不上），仍嘗試擷取", flush=True)
 
         # 檢查彈出視窗是否存在
         try:
@@ -371,8 +392,7 @@ def extract_zone_data(driver, area='', section=''):
         except Exception as e:
             pass
 
-        # 使用 JavaScript 擷取整個頁面的文字內容
-        page_text = driver.execute_script("return document.body.innerText;")
+        # 上面輪詢已經拿到 page_text，這裡不再重抓
 
         # 解析資料
         data_dict = {
@@ -480,13 +500,118 @@ def extract_zone_data(driver, area='', section=''):
         traceback.print_exc()
         return None
 
+# 🔥 政府主機健康檢查（避免政府端掛掉時，程式停在「請手動點擊」害使用者乾等）
+_KCG_DOWN_REPORTED = False
+
+
+def kcg_mapserver_down():
+    """檢查高雄市政府地籍圖資主機(mapgis2)是否無法服務。
+    2026-09-26 實測症狀：ArcGIS Web Adaptor 回 HTML
+    「Could not access any server machines」，此時網站前台還活著
+    （行政區/地段下拉選單載得出來），但查詢永遠回 0 筆、
+    畫面停在「資料讀取中，請稍後」。
+    回傳 (是否掛掉, 原因字串)。"""
+    global _KCG_DOWN_REPORTED
+    if _KCG_DOWN_REPORTED:
+        return True, "(已確認主機無法服務)"
+    import urllib.request as _ur
+    import ssl as _ssl
+    import re as _re
+    try:
+        _ctx = _ssl.create_default_context()
+        _ctx.check_hostname = False
+        _ctx.verify_mode = _ssl.CERT_NONE
+        _req = _ur.Request("https://mapgis2.kcg.gov.tw/server/rest/services/G97_E_LNPAR_P/MapServer?f=json",
+                           headers={"User-Agent": "Mozilla/5.0"})
+        _body = _ur.urlopen(_req, timeout=20, context=_ctx).read(60000).decode("utf-8", "replace")
+        if _body.lstrip().startswith("{"):
+            return False, ""   # 回正常 JSON = 政府主機活著
+        _m = _re.search(r"Could not access any server machines|Application Error", _body)
+        return True, (_m.group(0) if _m else "主機回應的不是資料格式(可能維護中)")
+    except Exception as _e:
+        return True, "連線失敗 " + type(_e).__name__
+
+
+def report_kcg_down(why):
+    """把「政府主機掛掉」講清楚，只報一次。"""
+    global _KCG_DOWN_REPORTED
+    if _KCG_DOWN_REPORTED:
+        return
+    _KCG_DOWN_REPORTED = True
+    print("", flush=True)
+    print("=" * 62, flush=True)
+    print("⚠️  高雄市政府地籍圖資主機目前無法服務（政府端問題）", flush=True)
+    print("    主機回應：" + str(why), flush=True)
+    print("    這不是程式或您的地段地號有錯：下拉選單載得出來，", flush=True)
+    print("    但查詢永遠回 0 筆，網站畫面會一直停在「資料讀取中，請稍後」。", flush=True)
+    print("    處理：本次【高雄都市計畫】查詢自動跳過，請稍後或隔天再試。", flush=True)
+    print("=" * 62, flush=True)
+
+
+# 🔥 地政造字容錯比對（與 nlma.py 同一套）
+# 政府不同下拉選單對罕用字的存法不一樣：
+#   urbangis 分區查詢 SECT   → '磚子磘段'（正確字 U+78D8，比對得到）
+#   urbangis 定位查詢 SECT05 → '磚子?段'（存成半形問號 U+003F）
+#   高雄 buildmis          → '磚子段'（PUA 造字碼 U+E025）
+# → 跟 data.json 的正確字完全比對必定失敗，要把這些字當萬用字元
+
+def _is_rare_placeholder_char(c):
+    """判斷是不是『無法比對的字』：造字(PUA 私用區)、方框、問號等。"""
+    o = ord(c)
+    return (0xE000 <= o <= 0xF8FF) or (0xF0000 <= o <= 0x10FFFD) or c in '□◇◆�?？〓'
+
+
+def _disp_rare(s):
+    """把造字換成〔?〕再顯示，免得終端機拿私用區碼亂配字形害人看錯字。"""
+    return ''.join('〔?〕' if _is_rare_placeholder_char(c) else c for c in (s or ''))
+
+
+def _match_section_with_rare_char(target, options, quiet=False):
+    """把任一邊的造字/問號/方框當成『任意一個字』，其餘字元必須完全相同且總長度相同。
+    只有『唯一命中』才自動選（多筆命中寧可讓使用者選，避免「磚子磘段」誤選成「一小段」）。
+    回傳命中的 index，沒有或多筆則回傳 None。"""
+    target = (target or '').strip()
+    if not target:
+        return None
+    hits = []
+    for idx, opt in enumerate(options):
+        o = (opt or '').strip()
+        if not o or len(o) != len(target):
+            continue
+        ok = True
+        for a, b in zip(target, o):
+            if a == b:
+                continue
+            if _is_rare_placeholder_char(a) or _is_rare_placeholder_char(b):
+                continue
+            ok = False
+            break
+        if ok:
+            hits.append(idx)
+    if len(hits) == 1:
+        return hits[0]
+    if len(hits) > 1:
+        if not quiet:
+            print(f"[造字比對] 有 {len(hits)} 個選項都符合，為避免選錯段，改由您手動選擇", flush=True)
+    return None
+
+
 # 更新 select_section_with_retry 函數，當無法自動選擇到地段時提示手動選擇
-def select_section_with_retry(section_select, section_name, max_retries=3):
+def select_section_with_retry(section_select, section_name, max_retries=8, select_id=None):
+    """🔥 select_id：有給的話每輪重新抓下拉元素。
+    政府的段清單是選完行政區後才 AJAX 載入的，曾發生
+    「已選大寮區、段清單還是鹽埕區舊清單」就去比對
+    -> 選不到、甚至可能選錯段。所以比對不中要等一下再重抓，
+    不是瞬間重試完 3 次就放棄。"""
     # 清理段名中的括弧和數字，例如「內惟段四小段(0123)」變成「內惟段四小段」
     clean_section_name = re.sub(r"\(.*?\)", "", section_name).strip()
     
     for attempt in range(max_retries):
+        _is_last = (attempt == max_retries - 1)
         try:
+            if select_id:
+                # 重新抓，避免 Vue 重建後 stale／拿到舊清單
+                section_select = Select(driver.find_element(By.ID, select_id))
             options = section_select.options
             # 嘗試精確匹配已清理的段名
             for option in options:
@@ -496,6 +621,24 @@ def select_section_with_retry(section_select, section_name, max_retries=3):
                     print(f"成功選擇地段: {option.text}", flush=True)
                     return True
             
+            # 🔥 造字容錯：定位查詢的下拉把罕用字存成「?」(U+003F)，
+            #    例：'磚子?段' vs data.json '磚子磘段' -> 完全比對必定失敗，用萬用字元救回來
+            _cleaned_opts = [re.sub(r"\(.*?\)", "", o.text).strip() for o in options]
+            _rare_idx = _match_section_with_rare_char(clean_section_name, _cleaned_opts, quiet=not _is_last)
+            if _rare_idx is not None:
+                section_select.select_by_index(_rare_idx)
+                print(f"成功選擇地段: {_disp_rare(_cleaned_opts[_rare_idx])}"
+                      f"（地政造字自動對應 data.json 的「{clean_section_name}」）", flush=True)
+                return True
+
+            # 🔥 還沒比對到 -> 很可能是段清單還在 AJAX 載入（拿到上一個區的舊清單），
+            #    等一下重抓再比；只有最後一次才印完整診斷清單（否則 log 會被 76 行×N 淡掉）
+            if not _is_last:
+                if attempt == 0:
+                    print(f"等待地段清單載入中（目標：{clean_section_name}）...", flush=True)
+                time.sleep(1.2)
+                continue
+
             # 若未找到精確匹配,列印所有選項的 Unicode 碼點供診斷
             print(f"未找到精確匹配的地段: {clean_section_name}", flush=True)
             print(f"目標地段 Unicode: {[f'{c}(U+{ord(c):04X})' for c in clean_section_name]}", flush=True)
@@ -1160,7 +1303,7 @@ for data in data_list:
             EC.presence_of_element_located((By.ID, "SECT"))
         )
         sect_select = Select(sect_select_element)
-        if not select_section_with_retry(sect_select, section):
+        if not select_section_with_retry(sect_select, section, select_id="SECT"):
             print("地段選擇失敗，跳過該查詢", flush=True)
             continue
         # print(f"已選擇地段: {section}")
@@ -1222,6 +1365,11 @@ for data in data_list:
 
         # 若無法找到任何匹配結果，提示手動操作
         if not result_found:
+            # 🔥 先分清楚是「政府主機掛掉」還是真的比對不到，別讓使用者乾等
+            _down, _why = kcg_mapserver_down()
+            if _down:
+                report_kcg_down(_why)
+                break
             print(f"無法匹配到查詢結果項目: {target_title}", flush=True)
             print("請手動點擊目標項目，然後按 Enter 繼續...", flush=True)
             input()
@@ -1254,7 +1402,7 @@ for data in data_list:
     except:
         pass
 
-    zone_data_1 = extract_zone_data(driver, area, section)
+    zone_data_1 = extract_zone_data(driver, area, section, lot_number)
     if zone_data_1:
         all_zone_data.append(zone_data_1)
         # 🔥 只有在成功取得使用分區時才顯示
@@ -1410,7 +1558,7 @@ for data in data_list:
             EC.presence_of_element_located((By.ID, "SECT05"))
         )
         section_select = Select(section_select_element)
-        if not select_section_with_retry(section_select, section):
+        if not select_section_with_retry(section_select, section, select_id="SECT05"):
             print("地段選擇失敗", flush=True)
             continue
 
@@ -1477,19 +1625,60 @@ for data in data_list:
         target_title = f"{area}{section}{lot_number}"
         # print(f"嘗試點擊查詢結果項目: {target_title}", flush=True)
 
-        # 取得所有查詢結果的選項並列印
-        result_items = driver.find_elements(By.XPATH, "//div[@id='UBA030100_BOTTOM']//ul[@id='searchResult']/li")
-        # print("查詢結果選項:", flush=True)
-        result_found = False
+        # 🔥 等查詢結果真的出現（原本抓了就比，結果清單還沒載入就會誤判“比對不到”）
+        result_items = []
+        _rdl = time.time() + 15
+        while time.time() < _rdl:
+            result_items = driver.find_elements(By.XPATH, "//div[@id='UBA030100_BOTTOM']//ul[@id='searchResult']/li")
+            if result_items:
+                break
+            time.sleep(0.8)
+
+        _titles = []
         for item in result_items:
-            title_text = item.get_attribute("title")
-            # print(f"查詢結果項目: {title_text}", flush=True)
+            try:
+                _titles.append(item.get_attribute("title") or "")
+            except Exception:
+                _titles.append("")
+
+        result_found = False
+        # (1) 精確比對
+        for item, title_text in zip(result_items, _titles):
             if title_text == target_title:
                 result_item = item
                 result_found = True
                 break
 
+        # (2) 造字容錯：結果項目的罕用字可能是問號/造字碼（等長）
         if not result_found:
+            _ri = _match_section_with_rare_char(target_title, _titles, quiet=True)
+            if _ri is not None:
+                result_item = result_items[_ri]
+                result_found = True
+                print(f"造字容錯比對找到：{_disp_rare(_titles[_ri])}", flush=True)
+
+        # (3) 模糊比對：以『行政區』開頭、以『地號』結尾
+        #     （分區查詢已驗證有效：造字有時是整個消失，例「大寮區磚子段4884」少了一個字）
+        if not result_found:
+            _cands = [(i, t) for i, t in enumerate(_titles)
+                      if t and t.startswith(area) and t.endswith(str(lot_number))]
+            if len(_cands) == 1:
+                result_item = result_items[_cands[0][0]]
+                result_found = True
+                print(f"模糊比對找到匹配：{_disp_rare(_cands[0][1])}", flush=True)
+            elif len(_cands) > 1:
+                print(f"模糊比對有 {len(_cands)} 筆符合，為避免選錯改由您手動選擇", flush=True)
+
+        if not result_found:
+            if _titles:
+                print(f"查詢結果共 {len(_titles)} 筆，都對不上目標「{target_title}」：", flush=True)
+                for _t in _titles[:10]:
+                    print(f"    {_disp_rare(_t)}", flush=True)
+            # 🔥 先分清楚是「政府主機掛掉」還是真的比對不到
+            _down, _why = kcg_mapserver_down()
+            if _down:
+                report_kcg_down(_why)
+                break
             # 若無法比對到結果，暫停並提示使用者手動點擊
             print(f"無法自動匹配到查詢結果項目: {target_title}", flush=True)
             print("請手動點擊目標項目，然後按 Enter 繼續...", flush=True)
@@ -1498,10 +1687,10 @@ for data in data_list:
             # 確保查詢結果項目可點擊
             try:
                 WebDriverWait(driver, 20).until(
-                    EC.element_to_be_clickable((By.XPATH, f"//div[@id='UBA030100_BOTTOM']//ul[@id='searchResult']/li[@title='{target_title}']"))
+                    EC.element_to_be_clickable(result_item)
                 )
                 driver.execute_script("arguments[0].click();", result_item)
-                print(f"成功點擊查詢結果: {target_title}", flush=True)
+                print(f"成功點擊查詢結果: {_disp_rare(result_item.get_attribute('title'))}", flush=True)
             except TimeoutException:
                 print(f"查詢結果項目 {target_title} 無法點擊", flush=True)
                 print("請手動點擊目標項目，然後按 Enter 繼續...", flush=True)
