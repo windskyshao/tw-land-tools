@@ -174,9 +174,66 @@ except Exception as e:
     print(f"[WARNING] 視窗設定失敗: {e}，繼續執行")
 
 # 指定要打開的網址
-url = "https://www.geologycloud.tw/map/liquefaction/zh-tw"
+# 🔥 2026-10-05 政府改版：舊的地質雲「土壤液化潛勢圖」**即日起停止服務**，
+#    網站公告：「配合整體風險評估計畫推動進度，即日起停止土壤液化潛勢圖查詢服務，
+#    接下來將為您重新導引到【環境地質雲】系統查詢」
+#    新站的液化圖資是 2026-09-24 09:00 排程上線的（寫在它 panel1.js 裡）。
+url = "https://envgeology.gsmma.gov.tw/landslide"
+
+# 🔥 新站是 Leaflet 地圖，但地圖物件藏在模組內部、拿不到。
+#    在網頁任何程式執行**之前**先攔截 L.Map 的初始化，把實例存起來，
+#    之後就能直接命令地圖定位（比打搜尋框穩定很多）。
+try:
+    driver.execute_cdp_cmd("Page.addScriptToEvaluateOnNewDocument", {"source": """
+      (function(){
+        var tries = 0;
+        var iv = setInterval(function(){
+          tries++;
+          try {
+            if (window.L && L.Map && L.Map.prototype && !L.Map.prototype.__hooked) {
+              var origInit = L.Map.prototype.initialize;
+              L.Map.prototype.initialize = function(){
+                var r = origInit.apply(this, arguments);
+                try { window.__LMAPS = window.__LMAPS || []; window.__LMAPS.push(this); } catch(e){}
+                return r;
+              };
+              L.Map.prototype.__hooked = true;
+              clearInterval(iv);
+            }
+          } catch(e){}
+          if (tries > 400) clearInterval(iv);
+        }, 25);
+      })();
+    """})
+except Exception as _e:
+    print(f"[WARNING] 地圖攔截設定失敗（{_e}），將改用搜尋框退路", flush=True)
+
 time.sleep(2)
 driver.get(url)
+
+# 🔥 一載入就先關掉「開場導覽」，別等到後面才關。
+#    它是一層蓋住整個畫面的麵罩，不關的話要等很久才進得了系統。
+#    官方按鈕：<div class="guidMask__closeBuidBtn" onclick="closeGuidMask(this)">關閉導覽(Close)</div>
+_intro_deadline = time.time() + 25
+while time.time() < _intro_deadline:
+    try:
+        _n = driver.execute_script("""
+          var n = 0;
+          var b = document.querySelector('.guidMask__closeBuidBtn');
+          if (b) { try { b.click(); n++; } catch(e){} }
+          if (!n && typeof closeGuidMask === 'function') {
+            try { closeGuidMask(b || document.body); n++; } catch(e){}
+          }
+          document.querySelectorAll('.guidMask, [class*="guidMask"], .introjs-overlay, .introjs-helperLayer, .introjs-tooltipReferenceLayer, .introjs-tooltip')
+            .forEach(function(e){ try { e.remove(); n++; } catch(e2){} });
+          return n;
+        """)
+        if _n:
+            print(f"已關閉開場導覽（{_n} 個元素）。", flush=True)
+            break
+    except Exception:
+        pass
+    time.sleep(0.5)
 # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
 try:
     driver.set_window_size(geology_window_width, geology_window_height)
@@ -271,19 +328,246 @@ def _dismiss_extra_popups(driver, rounds=3):
             break
 
 
-# 點擊 "我知道了" 按鈕（有縮放時跳過，因為按鈕可能已消失）
-if zoom_count == 0:
-    try:
-        know_button = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.ID, "btn_Soillique_OK"))
-        )
-        know_button.click()
-        print("已點擊「我知道了」按鈕。", flush=True)
-    except TimeoutException:
-        print("無法找到「我知道了」按鈕。", flush=True)
+# 舊站的「我知道了」(btn_Soillique_OK) 已隨舊站停止服務而移除，
+# 新站改用 .guidMask__closeBuidBtn（已在載入時就關掉）。
 
 # 🔥 關掉可能多出來的公告彈窗(例：政府臨時維護公告)，避免擋住後續搜尋操作
 _dismiss_extra_popups(driver)
+
+
+# ===== 新站（環境地質雲）初始化 =====
+def _close_intro(driver):
+    """關掉開場導覽（會蓋住整個畫面）。"""
+    try:
+        n = driver.execute_script("""
+          var n = 0;
+          var b = document.querySelector('.guidMask__closeBuidBtn');
+          if (b) { try { b.click(); n++; } catch(e){} }
+          document.querySelectorAll('.guidMask, [class*="guidMask"], .introjs-overlay, .introjs-helperLayer, .introjs-tooltipReferenceLayer, .introjs-tooltip')
+            .forEach(function(e){ try { e.remove(); n++; } catch(e2){} });
+          return n;""")
+        if n:
+            print(f"已關閉開場導覽（{n} 個元素）。", flush=True)
+    except Exception:
+        pass
+
+
+def _enable_liquefaction_layer(driver, tries=3):
+    """打開「土壤液化潛勢區域」圖層（新站預設是關的）。"""
+    for _i in range(tries):
+        try:
+            r = driver.execute_script("""
+              var cb = document.querySelector('#cgs_4c_liquefaction_0');
+              if (cb) { if (!cb.checked) { cb.click(); } return cb.checked; }
+              var bt = document.querySelector('#cgs_4c_liquefaction');
+              if (bt) { bt.click(); return 'clicked'; }
+              return null;""")
+            if r:
+                print(f"已開啟【土壤液化潛勢區域】圖層。", flush=True)
+                time.sleep(3)
+                return True
+        except Exception:
+            pass
+        time.sleep(2)
+    print("[警告] 找不到土壤液化圖層開關，截圖可能沒有液化色塊", flush=True)
+    return False
+
+
+def _parse_latlon(coord_text):
+    """'22.57152,120.37395' -> (22.57152, 120.37395)。順序是緯度,經度。"""
+    parts = [x.strip() for x in str(coord_text or '').replace('，', ',').split(',')]
+    if len(parts) < 2:
+        raise ValueError(f"座標格式不對：{coord_text!r}")
+    a, b2 = float(parts[0]), float(parts[1])
+    # 台灣：緯度 21~26、經度 118~123。若寫反了自動交換
+    if a > 100 and b2 < 40:
+        a, b2 = b2, a
+    return a, b2
+
+
+def _tiles_pending(driver):
+    """還沒載完的圖磚數。
+    直接看 <img> 的 complete / naturalWidth，比看 class 可靠
+    （政府的 WMTS 圖層不一定會帶 .leaflet-tile-loaded）。"""
+    try:
+        return driver.execute_script("""
+          var imgs = document.querySelectorAll('.leaflet-tile-pane img');
+          var p = 0;
+          for (var i = 0; i < imgs.length; i++) {
+            var im = imgs[i];
+            if (!im.complete || im.naturalWidth === 0) p++;
+          }
+          return p;
+        """)
+    except Exception:
+        return 0
+
+
+def _reload_failed_tiles(driver):
+    """把載失敗的圖磚強制重新要一次。
+    實測：灰色空白塊是 **NLSC 國土測繪的底圖**沒載起來，
+    不是「該區沒有液化資料」（兩者很像但完全不同）：
+    單獨去抓那些圖磚都是 HTTP 200 正常 JPEG，只是政府圖磚伺服器
+    被同時要太多張時會掉包。重設 src 就會再要一次。"""
+    try:
+        return driver.execute_script("""
+          var n = 0;
+          document.querySelectorAll('.leaflet-tile-pane img').forEach(function(im){
+            if (!im.complete || im.naturalWidth === 0) {
+              var s = im.src;
+              if (s) { im.src = ''; im.src = s; n++; }
+            }
+          });
+          return n;
+        """)
+    except Exception:
+        return 0
+
+
+def _nudge_map(driver):
+    """輕輕推一下地圖再推回來，迫使 Leaflet 重新要沒載到的圖磚。"""
+    try:
+        driver.execute_script("""
+          var maps = window.__LMAPS || [];
+          if (!maps.length) return;
+          var m = maps[0];
+          try { m.panBy([2, 2], {animate:false}); m.panBy([-2, -2], {animate:false}); } catch(e){}
+          try { m.invalidateSize(); } catch(e){}
+        """)
+    except Exception:
+        pass
+
+
+def _wait_tiles(driver, timeout=12):
+    """等地圖圖磚載完再截圖，但**卡住就立刻放棄**，不要讓使用者乾等。
+
+    停滞偵測：每 0.5 秒看一次還沒載完的數量，
+    若連續約 2.5 秒數量沒減少，就是「要不到了」（該區沒圖或政府伺服器掉包），
+    繼續等只是浪費時間 → 馬上走人，讓外面把它藏成白底就好。"""
+    last = None
+    stall = 0
+    end = time.time() + timeout
+    while time.time() < end:
+        n = _tiles_pending(driver)
+        if n == 0:
+            time.sleep(0.8)
+            return True
+        if last is not None and n >= last:
+            stall += 1
+            if stall >= 5:          # 約 2.5 秒沒進展 -> 不等了
+                break
+        else:
+            stall = 0
+        last = n
+        time.sleep(0.5)
+
+    # 只試一輪重要（真的沒圖的話再試也沒用，以前試 3 輪會多等幾十秒）
+    _n = _reload_failed_tiles(driver)
+    if _n:
+        _end2 = time.time() + 5
+        while time.time() < _end2:
+            if _tiles_pending(driver) == 0:
+                time.sleep(0.8)
+                return True
+            time.sleep(0.5)
+    return False
+
+
+def _map_center(driver):
+    """回傳目前地圖中心 (lat, lon)，拿不到回傳 None。"""
+    try:
+        c = driver.execute_script("""
+          var maps = window.__LMAPS || [];
+          if (!maps.length) return null;
+          var m = maps[0];
+          var c = m.getCenter();
+          return [c.lat, c.lng, m.getZoom()];
+        """)
+        return c
+    except Exception:
+        return None
+
+
+def _search_coord(driver, coord_text, lat, lon):
+    """用網站**官方搜尋框**輸入座標定位（跟手動操作完全一樣）。
+
+    ⚠️ 關鍵：輸入完按 Enter **還不會定位**，它只是在搜尋框下方
+       浮出一個「[坐標]22.57138,120.37363」的**可點擊按鈕**
+       （`.search_result_button`），**點下去才會飛過去**，
+       而且會在定位點標上官方的座標圖標與資訊框。
+    回傳 True 表示地圖真的移到目標附近。"""
+    try:
+        from selenium.webdriver.common.keys import Keys
+        inp = driver.find_element(By.CSS_SELECTOR, "input[placeholder*='請輸入']")
+        driver.execute_script("arguments[0].value = '';", inp)
+        try:
+            inp.clear()
+        except Exception:
+            pass
+        inp.send_keys(str(coord_text))
+        time.sleep(0.6)
+        inp.send_keys(Keys.ENTER)
+
+        # 等「座標候選按鈕」浮出來並點它（這步不做就不會定位）
+        _clicked = None
+        _end = time.time() + 8
+        while time.time() < _end:
+            _clicked = driver.execute_script("""
+              var b = document.querySelector('.search_result_button');
+              if (b) { b.click(); return (b.textContent || '').trim(); }
+              return null;
+            """)
+            if _clicked:
+                print(f"已點選座標候選：{_clicked}", flush=True)
+                break
+            time.sleep(0.4)
+
+        # 等它真的把地圖移過去
+        _end2 = time.time() + 10
+        while time.time() < _end2:
+            c = _map_center(driver)
+            if c and abs(c[0] - lat) < 0.01 and abs(c[1] - lon) < 0.01:
+                return True
+            time.sleep(0.5)
+    except Exception as _e:
+        print(f"[搜尋框] 無法使用（{type(_e).__name__}）", flush=True)
+    return False
+
+
+def _goto_coord(driver, lat, lon, zoom=17, marker=True):
+    """直接命令 Leaflet 地圖定位，並在中心畫一個紅圈標記。
+    紅圈用 circleMarker（CSS 畫的），不用圖標圖片，免得破圖。"""
+    return driver.execute_script("""
+      var lat = arguments[0], lon = arguments[1], z = arguments[2], mk = arguments[3];
+      var maps = window.__LMAPS || [];
+      if (!maps.length) return {ok:false, msg:'沒攔到地圖物件'};
+      var map = maps[0];
+      for (var i = 0; i < maps.length; i++) {
+        if (maps[i]._container && maps[i]._container.offsetParent) { map = maps[i]; break; }
+      }
+      // ⚠️ 一定要 animate:false：點完座標候選後網站會跑飛行動畫，
+      //    帶動畫的 setView 會被它吃掉，結果停在 zoom 13（整個高雄）。
+      map.setView([lat, lon], z, {animate: false});
+      try {
+        if (window.__LMK) { map.removeLayer(window.__LMK); window.__LMK = null; }
+        if (mk && window.L && L.circleMarker) {
+          window.__LMK = L.circleMarker([lat, lon], {
+            radius: 10, color: '#d32f2f', weight: 3,
+            fillColor: '#ff5252', fillOpacity: 0.45
+          }).addTo(map);
+        }
+      } catch(e){}
+      try { map.invalidateSize(); } catch(e){}
+      return {ok:true, zoom:map.getZoom(),
+              center:[map.getCenter().lat, map.getCenter().lng]};
+    """, lat, lon, zoom, bool(marker))
+
+
+_close_intro(driver)
+time.sleep(1)
+_liq_ok = _enable_liquefaction_layer(driver)
+_map_hooked = bool(driver.execute_script("return (window.__LMAPS||[]).length;"))
+print(f"[地圖] 攔截到 {int(_map_hooked)} 個地圖物件", flush=True)
 
 # 列表來收集所有 PNG 路徑和標識符
 all_png_files = []
@@ -301,45 +585,71 @@ for index, data in enumerate(data_list):
     print(f"處理資料 {index+1}/{len(data_list)}: 城市 = {city}, 區域 = {area}, 段 = {section}, 地號 = {lot_number}, 座標 = {coordinates}", flush=True)
 
     try:
-        # 🔥 每筆查詢前先清掉可能跳出的公告遮罩(政府維護公告 sweet-overlay 會擋住點擊)
-        _dismiss_extra_popups(driver, rounds=1)
+        # 註：新站沒有舊站那種 sweet-alert 公告，而且通用關閉會點到任何 .close，
+        #    可能誤關掉**圖例**或**座標資訊框**，所以每筆查詢前不再跑。
 
-        # 輸入座標到搜尋欄位
-        search_input = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "#map-geocoding-input input[type='text']"))
-        )
-        search_input.clear()
-        search_input.send_keys(coordinates)
+        # 🔥 新站改用「直接命令地圖定位」，不再打搜尋框
+        #    （舊站是輸入座標 -> 點放大鏡 -> 點結果清單；
+        #      新站搜尋框對純座標不會定位，改攔 Leaflet 地圖物件直接 setView）
+        _lat, _lon = _parse_latlon(coordinates)
 
-        # 模擬滑鼠懸停到搜尋圖示
-        search_icon = WebDriverWait(driver, 10).until(
-            EC.visibility_of_element_located((By.CSS_SELECTOR, "#map-geocoding-input .fa-search"))
-        )
-        actions = ActionChains(driver)
-        actions.move_to_element(search_icon).perform()
-        time.sleep(0.5)
-
-        # 點擊搜尋按鈕(若仍被遮罩擋住 -> 再清一次並改用 JS 強制點)
+        # 🔥 先清掉上一筆留下的座標圖標（資訊框裡的「移除」鈕），
+        #    不清的話第二筆截圖會同時出現兩個圖標，分不出哪個是這筆。
         try:
-            search_icon.click()
+            _rm = driver.execute_script("""
+              var n = 0;
+              document.querySelectorAll('button, a, div, span').forEach(function(e){
+                var t = (e.innerText || '').trim();
+                if (t === '移除' && e.offsetParent && e.children.length === 0) {
+                  try { e.click(); n++; } catch(err){}
+                }
+              });
+              return n;
+            """)
+            if _rm:
+                time.sleep(0.8)
         except Exception:
-            _dismiss_extra_popups(driver, rounds=2)
-            driver.execute_script("arguments[0].click();", search_icon)
-        print("已點擊搜尋按鈕。", flush=True)
+            pass
 
-        # 等待結果列表項目顯示並點擊
-        list_item = WebDriverWait(driver, 10).until(
-            EC.element_to_be_clickable((By.CSS_SELECTOR, "#map-geocoding-list .list-group-item"))
-        )
-        list_item.click()
-        print("已點擊結果列表中的項目。", flush=True)
+        # (1) 先走官方搜尋框（會有官方座標圖標與資訊框，跟手動操作一樣）
+        _searched = _search_coord(driver, coordinates, _lat, _lon)
+        if _searched:
+            print(f"已用搜尋框定位到 {coordinates}。", flush=True)
+        else:
+            print("[提示] 搜尋框沒把地圖移過去，改由程式定位", flush=True)
 
-        # 等待搜尋結果並截圖
-        time.sleep(2)  # 等待搜尋結果
+        # (2) 🔥 不論搜尋框成功與否，**最後都再校正一次比例尺**。
+        #     因為點完座標候選後網站有自己的飛行動畫，會**覆蓋掉我們設的縮放**，
+        #     曾出現同一批的兩張圖一張 1:4,168、另一張 1:66,692（整個高雄）的狀況。
+        #     有官方圖標就不重複畫紅圈。
+        time.sleep(1.5)
+        _r = _goto_coord(driver, _lat, _lon, zoom=17, marker=not _searched)
+        if not _r or not _r.get("ok"):
+            print(f"[警告] 比例尺校正失敗：{_r}", flush=True)
+        else:
+            print(f"已校正到 zoom={_r.get('zoom')}。", flush=True)
+        time.sleep(1.5)
+
+        # 等圖磚載完再截（不等會截到一半空白）
+        _wait_tiles(driver, timeout=12)
+        # 實在要不到的底圖圖磚 -> 藏起來讓它變白底，別留難看的灰塊
+        try:
+            _h = driver.execute_script("""
+              var n = 0;
+              document.querySelectorAll('.leaflet-tile-pane img').forEach(function(im){
+                if (!im.complete || im.naturalWidth === 0) { im.style.visibility = 'hidden'; n++; }
+              });
+              return n;
+            """)
+            if _h:
+                print(f"[圖磚] {_h} 塊底圖要不到（該區沒圖或政府伺服器掉包），已藏成白底", flush=True)
+        except Exception:
+            pass
+
         filename_base = f"09_地質雲-{area}{section}-{lot_number}"
         screenshot_path = os.path.join(png_dir, f"{filename_base}.png")
         driver.save_screenshot(screenshot_path)
-        print(f"\033[93m已截圖並保存為 {screenshot_path}\033[0m", flush=True)
+        print(f"[93m已截圖並保存為 {screenshot_path}[0m", flush=True)
 
         # 收集 PNG 路徑和標識符
         all_png_files.append(screenshot_path)

@@ -36,7 +36,18 @@ from selenium.webdriver.support import expected_conditions as EC
 from selenium.webdriver.support.ui import Select
 from selenium.common.exceptions import TimeoutException, NoSuchElementException
 from selenium.webdriver.chrome.service import Service
-from webdriver_manager.chrome import ChromeDriverManager
+# 🔥 改走專案統一的 webdriver_helper：會依實際 Chrome 版本拓對應的 driver、
+#    下載走系統 curl 避開 SSL 問題。舊的 webdriver_manager 會自己抓一個版本，
+#    2026-10-05 實測它抓到 154.0.8037.92、但 Chrome 是 154.0.8037.59
+#    -> session not created / chrome not reachable。
+try:
+    from webdriver_helper import create_chrome_driver
+except Exception:
+    create_chrome_driver = None
+try:
+    from webdriver_manager.chrome import ChromeDriverManager   # 舊退路
+except Exception:
+    ChromeDriverManager = None
 import re
 from PIL import Image
 from io import BytesIO
@@ -51,6 +62,21 @@ def to_fullwidth_number(text):
     trans_table = str.maketrans(halfwidth, fullwidth)
     return text.translate(trans_table)
 
+
+
+def to_halfwidth_number(text):
+    """全形數字 -> 半形。
+
+    ⚠️ 2026-10-05 實測：內政部戶政司門牌查詢的「巷/弄/之/樓之」欄位
+    **要半形**，填全形會「查無資料」。
+    （舊程式註解寫「網站要求全形」是舊版網站的規則，改版後已不適用；
+     而且同一張表單的「號」一直都是半形才有效，本來就不一致。）
+    實測案例：高雄市小港區高松路19之28號六樓
+      之=全形２８ -> 查無資料；之=半形28 -> 查到「松山里 5 鄰」。"""
+    if not text:
+        return text
+    return str(text).translate(str.maketrans(
+        "０１２３４５６７８９", "0123456789"))
 
 def chinese_number_to_arabic(chinese_num):
     """將中文數字轉換為阿拉伯數字（支援一到九十九）"""
@@ -241,6 +267,33 @@ CITY_ID_MAP = {
 }
 
 
+def _free_memory_gb():
+    """回傳目前可用記憶體(GB)，取不到回傳 None。
+    用 Windows 原生 API，不需額外套件。
+    為什麼要查：Chrome 開了卻一片白、等一下自己關掉 ->
+    通常是記憶體不夠、渲染程序起不來，chromedriver 等不到回應就放棄。"""
+    try:
+        import ctypes
+
+        class _MS(ctypes.Structure):
+            _fields_ = [("dwLength", ctypes.c_ulong),
+                        ("dwMemoryLoad", ctypes.c_ulong),
+                        ("ullTotalPhys", ctypes.c_ulonglong),
+                        ("ullAvailPhys", ctypes.c_ulonglong),
+                        ("ullTotalPageFile", ctypes.c_ulonglong),
+                        ("ullAvailPageFile", ctypes.c_ulonglong),
+                        ("ullTotalVirtual", ctypes.c_ulonglong),
+                        ("ullAvailVirtual", ctypes.c_ulonglong),
+                        ("ullAvailExtendedVirtual", ctypes.c_ulonglong)]
+
+        ms = _MS()
+        ms.dwLength = ctypes.sizeof(_MS)
+        ctypes.windll.kernel32.GlobalMemoryStatusEx(ctypes.byref(ms))
+        return ms.ullAvailPhys / (1024.0 ** 3)
+    except Exception:
+        return None
+
+
 class RISQueryBot:
     """內政部戶政司村里查詢機器人"""
 
@@ -265,6 +318,12 @@ class RISQueryBot:
         options.add_argument('--disable-gpu')
         options.add_argument('--no-sandbox')
         options.add_argument('--disable-dev-shm-usage')
+        # 🔥 減少啟動負擔（記憶體吃緊時比較起得來）
+        options.add_argument('--disable-extensions')
+        options.add_argument('--disable-background-networking')
+        options.add_argument('--disable-software-rasterizer')
+        options.add_argument('--no-first-run')
+        options.add_argument('--no-default-browser-check')
 
         # 🔥 強制使用淺色模式（避免暗黑模式影響截圖品質）
         options.add_argument('--disable-features=WebUIDarkMode,ForcedColors')
@@ -282,9 +341,44 @@ class RISQueryBot:
         # 初始化 WebDriver
         try:
             self.log("\n[初始化] 啟動 Chrome 瀏覽器...")
-            # 使用 webdriver-manager 自動管理 ChromeDriver
-            service = Service(ChromeDriverManager().install())
-            self.driver = webdriver.Chrome(service=service, options=options)
+            _fm = _free_memory_gb()
+            if _fm is not None:
+                if _fm < 1.5:
+                    self.log(f"[記憶體] ⚠️ 目前可用僅 {_fm:.1f} GB，Chrome 很可能起不來。")
+                    self.log("          建議先關掉一些 Chrome 分頁或其他程式再試。")
+                else:
+                    self.log(f"[記憶體] 可用 {_fm:.1f} GB")
+            # 🔥 啟動策略（chrome not reachable 常是**記憶體不足**或一時性沒起來，所以要重試）：
+            #    1) 專案統一的 webdriver_helper（會比對 Chrome 版本、必要時自動更新 driver）試 2 次
+            #    2) 還不行 -> 退回 webdriver_manager
+            self.driver = None
+            _last_err = None
+            if create_chrome_driver is not None:
+                for _try in range(2):
+                    try:
+                        self.driver = create_chrome_driver(options=options)
+                        break
+                    except Exception as _e1:
+                        _last_err = _e1
+                        if _try == 0:
+                            self.log(f"[初始化] 啟動失敗（{type(_e1).__name__}），3 秒後重試…")
+                            time.sleep(3)
+                        else:
+                            self.log(f"[初始化] 統一方式兩次都失敗，改用備援方式…")
+            if self.driver is None and ChromeDriverManager is not None:
+                try:
+                    service = Service(ChromeDriverManager().install())
+                    self.driver = webdriver.Chrome(service=service, options=options)
+                except Exception as _e2:
+                    _last_err = _e2
+            if self.driver is None:
+                self.log("")
+                self.log("=" * 56)
+                self.log("❌ Chrome 啟動失敗（chrome not reachable）")
+                self.log("   最常見的原因是「記憶體不夠」，Chrome 沒起來。")
+                self.log("   請試：關掉一些 Chrome 分頁或其他程式後再查一次。")
+                self.log("=" * 56)
+                raise _last_err if _last_err else RuntimeError("無法啟動 Chrome")
             self.wait = WebDriverWait(self.driver, 20)
 
             # 設定視窗位置和大小：左上角(0,0)，寬度1024，高度為螢幕高度扣掉工作列
@@ -520,7 +614,7 @@ class RISQueryBot:
                 # 巷
                 lane_match = re.search(r'([０-９0-9]+)巷', number)
                 if lane_match:
-                    lane_value = to_fullwidth_number(lane_match.group(1))
+                    lane_value = to_halfwidth_number(lane_match.group(1))
                     try:
                         lane_input = self.driver.find_element(By.ID, "lane")
                         # 🔥 改用 JavaScript 設值：send_keys 在新版網站會被欄位事件清掉
@@ -540,7 +634,7 @@ class RISQueryBot:
                 # 弄
                 alley_match = re.search(r'([０-９0-9]+)弄', number)
                 if alley_match:
-                    alley_value = to_fullwidth_number(alley_match.group(1))
+                    alley_value = to_halfwidth_number(alley_match.group(1))
                     try:
                         alley_input = self.driver.find_element(By.ID, "alley")
                         # 🔥 同上，改用 JavaScript 設值
@@ -592,9 +686,9 @@ class RISQueryBot:
                 sub_number_match = re.search(r'號?之([０-９0-9]+)', number)
                 if sub_number_match:
                     sub_number_text = sub_number_match.group(1)
-                    # 🔥 將半型數字轉換為全型（內政部網站要求）
-                    # 注意：如果已經是全型，to_fullwidth_number 不會改變
-                    sub_number = to_fullwidth_number(sub_number_text)
+                    # 🔥 實測網站要**半形**，全形會查無資料
+                    # 注意：輸入可能是全形，這裡統一轉成半形
+                    sub_number = to_halfwidth_number(sub_number_text)
                     try:
                         number1_input = self.driver.find_element(By.ID, "number1")
                         # 🔥 改用 JavaScript 填入，跟「號」欄位相同的方式
@@ -655,8 +749,8 @@ class RISQueryBot:
             floor_ext_match = re.search(r'樓之([０-９0-9]+)', address_with_floor)
             if floor_ext_match:
                 floor_ext_text = floor_ext_match.group(1)
-                # 🔥 將半型數字轉換為全型（內政部網站要求）
-                floor_ext = to_fullwidth_number(floor_ext_text)
+                # 🔥 實測網站要**半形**，全形會查無資料
+                floor_ext = to_halfwidth_number(floor_ext_text)
                 try:
                     ext_input = self.driver.find_element(By.ID, "ext")
                     # 🔥 改用 JavaScript 填入，跟「號」和「樓」欄位相同的方式

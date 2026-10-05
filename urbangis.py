@@ -597,6 +597,53 @@ def _match_section_with_rare_char(target, options, quiet=False):
 
 
 # 更新 select_section_with_retry 函數，當無法自動選擇到地段時提示手動選擇
+# ========= 使用分區比對（避免點到鄰區的街廓抛錯建蔽容積）=========
+_ZONE_CN2AR = {"一": "1", "二": "2", "三": "3", "四": "4", "五": "5",
+               "六": "6", "七": "7", "八": "8", "九": "9", "十": "10"}
+
+
+def _zone_key(name):
+    """把使用分區名稱正規化成可比對的 key：(類別, 種別數字, 是否特定)
+
+    例：第五種商業區   -> ("商", "5", False)
+        特定第一種商業區 -> ("商", "1", True)
+        特定商一（別名）   -> ("商", "1", True)
+        住二（別名）       -> ("住", "2", False)
+
+    ⚠️ 舊寫法對商業區只檢查別名「有沒有商字」，
+       「特定商一」會被當成「第五種商業區」接受 -> 建蔽容積抓到鄰區的。"""
+    s = re.sub(r"\s", "", str(name or ""))
+    if not s:
+        return None
+    spec = ("特定" in s)
+    kind = None
+    for ch in ("住", "商", "工", "農"):
+        if ch in s:
+            kind = ch
+            break
+    if kind is None:
+        # 保護區/河道/公園/機關用地…沒有種別，直接用名稱比
+        return ("other", s.replace("特定", ""), spec)
+    num = ""
+    m = re.search(r"第([一二三四五六七八九十]|\d+)種", s)
+    if m:
+        num = m.group(1)
+    else:
+        m2 = re.search(kind + r"([一二三四五六七八九十]|\d+)", s)
+        if m2:
+            num = m2.group(1)
+    num = _ZONE_CN2AR.get(num, num)
+    return (kind, num, spec)
+
+
+def _zone_match(expected, detected):
+    """兩個分區名稱是不是同一種（類別+種別+特定與否都要一樣）。"""
+    a, b = _zone_key(expected), _zone_key(detected)
+    if not a or not b:
+        return False
+    return a == b
+
+
 def select_section_with_retry(section_select, section_name, max_retries=8, select_id=None):
     """🔥 select_id：有給的話每輪重新抓下拉元素。
     政府的段清單是選完行政區後才 AJAX 載入的，曾發生
@@ -862,18 +909,37 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
                 actions = ActionChains(driver)
                 size = red_path_element.size
 
-                # 🔥 定義多個點擊位置嘗試順序
+                # 🔥 點擊位置：**從右往左一路掃**，每一點都要通過「使用分區相符」驗證，
+                #    不符就換下一點（紅框裡可能跨兩個街廓，點錯會抓到鄰區的建蔽容積）
+                _w, _h = size['width'], size['height']
                 click_positions = [
-                    ("右邊界中點", size['width'] // 2, 0),           # 原始位置
-                    ("右邊界向中心1/2", size['width'] // 4, 0),       # 向中心調整一半
-                    ("中心點", 0, 0),                                  # 正中心
-                    ("左邊界向中心1/2", -(size['width'] // 4), 0),    # 向左一半
+                    ("右邊界中點", _w // 2, 0),
+                    ("右側 3/8", (_w * 3) // 8, 0),
+                    ("右側 1/4", _w // 4, 0),
+                    ("右側 1/8", _w // 8, 0),
+                    ("中心點", 0, 0),
+                    ("左側 1/8", -(_w // 8), 0),
+                    ("左側 1/4", -(_w // 4), 0),
+                    ("左側 3/8", -((_w * 3) // 8), 0),
+                    ("左邊界附近", -(_w // 2 - 3), 0),
+                    ("中心偏上", 0, -(_h // 4)),
+                    ("中心偏下", 0, _h // 4),
                 ]
 
                 for attempt, (position_name, x_offset, y_offset) in enumerate(click_positions, 1):
-                    print(f"嘗試 {attempt}/4: 點擊紅框{position_name}位置...", flush=True)
+                    print(f"嘗試 {attempt}/{len(click_positions)}: 點擊紅框{position_name}位置...", flush=True)
 
                     try:
+                        # 🔥 先關掉上一個彈窗，否則可能讀到上一點的舊資料而誤判相符
+                        if attempt > 1:
+                            try:
+                                driver.execute_script("""
+                                    var cs = document.querySelectorAll('div.titleButton.close, button[title="關閉"]');
+                                    for (var i = 0; i < cs.length; i++) { cs[i].click(); }
+                                """)
+                                time.sleep(0.8)
+                            except Exception:
+                                pass
                         # 點擊紅框
                         actions.move_to_element_with_offset(red_path_element, x_offset, y_offset).click().perform()
 
@@ -1001,40 +1067,27 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
 
                             # 🔥 驗證是否與第一步的資料匹配
                             if expected_zone and detected_zone:
-                                # 直接比對完整名稱
-                                if zone_full_name and expected_zone in zone_full_name:
-                                    print(f"✅ 驗證成功！使用分區完全匹配: {zone_full_name}", flush=True)
-                                    click_success = True
-                                    break
-                                elif zone_full_name and zone_full_name in expected_zone:
-                                    print(f"✅ 驗證成功！使用分區包含匹配: {zone_full_name}", flush=True)
-                                    click_success = True
-                                    break
-                                # 嘗試透過別名關聯（備用方案）
+                                # 🔥 用「類別+種別+特定與否」比對。
+                                #    舊寫法對商業區只看別名有沒有「商」字，
+                                #    「特定商一」會被當成「第五種商業區」接受
+                                #    -> 第一下就收工，建蔽容積抛成鄰區的資料。
+                                _ok = False
+                                _why = ""
+                                if zone_full_name:
+                                    _ok = _zone_match(expected_zone, zone_full_name)
+                                    _why = f"完整名稱「{zone_full_name}」"
                                 elif zone_alias:
-                                    is_related = False
-                                    if '第一種住宅區' in expected_zone:
-                                        is_related = '住一' in zone_alias or '住1' in zone_alias
-                                    elif '第二種住宅區' in expected_zone:
-                                        is_related = '住二' in zone_alias or '住2' in zone_alias
-                                    elif '第三種住宅區' in expected_zone:
-                                        is_related = '住三' in zone_alias or '住3' in zone_alias
-                                    elif '第四種住宅區' in expected_zone:
-                                        is_related = '住四' in zone_alias or '住4' in zone_alias
-                                    elif '商業區' in expected_zone:
-                                        is_related = '商' in zone_alias
-                                    elif '工業區' in expected_zone:
-                                        is_related = '工' in zone_alias
-
-                                    if is_related:
-                                        print(f"✅ 驗證成功！分區別名匹配: 預期={expected_zone}, 別名={zone_alias}", flush=True)
-                                        click_success = True
-                                        break
-                                    else:
-                                        print(f"⚠️ 分區不完全匹配: 預期={expected_zone}, 檢測={detected_zone}", flush=True)
-                                        print(f"   但有都市計畫資料，嘗試下一個位置", flush=True)
+                                    # 別名可能省略「特定」兩字，故只比類別+種別
+                                    _a, _b = _zone_key(expected_zone), _zone_key(zone_alias)
+                                    _ok = bool(_a and _b and _a[:2] == _b[:2])
+                                    _why = f"別名「{zone_alias}」"
+                                if _ok:
+                                    print(f"✅ 驗證成功！使用分區相符（{_why}）", flush=True)
+                                    click_success = True
+                                    break
                                 else:
-                                    print(f"⚠️ 無法驗證分區匹配，嘗試下一個位置", flush=True)
+                                    print(f"⛔ 分區不符：預期「{expected_zone}」，"
+                                          f"這一點是「{detected_zone}」 → 改點下一個位置", flush=True)
                             else:
                                 # 沒有預期值可驗證，但有都市計畫資料就接受
                                 print(f"✅ 檢測到都市計畫資料（無第一步資料可驗證）", flush=True)
@@ -1194,6 +1247,24 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             # 🔥 回傳所有街廓資訊（列表形式）
             if all_urban_plan_entries:
                 print(f"✓ 已擷取 {len(all_urban_plan_entries)} 筆都市計畫圖街廓資訊", flush=True)
+                # 🔥 最後把關：擷取到的分區若跟第一步的「使用分區」不同，大聲警告。
+                #    （手動點擊的情況沒經過自動驗證，這裡再檢一次，免得建蔽容積抛錯卻沒人發現）
+                try:
+                    if expected_zone:
+                        _bad = [e.get('使用分區完整名稱', '') for e in all_urban_plan_entries
+                                if e.get('使用分區完整名稱')
+                                and not _zone_match(expected_zone, e.get('使用分區完整名稱', ''))]
+                        if _bad:
+                            print("", flush=True)
+                            print("⚠️ " + "=" * 56, flush=True)
+                            print(f"⚠️  警告：擷取到的使用分區跟查詢結果不一致！", flush=True)
+                            print(f"    分區查詢說是：{expected_zone}", flush=True)
+                            print(f"    街廓資訊卻是：{'、'.join(_bad)}", flush=True)
+                            print(f"    → 建蔽率/容積率可能是**鄰區**的，請務必人工核對！", flush=True)
+                            print("⚠️ " + "=" * 56, flush=True)
+                            print("", flush=True)
+                except Exception:
+                    pass
                 urban_plan_data = all_urban_plan_entries  # 回傳列表
             else:
                 print(f"⚠ 未找到都市計畫圖街廓資訊", flush=True)
