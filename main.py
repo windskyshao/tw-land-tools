@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8p"
+VERSION = "1.1.8q"
 BUILD_DATE = "2026-10-07"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -7309,7 +7309,22 @@ def _find_local_version(filename_pattern):
     return versions[-1][0]  # 最新版本字串
 
 
-# 三個自動更新來源：主程式 + 兩個附屬工具
+def _runtime_local_version():
+    """子程式執行環境(python_embedded)版本：讀 python_embedded\runtime_version.txt。
+    沒有這個檔 → 視為第 1 版(導入版本機制前就裝好的環境)；連資料夾都沒有 → None(需要下載)"""
+    base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
+    rt = os.path.join(base_dir, 'python_embedded')
+    if not os.path.isdir(rt):
+        return None
+    try:
+        with open(os.path.join(rt, 'runtime_version.txt'), 'r', encoding='utf-8') as f:
+            v = f.read().strip()
+        return v or '1'
+    except OSError:
+        return '1'
+
+
+# 自動更新來源：主程式 + 三個附屬工具 + 子程式執行環境
 UPDATE_SOURCES = [
     {
         'name': '地籍資料查詢系統',
@@ -7346,6 +7361,18 @@ UPDATE_SOURCES = [
         'asset_ext': '.exe',
         'install_type': 'exe_replace',
         'rename_to_format': '電傳謄本結構化v{ver}.exe',
+    },
+    {
+        # python_embedded：放在 tw-land-tools 的固定「預先發行」release(tag=runtime)，
+        # 平常不動；只有子程式需要新套件時才發 python_embedded_v{N}.zip
+        'name': '子程式執行環境',
+        'repo': 'windskyshao/tw-land-tools',
+        'release_tag': os.environ.get('LAND_RUNTIME_TAG') or 'runtime',   # 環境變數只給測試用
+        'local_version_fn': _runtime_local_version,
+        'asset_name_prefix': 'python_embedded_v',
+        'asset_ext': '.zip',
+        'install_type': 'runtime_replace',
+        'rename_to_format': None,
     },
 ]
 
@@ -7412,7 +7439,10 @@ def _check_one_source(source):
         return result
 
     # 抓 GitHub release（含 SSL fallback）
-    api_url = f"https://api.github.com/repos/{source['repo']}/releases/latest"
+    if source.get('release_tag'):
+        api_url = f"https://api.github.com/repos/{source['repo']}/releases/tags/{source['release_tag']}"
+    else:
+        api_url = f"https://api.github.com/repos/{source['repo']}/releases/latest"
     try:
         with _open_url_with_ssl_fallback(api_url, timeout=8) as resp:
             data = json.loads(resp.read().decode('utf-8'))
@@ -7432,6 +7462,14 @@ def _check_one_source(source):
         return result
 
     remote_tag = (data.get('tag_name') or '').lstrip('v').strip()
+    if source.get('release_tag'):
+        # 固定 tag：版本寫在 asset 檔名(python_embedded_v2.zip → 2)
+        remote_tag = ''
+        for a in data.get('assets') or []:
+            m = re.match(re.escape(source['asset_name_prefix']) + r'(\d+(?:\.\d+)*)' + re.escape(source['asset_ext']) + '$',
+                         a.get('name', ''), re.I)
+            if m and (not remote_tag or _ver_tuple(m.group(1)) > _ver_tuple(remote_tag)):
+                remote_tag = m.group(1)
     result['remote_version'] = remote_tag
     result['release_notes'] = (data.get('body') or '').strip()
     result['release_url'] = data.get('html_url', '')
@@ -7446,6 +7484,8 @@ def _check_one_source(source):
     ext = source['asset_ext']
     for a in assets:
         name = a.get('name', '')
+        if source.get('release_tag') and name != f"{prefix}{remote_tag}{ext}":
+            continue
         if name.startswith(prefix) and name.lower().endswith(ext.lower()):
             result['asset_url'] = a['browser_download_url']
             result['asset_name'] = name
@@ -7574,6 +7614,26 @@ def perform_multi_update(updates):
                 'new_exe_path': new_main_exe,
             })
 
+        elif install_type == 'runtime_replace':
+            # 直接解壓到程式資料夾旁的 python_embedded_new(同一顆磁碟，之後才能整個資料夾瞬間對調)
+            new_rt = os.path.join(exe_dir, 'python_embedded_new')
+            try:
+                shutil.rmtree(new_rt, ignore_errors=True)
+                update_message(f"📦 解壓 {name}（檔案很多，約需 1~3 分鐘）...")
+                with zipfile.ZipFile(dl_path, 'r') as z:
+                    z.extractall(new_rt)
+                os.remove(dl_path)
+                if not os.path.exists(os.path.join(new_rt, 'python.exe')) or                         not os.path.exists(os.path.join(new_rt, 'pythonw.exe')):
+                    raise RuntimeError("壓縮檔內找不到 python.exe / pythonw.exe")
+                with open(os.path.join(new_rt, 'runtime_version.txt'), 'w', encoding='utf-8') as f:
+                    f.write(str(ver))
+            except Exception as e:
+                shutil.rmtree(new_rt, ignore_errors=True)
+                shutil.rmtree(temp_dir, ignore_errors=True)
+                show_large_message("解壓失敗", f"{name}：{e}\n\n所有更新已取消，原本的環境沒有被動到。")
+                return
+            download_results.append({'type': 'runtime', 'name': name, 'new_dir': new_rt})
+
         elif install_type == 'exe_replace':
             # 計算中文目標檔名
             target_filename = source['rename_to_format'].format(ver=ver)
@@ -7598,6 +7658,7 @@ def perform_multi_update(updates):
 
     bat_lines = [
         '@echo off',
+        'setlocal EnableDelayedExpansion',
         'chcp 65001 > nul',
         'title Updating - DO NOT CLOSE THIS WINDOW',
         'echo.',
@@ -7657,6 +7718,40 @@ def perform_multi_update(updates):
                 ')',
                 '',
             ])
+        elif dr['type'] == 'runtime':
+            # 執行環境：先關掉還在跑的子程式(只限本程式 python_embedded 裡的 python/pythonw)，
+            # 再「舊→_old、新→正式」對調；任何一步失敗就換回舊版，不會留下半套環境
+            rt = os.path.join(exe_dir, 'python_embedded')
+            rt_old = os.path.join(exe_dir, 'python_embedded_old')
+            bat_lines.extend([
+                'powershell -NoProfile -Command "Get-Process python,pythonw -ErrorAction SilentlyContinue | '
+                f'Where-Object {{ $_.Path -like \'{rt}\\*\' }} | Stop-Process -Force" >nul 2>&1',
+                'timeout /t 2 /nobreak > nul',
+                f'if exist "{rt_old}" rmdir /S /Q "{rt_old}"',
+                'set RT_OK=0',
+                'for /L %%i in (1,1,10) do (',
+                '    if "!RT_OK!"=="0" (',
+                f'        move "{rt}" "{rt_old}" >nul 2>&1 && set RT_OK=1',
+                '        if "!RT_OK!"=="0" timeout /t 2 /nobreak > nul',
+                '    )',
+                ')',
+                'if "!RT_OK!"=="0" (',
+                f'    echo [X] {dr["name"]}：舊環境被占用，無法替換（原本的環境保持不變）',
+                f'    rmdir /S /Q "{dr["new_dir"]}" 2>nul',
+                '    pause',
+                ') else (',
+                f'    move "{dr["new_dir"]}" "{rt}" >nul 2>&1',
+                '    if errorlevel 1 (',
+                f'        echo [X] {dr["name"]}：新環境搬移失敗，已換回原本的環境',
+                f'        move "{rt_old}" "{rt}" >nul 2>&1',
+                '        pause',
+                '    ) else (',
+                f'        echo   [OK] {dr["name"]} 已更新',
+                f'        start "" /B cmd /c rmdir /S /Q "{rt_old}"',
+                '    )',
+                ')',
+                '',
+            ])
         elif dr['type'] == 'exe':
             # 工具：刪舊版 glob 結果（排除目標檔名）+ 搬新版改名
             target_path = os.path.join(exe_dir, dr['target_filename'])
@@ -7682,8 +7777,9 @@ def perform_multi_update(updates):
         f'start "" "{current_exe}"',
         '',
         'timeout /t 1 /nobreak > nul',
-        f'rd /s /q "{temp_dir}" 2>nul',
-        'exit',
+        # 同一行執行：bat 本身就在 temp_dir 裡，分兩行的話刪掉自己後 cmd 讀不到下一行 →
+        # 印「系統找不到指定的路徑」且視窗不會關
+        f'(rd /s /q "{temp_dir}" 2>nul) & exit',
     ])
 
     bat_content = '\r\n'.join(bat_lines) + '\r\n'
