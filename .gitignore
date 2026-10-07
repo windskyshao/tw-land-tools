@@ -66,3 +66,7 @@ debug_*.html
 captcha_*.png
 compare_*.png
 test_*.txt
+
+# 成交文件產生器的空白範本(不含個資，打包需要)
+!實價登錄申報書_租_範本.pdf
+!業績分配表_範本.pdf

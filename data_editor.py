@@ -300,6 +300,81 @@ def calculate_rent_with_tax(net_income_amount):
     except (ValueError, TypeError):
         return None
 
+def _case_dir_from_editor():
+    """目前物件的案件資料夾；找不到就提示並回 None"""
+    data_final_path = get_data_final_path()
+    case_dir = os.path.dirname(os.path.dirname(data_final_path))
+    if not os.path.exists(data_final_path) or not os.path.isdir(os.path.join(case_dir, "4.其他相關")):
+        show_large_message("找不到案件", "找不到這個案件的資料夾(4.其他相關\\data_final.json)，\n請先開啟案件並按「💾 儲存」。")
+        return None, None
+    return case_dir, data_final_path
+
+
+def _launch_case_tool(script_name, tag, case_dir):
+    """另開子程式(需 PyMuPDF，打包版走 python_embedded)處理成交文件，輸出接到訊息區"""
+    frozen = getattr(sys, "frozen", False)
+    exe_dir = os.path.dirname(sys.executable) if frozen else os.path.dirname(os.path.abspath(__file__))
+    internal_dir = getattr(sys, "_MEIPASS", os.path.join(exe_dir, "_internal")) if frozen else exe_dir
+    script = os.path.join(internal_dir, script_name)
+    env = os.environ.copy()
+    env["PYTHONIOENCODING"] = "utf-8"
+    cwd = None
+    if frozen:
+        py_dir = os.path.join(exe_dir, "python_embedded")
+        py = os.path.join(py_dir, "pythonw.exe")
+        if not os.path.exists(py):
+            show_large_message("錯誤", "找不到 Python 執行環境(python_embedded)，請確認打包是否完整")
+            return
+        env["PYTHONHOME"] = py_dir
+        env["PYTHONPATH"] = internal_dir + os.pathsep + os.path.join(py_dir, "Lib", "site-packages")
+        env["PYTHONNOUSERSITE"] = "1"
+        cwd = internal_dir
+    else:
+        py = sys.executable
+    if not os.path.exists(script):
+        show_large_message("錯誤", f"找不到 {script_name}：\n{script}")
+        return
+    cmd = [py, script, "--case-dir", case_dir, "--base-dir", exe_dir]
+
+    def run():
+        try:
+            p = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True,
+                                 encoding="utf-8", errors="replace", env=env, cwd=cwd,
+                                 creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            for line in p.stdout:
+                if line.strip() and update_message:
+                    update_message(f"[{tag}] " + line.rstrip())
+            p.wait()
+        except Exception as e:
+            if update_message:
+                update_message(f"[{tag}][錯誤] {e}")
+
+    threading.Thread(target=run, daemon=True).start()
+
+
+def open_rent_report():
+    """成交後：產生實價登錄申報書(租賃)"""
+    case_dir, data_final_path = _case_dir_from_editor()
+    if not case_dir:
+        return
+    try:
+        with open(data_final_path, "r", encoding="utf-8") as f:
+            交易類型 = json.load(f).get("交易類型", "")
+    except Exception:
+        交易類型 = ""
+    if 交易類型 and "租" not in 交易類型:
+        if not show_large_yesno("目前只有租賃版", f"這個物件的交易類型是「{交易類型}」，\n申報書目前只做了租賃版，仍要繼續嗎？"):
+            return
+    _launch_case_tool("rent_report.py", "申報書", case_dir)
+
+
+def open_perf_report():
+    """業績分配表(買賣/租賃都用)"""
+    case_dir, _ = _case_dir_from_editor()
+    if case_dir:
+        _launch_case_tool("perf_report.py", "業績分配表", case_dir)
+
+
 def generate_report_from_button():
     """從按鈕手動生成報告"""
     global report_type, entries
@@ -9324,11 +9399,22 @@ def open_data_editor():
     
     tk.Button(button_frame, text="💾 儲存", command=save_data,
              font=("Microsoft JhengHei", 12, "bold"), bg='#4CAF50', fg='white',
-             width=10, height=2).pack(side=tk.LEFT, padx=20)
+             width=10, height=2).pack(side=tk.LEFT, padx=10)
 
     tk.Button(button_frame, text="生成物件調查表", command=generate_report_from_button,
              font=("Microsoft JhengHei", 12, "bold"), bg='#2196F3', fg='white',
-             width=15, height=2).pack(side=tk.LEFT, padx=20)
+             width=15, height=2).pack(side=tk.LEFT, padx=10)
+
+    # 成交後：實價登錄申報書(租賃)——只有「租件」時才顯示
+    rent_report_btn = tk.Button(button_frame, text="📝 實價登錄申報書(租)", command=open_rent_report,
+             font=("Microsoft JhengHei", 12, "bold"), bg='#3F51B5', fg='white',
+             width=17, height=2)
+    rent_report_btn.pack(side=tk.LEFT, padx=10)
+
+    # 業績分配表(租件/售件都有)
+    tk.Button(button_frame, text="📊 業績分配表", command=open_perf_report,
+             font=("Microsoft JhengHei", 12, "bold"), bg='#00897B', fg='white',
+             width=13, height=2).pack(side=tk.LEFT, padx=10)
 
     # 🔥 匯出封存按鈕（支持 Shift+點擊強制重設）
     def export_archive_wrapper(event=None):
@@ -9356,12 +9442,21 @@ def open_data_editor():
     export_btn = tk.Button(button_frame, text="📦 匯出封存",
                           font=("Microsoft JhengHei", 12, "bold"), bg='#FF9800', fg='white',
                           width=12, height=2)
-    export_btn.pack(side=tk.LEFT, padx=20)
+    export_btn.pack(side=tk.LEFT, padx=10)
     export_btn.bind('<Button-1>', export_archive_wrapper)
+
+    def _sync_rent_report_btn(*_):
+        if transaction_var.get() == "租件":
+            if not rent_report_btn.winfo_manager():
+                rent_report_btn.pack(side=tk.LEFT, padx=10, before=export_btn)
+        else:
+            rent_report_btn.pack_forget()
+    transaction_var.trace_add("write", _sync_rent_report_btn)
+    _sync_rent_report_btn()
 
     tk.Button(button_frame, text="[錯誤] 取消", command=cancel_edit,
              font=("Microsoft JhengHei", 12, "bold"), bg='#F44336', fg='white',
-             width=10, height=2).pack(side=tk.LEFT, padx=20)
+             width=10, height=2).pack(side=tk.LEFT, padx=10)
     
     # 組裝滾動區域
     canvas.pack(side="left", fill="both", expand=True)
