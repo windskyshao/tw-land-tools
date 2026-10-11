@@ -1945,13 +1945,21 @@ def main():
             if scenario == 1:
                 # 送件作業
                 county, district, section, land_number_list, gland_number, ID_number, register_type, register_options = get_user_input()
+                _why = _apply_closed_now()
+                if _why:
+                    _stop_closed(_why)
+                    return main()
                 driver = setup_driver()
+                _res = None
                 if login_attempt(driver, register_type, username, password, card_cert):
-                    after_login_success(
+                    _res = after_login_success(
                     driver, county, district, section, land_number_list,
                     gland_number, ID_number, register_type, register_options, scenario, custom_dir_path
                     )
-                print("\033[41m【送件作業】執行完畢，祝您有美好的一天~~\033[0m", flush=True)
+                if _res == "closed":
+                    print("\033[91m⛔ 網站目前不開放申請（可能是國定假日或非開放時間），已停止，未送件。\033[0m", flush=True)
+                else:
+                    print("\033[41m【送件作業】執行完畢，祝您有美好的一天~~\033[0m", flush=True)
                 _close_driver_quietly(driver)  # 🔥 先關掉這次的 Chrome，再返回主選單（避免愈開愈多）
                 driver = None
                 return main()  # 返回主選單
@@ -1959,13 +1967,21 @@ def main():
             elif scenario == 2:
                 # 送件、領件整體作業
                 county, district, section, land_number_list, gland_number, ID_number, register_type, register_options = get_user_input()
+                _why = _apply_closed_now()
+                if _why:
+                    _stop_closed(_why)
+                    return main()
                 driver = setup_driver()
+                _res = None
                 if login_attempt(driver, register_type, username, password, card_cert):
-                    after_login_success(
+                    _res = after_login_success(
                         driver, county, district, section, land_number_list,
                         gland_number, ID_number, register_type, register_options, scenario, custom_dir_path
                     )
-                print("\033[42m【送件&領件】作業執行完畢，祝您冒泡連連~~\033[0m", flush=True)
+                if _res == "closed":
+                    print("\033[91m⛔ 網站目前不開放申請（可能是國定假日或非開放時間），已停止，未送件。\033[0m", flush=True)
+                else:
+                    print("\033[42m【送件&領件】作業執行完畢，祝您冒泡連連~~\033[0m", flush=True)
                 _close_driver_quietly(driver)  # 🔥 先關掉這次的 Chrome，再返回主選單（避免愈開愈多）
                 driver = None
                 return main()  # 返回主選單
@@ -2248,6 +2264,27 @@ def validate_input(prompt, valid_choices):
         else:
             print("輸入無效，請重新輸入。", flush=True)
 
+# 電子謄本「申請」開放時間：週一~週六 08:00-21:00(週日、國定假日不開放；領件不受限)
+OPEN_HOURS_TEXT = "電子謄本申請開放時間：週一～週六 08:00～21:00（週日、國定假日不開放），請在開放時間再執行。"
+CLOSED_PHRASES = ("未在開放時間", "本日地所作業時間", "無法提供謄本申請服務", "非開放時間")
+
+
+def _apply_closed_now():
+    """依電腦時鐘判斷現在是否明顯不在申請開放時間(國定假日判斷不了，交給網站端檢查)"""
+    from datetime import datetime
+    now = datetime.now()
+    if now.weekday() == 6:
+        return f"今天是星期日（{now:%H:%M}）"
+    if not (8 <= now.hour < 21):
+        return f"現在是 {now:%H:%M}"
+    return ""
+
+
+def _stop_closed(reason):
+    print(f"\033[91m⛔ {reason}，電子謄本目前不開放申請，已停止（未登入、未送件）。\033[0m", flush=True)
+    print(f"\033[91m{OPEN_HOURS_TEXT}\033[0m", flush=True)
+
+
 def after_login_success(driver, county, district, section, land_number_list, gland_number, ID_number, register_type, register_options, scenario, custom_dir_path):
     # 成功登入並跳轉到 Index2 後的操作
     def handle_alerts(driver):
@@ -2262,14 +2299,18 @@ def after_login_success(driver, county, district, section, land_number_list, gla
             pass
     
     def check_time_limit():
+        """網站顯示「未開放」就停：說法不只一種、出現的頁面也不固定(同意書後 / 縣市地圖頁)，所以比對整頁文字"""
+        time.sleep(0.5)
         try:
-            WebDriverWait(driver, 3).until(
-                EC.presence_of_element_located((By.XPATH, "//center/h3[contains(text(), '本日地所作業時間')]"))
-            )
-            print("\033[91m本日未在開放時間內，無法提供申請！\033[0m", flush=True)
+            page = driver.find_element(By.TAG_NAME, "body").text
+        except Exception:
+            page = ""
+        if any(k in page for k in CLOSED_PHRASES):
+            msg = next((ln.strip() for ln in page.splitlines() if any(k in ln for k in CLOSED_PHRASES)), "")
+            print(f"\033[91m網站回應：{msg or '未在開放時間內'}\033[0m", flush=True)
+            print(f"\033[91m{OPEN_HOURS_TEXT}\033[0m", flush=True)
             return False
-        except TimeoutException:
-            return True
+        return True
 
     print("轉跳至【網路申領地政電子謄本作業同意書】", flush=True)
 
@@ -2294,7 +2335,7 @@ def after_login_success(driver, county, district, section, land_number_list, gla
 
     # 時間限制檢查放在這邊
     if not check_time_limit():
-        return False
+        return "closed"
 
     handle_alerts(driver)
 
@@ -2302,6 +2343,9 @@ def after_login_success(driver, county, district, section, land_number_list, gla
     driver.get("https://ep.land.nat.gov.tw/EpaperApply/TaiwanMap")
     print("轉跳至【台灣省-縣市選單地圖】", flush=True)
     time.sleep(1)
+    # 非開放時間時，網站是在這一頁才顯示「目前未在開放時間內，無法提供謄本申請服務」
+    if not check_time_limit():
+        return "closed"
 
     # 如果選擇的是"第一類謄本"，則先點擊"請選擇申請角色"
     if register_type == '1':

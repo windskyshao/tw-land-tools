@@ -260,7 +260,8 @@ def save_data_to_json(data, json_file=None, new_file=False):
                 entry.get('area') == data.get('area') and
                 entry.get('section') == data.get('section') and
                 entry.get('lot_number') == data.get('lot_number')):
-                existing_data[i] = data  # 覆蓋原來的數據
+                # 更新這筆地號：地籍便民查到的欄位蓋過去，但保留萬用查詢存的建號/門牌/社區等欄位(不要整筆蓋掉)
+                existing_data[i] = {**entry, **data}
                 group_found = True
                 break
 

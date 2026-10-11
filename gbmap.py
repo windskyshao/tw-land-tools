@@ -281,6 +281,19 @@ def main():
         url = "https://service.map.com.tw/houseol/AnalysisObject.aspx"
         driver.get(url)
 
+        # 🔥 網站健康檢查：對方伺服器故障時(例：2026-10-11 回 HTTP 500「使用者 'tgdc' 的登入失敗」= 它自己的資料庫連不上)
+        #    頁面根本沒有查詢欄位，與其後面等元件逾時跑出一堆錯誤，不如直接告訴使用者是網站故障
+        try:
+            _page = (driver.title or "") + (driver.page_source or "")[:4000]
+        except Exception:
+            _page = ""
+        if any(k in _page for k in ("登入失敗", "伺服器錯誤", "Server Error", "Runtime Error", "Service Unavailable")):
+            print("[91m❌ 台灣地圖網「重要設施分析」網站目前故障（對方伺服器錯誤），不是本程式的問題。[0m", flush=True)
+            print("   請稍後再試；若連續幾天都無法使用，再回報給開發者。", flush=True)
+            print(f"   （網站回應：{driver.title}）", flush=True)
+            return
+
+
         # 🔥 DPI 自動修正（只在 DPI 不同步時動作，正常 PC 無影響）
         verify_and_fix_chrome_window(driver)
 

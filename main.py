@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8q"
-BUILD_DATE = "2026-10-07"
+VERSION = "1.1.8r"
+BUILD_DATE = "2026-10-11"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1222,8 +1222,10 @@ def check_data_consistency(transcript_file=None):
                 is_order_issue = False
 
                 # 檢查 transcript_info 的地號是否存在於 data.json 中
-                if os.path.exists('data.json'):
-                    with open('data.json', 'r', encoding='utf-8') as f:
+                # 🔥 要讀「目前案件」那份(同上面第 1 步的 data_json_path)；原本寫死讀程式資料夾的 'data.json'，
+                #    那份可能是更早的案件 → 完全不同地段也被誤判成「順序問題」
+                if os.path.exists(data_json_path):
+                    with open(data_json_path, 'r', encoding='utf-8') as f:
                         data_list = json.load(f)
 
                     for item in data_list:
@@ -1680,6 +1682,7 @@ def read_output(process):
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
                     if current_running_button == start_land_button:
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
+                        root.after(700, lambda: _recheck_transcript_link(unlink=True))   # 換了新案件 → 舊謄本解除連結
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
                         if _pending_structuring_after_land:
                             root.after(1500, _resume_structuring_after_land)
@@ -1727,6 +1730,7 @@ def read_output(process):
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
                     if current_running_button == start_land_button:
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
+                        root.after(700, lambda: _recheck_transcript_link(unlink=True))   # 換了新案件 → 舊謄本解除連結
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
                         if _pending_structuring_after_land:
                             root.after(1500, _resume_structuring_after_land)
@@ -1833,6 +1837,22 @@ ANSI_COLOR_MAP = {
 
 # 🔥 root 已在最頂端建立（splash 用），這裡不再重新建立
 # 移除 splash 內容，準備建主介面
+# 🔥 主介面組裝期間先把主視窗藏起來，另開一個同樣的「載入中」小窗；
+#    全部排版好才一次顯示(否則啟動途中會看到畫到一半、殘影疊在一起的畫面)
+_splash_win = None
+try:
+    _splash_win = tk.Toplevel(root)
+    _splash_win.overrideredirect(True)
+    _splash_win.attributes("-topmost", True)
+    _splash_win.geometry(root.geometry())
+    _sp = tk.Frame(_splash_win, bg='#1976D2')
+    _sp.pack(fill=tk.BOTH, expand=True)
+    tk.Label(_sp, text="📋 地籍資料查詢系統", font=("微軟正黑體", 14, "bold"), bg='#1976D2', fg='white').pack(pady=(20, 5))
+    tk.Label(_sp, text="載入中，請稍候...", font=("微軟正黑體", 11), bg='#1976D2', fg='white').pack()
+    root.withdraw()
+    _splash_win.update()
+except Exception:
+    _splash_win = None
 try:
     _splash_frame.destroy()
 except Exception:
@@ -1863,6 +1883,24 @@ except Exception:
 
 work_area = get_available_work_area()
 
+# 🧪 介面測試用(平常不會設)：LAND_UI_SIM=寬x高@倍率，例如 2560x1400@1.5，模擬別台電腦的解析度/縮放；
+#    模擬時不寫 window_config.json，避免影響子程式的 Chrome 位置
+_UI_SIM = os.environ.get("LAND_UI_SIM", "").strip()
+if _UI_SIM:
+    try:
+        _wh, _sc = _UI_SIM.split("@")
+        _sw, _shh = (int(x) for x in _wh.lower().split("x"))
+        dpi_scale = float(_sc)
+        root.tk.call("tk", "scaling", dpi_scale * 96 / 72)
+
+        class _SimRect:
+            left, top, right, bottom = 0, 0, _sw, _shh
+        work_area = _SimRect()
+        print(f"[介面測試] 模擬 {_sw}x{_shh} @ {dpi_scale:.2f}")
+    except Exception as _e:
+        print(f"[介面測試] LAND_UI_SIM 格式錯誤：{_e}")
+        _UI_SIM = ""
+
 # 🔥 智能視窗大小計算：統一使用物理像素（work_area 已經是物理像素）
 available_width = work_area.right - work_area.left
 available_height = work_area.bottom - work_area.top
@@ -1879,6 +1917,8 @@ window_height = available_height - 40
 # 計算位置：靠右側（物理像素）
 window_x = work_area.right - window_width
 window_y = work_area.top
+if _UI_SIM:
+    window_x, window_y = 0, 0     # 介面測試：放左上角方便截圖
 
 # 🔥 重要：SetProcessDpiAwareness(2) 使 tkinter 使用物理像素，不需要轉換！
 # 直接使用物理像素
@@ -1893,6 +1933,8 @@ chrome_max_width = available_width - window_width - 20
 
 # 🔥 儲存視窗配置到設定檔（全部使用物理像素，供其他程式讀取）
 try:
+    if _UI_SIM:
+        raise RuntimeError("介面測試模式不寫 window_config.json")
     config_data = {
         'dpi_scale': dpi_scale,
         'screen_width': screen_width,  # 物理像素
@@ -1968,7 +2010,7 @@ def calculate_ui_config(window_width, dpi_scale):
     # 所以：font_size ≤ column_width / (TARGET_WIDTH × CHAR_COEF × dpi_scale)
     max_font = column_width / (TARGET_WIDTH * CHAR_COEF * dpi_scale)
     button_font_size = int(max_font)
-    button_font_size = max(9, min(16, button_font_size))
+    button_font_size = max(9, min(18, button_font_size))   # 新按鈕字太長會自動縮，上限放寬給高解析度大螢幕
 
     # 按鈕字元寬度
     button_width = TARGET_WIDTH
@@ -1993,7 +2035,7 @@ def calculate_ui_config(window_width, dpi_scale):
     SUB_MIN_WIDTH = 14     # 🔥 按鈕寬度下限（可縮到 14 以保持較大字體）
 
     # 🔥 子頁面：優先保持字體 >= 9，寧可縮減按鈕寬度
-    sub_page_font_size = 14  # 從最大開始
+    sub_page_font_size = 16  # 從最大開始(新按鈕會自動縮字，不怕切字)
     sub_button_width = SUB_TARGET_WIDTH
 
     # 嘗試找到合適的字體和按鈕寬度組合
@@ -2044,63 +2086,68 @@ custom_font = font.Font(family="Microsoft JhengHei", size=button_font_size)  # �
 sub_page_font = font.Font(family="Microsoft JhengHei", size=sub_page_font_size)  # 子頁面按鈕字體
 input_font = font.Font(family="Microsoft JhengHei", size=input_font_size)  # 輸入框字體
 
-# === JSON 狀態列 ===
-status_frame = tk.Frame(root, bg='#F0F0F0', relief=tk.SUNKEN, bd=1, height=35)
-status_frame.pack(side=tk.TOP, fill=tk.X)
-status_frame.pack_propagate(False)  # 🔥 防止子元件撐大 frame
+# === 現代化外觀(macOS 風)：色票、圓角按鈕、卡片 —— 尺寸全部依 DPI 倍率與字型行高推算 ===
+import modern_ui as M
+M.set_scale(dpi_scale)
 
-# 🔥 修正：先 pack 更新按鈕（side=RIGHT），確保它永遠有位置，
-# 不會被左邊的 json_status_label 文字過長擠出畫面
-update_button = tk.Button(
-    status_frame,
-    text="🔄",
-    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
-    bg='#2196F3', fg='white',
-    relief=tk.FLAT, bd=0,
-    padx=4, pady=0,
-    cursor="hand2",
-    command=lambda: check_for_update(silent=False)
-)
-update_button.pack(side=tk.RIGHT, padx=(0, 3))
 
-# 💬 意見回饋按鈕（緊鄰更新鈕左側）
-feedback_button = tk.Button(
-    status_frame,
-    text="💬",
-    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
-    bg='#FF9800', fg='white',
-    relief=tk.FLAT, bd=0,
-    padx=4, pady=0,
-    cursor="hand2",
-    command=lambda: open_feedback_dialog()
-)
-feedback_button.pack(side=tk.RIGHT, padx=(0, 0))
+def _close_quick_panel():
+    """按主介面任一功能鈕時，自動關掉萬用查詢面板與箭頭(面板沒開就什麼都不做)"""
+    qc = sys.modules.get("quick_case")
+    if qc is not None:
+        qc.close_panel()
 
-# 📖 使用說明按鈕（💬 左側）：用瀏覽器開啟線上手冊
-help_button = tk.Button(
-    status_frame,
-    text="📖",
-    font=("Microsoft JhengHei", max(9, message_font_size - 1)),
-    bg='#4CAF50', fg='white',
-    relief=tk.FLAT, bd=0,
-    padx=4, pady=0,
-    cursor="hand2",
-    command=lambda: _open_help_page()
-)
-help_button.pack(side=tk.RIGHT, padx=(0, 0))
 
-# 🔥 後 pack json_status_label，吃掉剩餘空間
-json_status_label = tk.Label(
-    status_frame,
-    text="尚未謄本結構化",
-    font=("Microsoft JhengHei", max(8, message_font_size - 2)),  # 🔥 根據訊息框字體動態調整
-    bg='#F0F0F0',
-    fg='#333333',
-    anchor='w',
-    padx=8,  # 🔥 減少內距
-    pady=3   # 🔥 減少內距
-)
-json_status_label.pack(side=tk.LEFT, fill=tk.X, expand=True)
+M.ON_PRESS = _close_quick_panel
+root.configure(bg=M.BG)
+
+# === 目前案件卡(取代原本灰色狀態列)：案件名稱＋謄本結構化狀態＋說明/回饋/更新小圓鈕 ===
+status_frame = tk.Frame(root, bg=M.BG)
+status_frame.pack(side=tk.TOP, fill=tk.X, padx=M.px(10), pady=(M.px(8), 0))
+_CASE_BG = "#3478D4"        # 中藍底白字：跟淺灰介面、彩色按鈕明顯不同，一眼看出「目前案件」
+_case_card = M.Card(status_frame, fill=_CASE_BG, edge="#2A64B5", accent="#FF8A00")
+_case_card.pack(fill=tk.X)
+_cc = _case_card.inner
+_cc_icons = tk.Frame(_cc, bg=_CASE_BG)
+_cc_icons.pack(side=tk.RIGHT, anchor="n")
+_icon_size = max(M.px(28), int(font.Font(family="Microsoft JhengHei", size=max(9, message_font_size - 1)).metrics("linespace") * 1.45))
+# 📖 使用說明 / 💬 意見回饋 / 🔄 檢查更新(有新版時右上角紅點)；仍支援原本 .config(bg=...) 的寫法
+help_button = M.IconButton(_cc_icons, "📖", lambda: _open_help_page(), "#248A3D", size=_icon_size)
+feedback_button = M.IconButton(_cc_icons, "💬", lambda: open_feedback_dialog(), "#C27C00", size=_icon_size)
+update_button = M.IconButton(_cc_icons, "🔄", lambda: check_for_update(silent=False), M.BLUE, size=_icon_size)
+for _ib in (help_button, feedback_button, update_button):
+    _ib.pack(side=tk.LEFT, padx=(M.px(4), 0))
+_cc_text = tk.Frame(_cc, bg=_CASE_BG)
+_cc_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
+case_caption_label = tk.Label(_cc_text, text="目前案件", font=("Microsoft JhengHei", max(9, message_font_size - 3)),
+                              fg="#E6F0FF", bg=_CASE_BG, anchor="w")
+case_caption_label.pack(anchor="w")
+case_name_label = tk.Label(_cc_text, text="尚未建立案件", font=("Microsoft JhengHei", message_font_size + 2, "bold"),
+                           fg="#FFFFFF", bg=_CASE_BG, anchor="w")
+case_name_label.pack(anchor="w", fill=tk.X)
+# 謄本結構化狀態(原本的 json_status_label，綠/橘小標籤)
+json_status_label = M.StatusChip(_cc, font=("Microsoft JhengHei", max(9, message_font_size - 3), "bold"))
+json_status_label.pack(in_=_cc_text, anchor="w", pady=(M.px(4), 0))
+_cc_text.bind("<Configure>", lambda e: json_status_label.configure(wraplength=max(120, e.width - M.px(10))), add="+")
+# 案件名稱跟著視窗標題走：各處更新標題(含地號)時，案件卡一起更新
+_root_title_orig = root.title
+
+
+def _root_title(*args):
+    if args:
+        t = str(args[0])
+        try:
+            if " - " in t:
+                loc = t.split(" - ", 1)[1].replace("(資料夾)", "").strip()
+                if loc and "載入中" not in loc:
+                    case_name_label.config(text="尚未建立案件" if "尚未" in loc else loc,
+                                           fg="#FFE0B2" if "尚未" in loc else "#FFFFFF")
+        except Exception:
+            pass
+    return _root_title_orig(*args)
+
+
+root.title = _root_title
 # 滑鼠進去/出去：切換顏色 + 顯示文字提示
 update_button._tooltip = None
 
@@ -2243,12 +2290,12 @@ def _help_btn_leave(_e):
 help_button.bind('<Enter>', _help_btn_enter)
 help_button.bind('<Leave>', _help_btn_leave)
 
-frame_top = tk.Frame(root)
-frame_top.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
+frame_top = tk.Frame(root, bg=M.BG)
+frame_top.pack(side=tk.TOP, fill=tk.X, padx=M.px(5), pady=(M.px(6), 0))
 
 # 🔥 先定義 frame_bottom（先 pack 在底部）
-frame_bottom = tk.Frame(root, height=60)
-frame_bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=10)
+frame_bottom = tk.Frame(root, height=60, bg=M.BG)
+frame_bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=(M.px(4), M.px(8)))
 frame_bottom.pack_propagate(False)
 
 # 🔥 再定義 frame_middle（填滿中間剩餘空間）
@@ -2256,18 +2303,22 @@ frame_bottom.pack_propagate(False)
 calculated_message_height = window_height_for_tk - 200
 message_height = max(250, min(600, calculated_message_height))
 
-frame_middle = tk.Frame(root, height=message_height)
-frame_middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=10)  # 🔥 改回 BOTH + expand
+frame_middle = tk.Frame(root, height=message_height, bg=M.BG)
+frame_middle.pack(side=tk.TOP, fill=tk.BOTH, expand=True, pady=(M.px(8), M.px(2)))  # 🔥 改回 BOTH + expand
+# 深色訊息面板(macOS 風標題列)，原本的訊息框放在裡面
+message_panel = M.ConsolePanel(frame_middle, "訊息")
+message_panel.pack(fill=tk.BOTH, expand=True, padx=M.px(10))
 # 不要 pack_propagate(False)，讓它可以自動調整
 
 message_box = scrolledtext.ScrolledText(
-    frame_middle, wrap=tk.CHAR, state=tk.DISABLED,  # 🔥 逐字換行：中文夾雜空白時不會在空白處亂折
+    message_panel.body, wrap=tk.CHAR, state=tk.DISABLED,  # 🔥 逐字換行：中文夾雜空白時不會在空白處亂折
     font=("Microsoft JhengHei", message_font_size),  # 🔥 使用動態字體大小
-    bg='black', fg='white', insertbackground='white',
+    bg=M.CONSOLE_BG, fg='white', insertbackground='white', relief=tk.FLAT, bd=0, highlightthickness=0,
+    padx=M.px(4),
     selectbackground='#2D6FB3', selectforeground='white',
     inactiveselectbackground='#2D6FB3'  # 🔥 沒焦點時選取也看得到藍底反白，方便複製
 )
-message_box.pack(pady=5, padx=10, fill=tk.BOTH, expand=True)
+message_box.pack(fill=tk.BOTH, expand=True)
 message_box.config(spacing3=1)
 
 # 🔥 長任務進度條（預設隱藏，子程式送出 __PROGRESS__ 訊號才會出現）
@@ -2292,7 +2343,7 @@ task_progress_bar = ttk.Progressbar(
 task_progress_bar.pack(side=tk.TOP, fill=tk.X, padx=8, pady=(0, 6))
 # 初始不 pack task_progress_frame 本身，等收到進度訊號時才顯示
 
-input_field = tk.Entry(frame_bottom, font=input_font, fg="gray")
+input_field = tk.Entry(frame_bottom, font=input_font, fg="#6B7280")
 input_field.insert(0, "請在此輸入...")
 def on_entry_click(event):
     if input_field.get() == "請在此輸入...":
@@ -2301,10 +2352,13 @@ def on_entry_click(event):
 def on_focus_out(event):
     if input_field.get() == "":
         input_field.insert(0, "請在此輸入...")
-        input_field.config(fg="gray")
+        input_field.config(fg="#6B7280")
 input_field.bind("<FocusIn>", on_entry_click)
 input_field.bind("<FocusOut>", on_focus_out)
-input_field.pack(side=tk.TOP, fill=tk.X, padx=10, pady=5)
+input_pill = M.PillEntry(frame_bottom, on_menu=lambda: open_quick_panel())   # 右側「☰ 選單」
+input_pill.pack(side=tk.TOP, fill=tk.X, padx=M.px(10))
+input_pill.attach(input_field)
+frame_bottom.configure(height=int(float(input_pill.cv.cget("height"))) + M.px(6))   # 高度跟著輸入框字型
 
 # 🔥 使用動態計算的按鈕寬度和間距
 BUTTON_WIDTH = ui_config['button_width']
@@ -2318,57 +2372,58 @@ print(f"[UI配置] 按鈕寬度={BUTTON_WIDTH}, 子頁按鈕={SUB_PAGE_BUTTON_WI
 left_button_frame = tk.Frame(frame_top)
 middle_button_frame = tk.Frame(frame_top)
 right_button_frame = tk.Frame(frame_top)
-left_button_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-middle_button_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-right_button_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+left_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+middle_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+right_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 實價登錄頁面
 real_estate_price_page = tk.Frame(frame_top)
 real_estate_left_frame = tk.Frame(real_estate_price_page)
 real_estate_middle_frame = tk.Frame(real_estate_price_page)
 real_estate_right_frame = tk.Frame(real_estate_price_page)
-real_estate_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-real_estate_middle_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-real_estate_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+real_estate_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+real_estate_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+real_estate_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 謄本專區頁面
 transcript_page = tk.Frame(frame_top)
 # 兩欄式：左欄＝調閱來源＋對應結構化工具；右欄＝土增稅／地籍圖／返回
 transcript_left_frame = tk.Frame(transcript_page)
 transcript_right_frame = tk.Frame(transcript_page)
-transcript_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="n")
-transcript_right_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="n")
+transcript_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+transcript_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 🔥 功能分頁（案件管理相關功能）
 utility_page = tk.Frame(frame_top)
 utility_left_frame = tk.Frame(utility_page)
 utility_middle_frame = tk.Frame(utility_page)
 utility_right_frame = tk.Frame(utility_page)
-utility_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-utility_middle_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-utility_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+utility_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+utility_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+utility_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 🔥 土地使用分區分頁
 land_use_page = tk.Frame(frame_top)
 land_use_left_frame = tk.Frame(land_use_page)
 land_use_middle_frame = tk.Frame(land_use_page)
 land_use_right_frame = tk.Frame(land_use_page)
-land_use_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-land_use_middle_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-land_use_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+land_use_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+land_use_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+land_use_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 🔥 使用執照查詢分頁（取代原本「使用執照查詢」單一按鈕，現在進入次頁面選縣市）
 building_license_page = tk.Frame(frame_top)
 building_license_left_frame = tk.Frame(building_license_page)
 building_license_middle_frame = tk.Frame(building_license_page)
 building_license_right_frame = tk.Frame(building_license_page)
-building_license_left_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-building_license_middle_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-building_license_right_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+building_license_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+building_license_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+building_license_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
 # 🔥 為所有子頁面設定固定高度，與主頁面對齊
 for page in [transcript_page, real_estate_price_page, utility_page, land_use_page, building_license_page]:
     page.config(height=200)  # 固定所有頁面高度
+M.paint_bg(frame_top)
 
 # 🔥 修改按鈕樣式 - 統一所有按鈕使用相同寬度（包含有顏色的按鈕）
 button_style = {
@@ -4817,9 +4872,9 @@ def show_main_page():
     utility_page.pack_forget()
     land_use_page.pack_forget()
     building_license_page.pack_forget()
-    left_button_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, anchor="e")
-    middle_button_frame.pack(side=tk.LEFT, padx=COLUMN_PADX, expand=True, anchor="center")
-    right_button_frame.pack(side=tk.RIGHT, padx=COLUMN_PADX, anchor="w")
+    left_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+    middle_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+    right_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
     # 🔥 如果在連續模式中，恢復主頁面的按鈕狀態（停止連續模式、頁面切換按鈕和正在執行的按鈕可用）
     if continuous_mode_active:
@@ -4894,7 +4949,7 @@ def enable_all_buttons():
 
 # 🔥 主頁面按鈕（重新分配）
 # 左邊 4 個 - 🔥 地籍便民系統使用特殊樣式，謄本與土增稅在其下方
-start_land_button = tk.Button(left_button_frame, text="地籍便民系統",
+start_land_button = M.ModernButton(left_button_frame, text="地籍便民系統",
                              command=lambda: toggle_buttons(start_land_button, "地籍便民系統", "land.py"),
                              **priority_button_style)  # 🔥 使用特殊樣式
 
@@ -4905,25 +4960,25 @@ transcript_button_style = {
     'bg': '#9C27B0', 'fg': 'white',  # 紫色
     'activebackground': '#7B1FA2', 'activeforeground': 'white'
 }
-transcript_button = tk.Button(left_button_frame, text="謄本與土增稅", command=show_transcript_page, **transcript_button_style)
+transcript_button = M.ModernButton(left_button_frame, text="謄本與土增稅", command=show_transcript_page, **transcript_button_style)
 
-start_land_use_button = tk.Button(left_button_frame, text="使用執照查詢", command=show_building_license_page, **button_style)
-start_important_facility_button = tk.Button(left_button_frame, text="重要設施查詢", command=lambda: toggle_buttons(start_important_facility_button, "重要設施查詢", "gbmap.py"), **button_style)
+start_land_use_button = M.ModernButton(left_button_frame, text="使用執照查詢", command=show_building_license_page, **button_style)
+start_important_facility_button = M.ModernButton(left_button_frame, text="重要設施查詢", command=lambda: toggle_buttons(start_important_facility_button, "重要設施查詢", "gbmap.py"), **button_style)
 
 # 中間 4 個 - 🔥 國土測繪圖資改為土地使用分區分頁按鈕，V523 系統移至此處
 # 🔥 土地使用分區：淡紅色
 land_use_zone_button_style = {**button_style, 'bg': '#FFCDD2', 'fg': 'black',
                               'activebackground': '#EF9A9A', 'activeforeground': 'black'}
-land_use_zone_button = tk.Button(middle_button_frame, text="土地使用分區", command=show_land_use_page, **land_use_zone_button_style)
-start_V523_button = tk.Button(middle_button_frame, text="V523 系統", command=lambda: toggle_buttons(start_V523_button, "V523 系統", "V523.py"), **button_style)
-start_land_partition_button = tk.Button(middle_button_frame, text="國土分區查詢", command=lambda: toggle_buttons(start_land_partition_button, "國土分區查詢", "tcdmap.py"), **button_style)
-start_mapping_button = tk.Button(middle_button_frame, text="地質雲查詢", command=lambda: toggle_buttons(start_mapping_button, "地質雲查詢", "geologycloud.py"), **button_style)
+land_use_zone_button = M.ModernButton(middle_button_frame, text="土地使用分區", command=show_land_use_page, **land_use_zone_button_style)
+start_V523_button = M.ModernButton(middle_button_frame, text="V523 系統", command=lambda: toggle_buttons(start_V523_button, "V523 系統", "V523.py"), **button_style)
+start_land_partition_button = M.ModernButton(middle_button_frame, text="國土分區查詢", command=lambda: toggle_buttons(start_land_partition_button, "國土分區查詢", "tcdmap.py"), **button_style)
+start_mapping_button = M.ModernButton(middle_button_frame, text="地質雲查詢", command=lambda: toggle_buttons(start_mapping_button, "地質雲查詢", "geologycloud.py"), **button_style)
 
 # 右邊 4 個 - 🔥 編輯物件資料移至此處（實價登錄下方）
 # 🔥 實價登錄：淡奶油色 #FFF3CD
 real_estate_price_button_style = {**button_style, 'bg': '#FFF3CD', 'fg': 'black',
                                    'activebackground': '#FFE99B', 'activeforeground': 'black'}
-real_estate_price_button = tk.Button(right_button_frame, text="實價登錄", command=show_real_estate_price_page, **real_estate_price_button_style)
+real_estate_price_button = M.ModernButton(right_button_frame, text="實價登錄", command=show_real_estate_price_page, **real_estate_price_button_style)
 
 # 🔥 編輯物件資料按鈕（淺紫色）
 edit_data_button_style = {
@@ -4932,9 +4987,9 @@ edit_data_button_style = {
     'bg': '#CE93D8', 'fg': 'black',  # 淺紫色
     'activebackground': '#BA68C8', 'activeforeground': 'black'
 }
-edit_object_data_button = tk.Button(right_button_frame, text="編輯物件資料", command=data_editor.open_data_editor, **edit_data_button_style)
+edit_object_data_button = M.ModernButton(right_button_frame, text="編輯物件資料", command=data_editor.open_data_editor, **edit_data_button_style)
 
-continuous_mode_button = tk.Button(right_button_frame, text="連續模式",
+continuous_mode_button = M.ModernButton(right_button_frame, text="連續模式",
                                   command=toggle_continuous_mode,
                                   **continuous_button_style)
 
@@ -4946,14 +5001,14 @@ utility_button_style = {
     'activebackground': '#66BB6A', 'activeforeground': 'black'
 }
 
-utility_button = tk.Button(right_button_frame, text="功能分頁",
+utility_button = M.ModernButton(right_button_frame, text="功能分頁",
                           command=show_utility_page,
                           **utility_button_style)
 
 # 實價登錄頁面按鈕
-interior_button = tk.Button(real_estate_left_frame, text="內政部", command=lambda: toggle_buttons(interior_button, "內政部", "interior_price.py"), **sub_page_button_style)
-price104_button = tk.Button(real_estate_middle_frame, text="104實價網", command=lambda: toggle_buttons(price104_button, "104實價網", "price104.py"), **sub_page_button_style)
-real_estate_back_button = tk.Button(real_estate_right_frame, text="回至主頁", command=show_main_page, **sub_page_button_style)
+interior_button = M.ModernButton(real_estate_left_frame, text="內政部", command=lambda: toggle_buttons(interior_button, "內政部", "interior_price.py"), **sub_page_button_style)
+price104_button = M.ModernButton(real_estate_middle_frame, text="104實價網", command=lambda: toggle_buttons(price104_button, "104實價網", "price104.py"), **sub_page_button_style)
+real_estate_back_button = M.ModernButton(real_estate_right_frame, text="回至主頁", command=show_main_page, **sub_page_button_style)
 
 # 🔥 功能分頁按鈕（案件管理相關功能）
 def open_work_folder():
@@ -4991,18 +5046,18 @@ def _ustyle(bg, abg):
     return {**_uw, 'bg': bg, 'activebackground': abg}
 
 # 功能分頁 - 左欄（資料相關）：載入案件、讀取結構化JSON、匯入封存、匯出封存
-utility_load_data_button = tk.Button(utility_left_frame, text="載入案件 data.json",
+utility_load_data_button = M.ModernButton(utility_left_frame, text="載入案件 data.json",
                                      command=load_data_json_from_folder,
                                      **_ustyle('#BBDEFB', '#90CAF9'))
 # 🔥 讀取結構化JSON：原本在謄本專區，移到功能分頁左欄
 # 用 lambda 延後 choose_json_file 的查名（該函式定義在後面）
-read_json_button = tk.Button(utility_left_frame, text="讀取結構化JSON",
+read_json_button = M.ModernButton(utility_left_frame, text="讀取結構化JSON",
                              command=lambda: choose_json_file(),
                              **_ustyle('#B2EBF2', '#80DEEA'))
-utility_import_archive_button = tk.Button(utility_left_frame, text="匯入封存",
+utility_import_archive_button = M.ModernButton(utility_left_frame, text="匯入封存",
                                           command=import_archive,
                                           **_ustyle('#C8E6C9', '#A5D6A7'))
-utility_export_archive_button = tk.Button(utility_left_frame, text="匯出封存",
+utility_export_archive_button = M.ModernButton(utility_left_frame, text="匯出封存",
                                           command=data_editor.export_archive,
                                           **_ustyle('#DCEDC8', '#C5E1A5'))
 
@@ -5130,18 +5185,18 @@ def _open_credential_manager():
         messagebox.showerror("錯誤", f"開啟帳密管理失敗：\n{_e}")
 
 # 功能分頁 - 右欄（工具/設定）：修改帳密、Chrome縮放設定、開啟工作資料夾、回至主頁
-utility_credential_button = tk.Button(utility_right_frame, text="修改帳密",
+utility_credential_button = M.ModernButton(utility_right_frame, text="修改帳密",
                                       command=_open_credential_manager,
                                       **_ustyle('#FFE0B2', '#FFCC80'))
 # 🔥 Chrome 縮放設定（各功能開 Chrome 後縮放多少，可個別調整/重置）
-utility_zoom_button = tk.Button(utility_right_frame, text="Chrome縮放設定",
+utility_zoom_button = M.ModernButton(utility_right_frame, text="Chrome縮放設定",
                                 command=open_zoom_settings,
                                 **_ustyle('#B3E5FC', '#81D4FA'))
 # 🔥 開啟工作資料夾：原本在左欄，移到右欄回至主頁上方
-utility_open_folder_button = tk.Button(utility_right_frame, text="開啟工作資料夾",
+utility_open_folder_button = M.ModernButton(utility_right_frame, text="開啟工作資料夾",
                                        command=open_work_folder,
                                        **_ustyle('#FFF9C4', '#FFF59D'))
-utility_back_button = tk.Button(utility_right_frame, text="回至主頁",
+utility_back_button = M.ModernButton(utility_right_frame, text="回至主頁",
                                 command=show_main_page,
                                 **_ustyle('#F8BBD0', '#F48FB1'))
 
@@ -5158,20 +5213,20 @@ land_use_nlscmaps_button_style = {**sub_page_button_style, 'bg': '#BBDEFB', 'fg'
                                    'activebackground': '#90CAF9', 'activeforeground': 'black'}
 land_use_urbangis_button_style = {**sub_page_button_style, 'bg': '#C8E6C9', 'fg': 'black',
                                    'activebackground': '#A5D6A7', 'activeforeground': 'black'}
-land_use_nlscmaps_button = tk.Button(land_use_left_frame, text="國土測繪圖資",
+land_use_nlscmaps_button = M.ModernButton(land_use_left_frame, text="國土測繪圖資",
                                       command=lambda: toggle_buttons(land_use_nlscmaps_button, "國土測繪圖資", "nlscmaps.py"),
                                       **land_use_nlscmaps_button_style)
-land_use_urbangis_button = tk.Button(land_use_left_frame, text="高雄都市計畫",
+land_use_urbangis_button = M.ModernButton(land_use_left_frame, text="高雄都市計畫",
                                       command=lambda: toggle_buttons(land_use_urbangis_button, "高雄都市計畫", "urbangis.py"),
                                       **land_use_urbangis_button_style)
 
 # 中間：全國土地使用分區
-land_use_luz_button = tk.Button(land_use_middle_frame, text="全國土地使用分區",
+land_use_luz_button = M.ModernButton(land_use_middle_frame, text="全國土地使用分區",
                                  command=lambda: toggle_buttons(land_use_luz_button, "全國土地使用分區", "luz.py"),
                                  **sub_page_button_style)
 
 # 右側：回至主頁
-land_use_back_button = tk.Button(land_use_right_frame, text="回至主頁",
+land_use_back_button = M.ModernButton(land_use_right_frame, text="回至主頁",
                                   command=show_main_page,
                                   **sub_page_button_style)
 
@@ -5187,16 +5242,16 @@ land_use_page_buttons = [
 #    啟動時透過 NLMA_NBUPIC_CITY_FOR_BUTTON 字典告訴 start_subprocess 要傳 --city
 NLMA_NBUPIC_CITY_FOR_BUTTON = {}  # id(button) → 縣市名稱
 
-building_license_kh_button = tk.Button(building_license_left_frame, text="高雄市",
+building_license_kh_button = M.ModernButton(building_license_left_frame, text="高雄市",
                                        command=lambda: toggle_buttons(building_license_kh_button, "高雄市", "nlma.py"),
                                        **sub_page_button_style)
-building_license_pt_button = tk.Button(building_license_middle_frame, text="屏東縣",
+building_license_pt_button = M.ModernButton(building_license_middle_frame, text="屏東縣",
                                        command=lambda: toggle_buttons(building_license_pt_button, "屏東縣", "nlma_nbupic.py"),
                                        **sub_page_button_style)
-building_license_tn_button = tk.Button(building_license_middle_frame, text="台南市",
+building_license_tn_button = M.ModernButton(building_license_middle_frame, text="台南市",
                                        command=lambda: toggle_buttons(building_license_tn_button, "台南市", "nlma_nbupic.py"),
                                        **sub_page_button_style)
-building_license_back_button = tk.Button(building_license_right_frame, text="回主選單",
+building_license_back_button = M.ModernButton(building_license_right_frame, text="回主選單",
                                           command=show_main_page,
                                           **sub_page_button_style)
 
@@ -5337,7 +5392,7 @@ hinet_button_style = {
     'borderwidth': 2, 'bg': '#B8860B', 'fg': 'white',  # 土黃色（DarkGoldenrod）
     'activebackground': '#A07509', 'activeforeground': 'white'
 }
-hinet_button = tk.Button(
+hinet_button = M.ModernButton(
     transcript_left_frame, text="全國地政電子謄本",
     command=lambda: (
         update_message("歡迎使用【全國地政電子謄本】小程式，模組加載中...")
@@ -5345,7 +5400,7 @@ hinet_button = tk.Button(
     ),
     **hinet_button_style
 )
-qpt_hinet_button = tk.Button(transcript_left_frame, text="電傳資訊系統(光特)", command=lambda: toggle_buttons(qpt_hinet_button, "電傳資訊系統(光特)", "qpt_hinet.py"), **sub_page_button_style)
+qpt_hinet_button = M.ModernButton(transcript_left_frame, text="電傳資訊系統(光特)", command=lambda: toggle_buttons(qpt_hinet_button, "電傳資訊系統(光特)", "qpt_hinet.py"), **sub_page_button_style)
 
 # 🔥 電子謄本結構化按鈕（深藍色）
 # ──────────────────────────────────────────────────────────────
@@ -5634,7 +5689,7 @@ structured_transcript_button_style = {
     'borderwidth': 2, 'bg': '#1565C0', 'fg': 'white',  # 深藍色
     'activebackground': '#0D47A1', 'activeforeground': 'white'
 }
-structured_transcript_button = tk.Button(
+structured_transcript_button = M.ModernButton(
     transcript_left_frame, text="電子謄本結構化",
     command=lambda: _guard_structuring("電子謄本結構化", "GUI_transcript_pdf 1141021-01.py", structured_transcript_button),
     **structured_transcript_button_style
@@ -5646,7 +5701,7 @@ telereport_structured_button_style = {
     'borderwidth': 2, 'bg': '#00838F', 'fg': 'white',  # 藍綠色（Teal）
     'activebackground': '#006064', 'activeforeground': 'white'
 }
-telereport_structured_button = tk.Button(
+telereport_structured_button = M.ModernButton(
     transcript_left_frame, text="電傳謄本結構化",
     command=lambda: _guard_structuring("電傳謄本結構化", "GUI_telereport.py", telereport_structured_button),
     **telereport_structured_button_style
@@ -5660,14 +5715,14 @@ finance_button_style = {
     'borderwidth': 2, 'bg': '#E6C547', 'fg': 'black',  # 淡金色
     'activebackground': '#D4B237', 'activeforeground': 'black'
 }
-finance_button = tk.Button(transcript_right_frame, text="財政部土增稅",
+finance_button = M.ModernButton(transcript_right_frame, text="財政部土增稅",
     command=lambda: toggle_buttons(finance_button, "財政部土增稅", "finance_tax.py"), **finance_button_style)
-kaohsiung_tax_button = tk.Button(transcript_right_frame, text="高雄土增稅估算",
+kaohsiung_tax_button = M.ModernButton(transcript_right_frame, text="高雄土增稅估算",
     command=lambda: toggle_buttons(kaohsiung_tax_button, "高雄土增稅估算", "kaohsiung_tax.py"), **sub_page_button_style)
 
 # 【右欄 - 設定/編輯/返回】
 # 🔥 暫時註釋帳號設定按鈕（未來可能會用到）
-# config_manage_button = tk.Button(transcript_right_frame, text="帳號設定", command=lambda: open_config_manager(root, message_box, update_message), **sub_page_button_style)
+# config_manage_button = M.ModernButton(transcript_right_frame, text="帳號設定", command=lambda: open_config_manager(root, message_box, update_message), **sub_page_button_style)
 
 # 🔥 地籍圖處理工具 - 動態尋找最新版本
 def launch_cadastral_map_tool():
@@ -5727,14 +5782,14 @@ cadastral_map_tool_button_style = {
     'borderwidth': 2, 'bg': '#7B1FA2', 'fg': 'white',  # 深紫色
     'activebackground': '#6A1B9A', 'activeforeground': 'white'
 }
-cadastral_map_tool_button = tk.Button(
+cadastral_map_tool_button = M.ModernButton(
     transcript_right_frame,
     text="地籍圖處理工具",
     command=launch_cadastral_map_tool,
     **cadastral_map_tool_button_style
 )
 
-transcript_back_button = tk.Button(transcript_right_frame, text="回至主頁", command=show_main_page, **sub_page_button_style)
+transcript_back_button = M.ModernButton(transcript_right_frame, text="回至主頁", command=show_main_page, **sub_page_button_style)
 
 # 🔥 腳本名稱到按鈕的映射（用於連續模式）
 script_to_button_map = {}  # 將在按鈕定義後初始化
@@ -5837,58 +5892,58 @@ script_to_page_map = {
 
 # 🔥 主頁面排列（新順序）
 # 左邊 4 個：地籍便民系統、謄本與土增稅、使用執照查詢、重要設施查詢
-start_land_button.pack(pady=3, anchor="e")
-transcript_button.pack(pady=3, anchor="e")  # 🔥 移至左側
-start_land_use_button.pack(pady=3, anchor="e")
-start_important_facility_button.pack(pady=3, anchor="e")
+start_land_button.pack(fill=tk.X, pady=3)
+transcript_button.pack(fill=tk.X, pady=3)  # 🔥 移至左側
+start_land_use_button.pack(fill=tk.X, pady=3)
+start_important_facility_button.pack(fill=tk.X, pady=3)
 
 # 中間 4 個 - 🔥 土地使用分區取代國土測繪圖資，V523 系統移至此處
-land_use_zone_button.pack(pady=3, anchor="center")
-start_V523_button.pack(pady=3, anchor="center")
-start_land_partition_button.pack(pady=3, anchor="center")
-start_mapping_button.pack(pady=3, anchor="center")
+land_use_zone_button.pack(fill=tk.X, pady=3)
+start_V523_button.pack(fill=tk.X, pady=3)
+start_land_partition_button.pack(fill=tk.X, pady=3)
+start_mapping_button.pack(fill=tk.X, pady=3)
 
 # 右邊 4 個：實價登錄、編輯物件資料、連續模式、功能分頁
-real_estate_price_button.pack(pady=3, anchor="w")
-edit_object_data_button.pack(pady=3, anchor="w")  # 🔥 編輯物件資料移至主頁右側
-continuous_mode_button.pack(pady=3, anchor="w")
-utility_button.pack(pady=3, anchor="w")  # 🔥 功能分頁按鈕
+real_estate_price_button.pack(fill=tk.X, pady=3)
+edit_object_data_button.pack(fill=tk.X, pady=3)  # 🔥 編輯物件資料移至主頁右側
+continuous_mode_button.pack(fill=tk.X, pady=3)
+utility_button.pack(fill=tk.X, pady=3)  # 🔥 功能分頁按鈕
 
 # 實價登錄頁面排列
-interior_button.pack(pady=3, anchor="e")
-price104_button.pack(pady=3, anchor="center")
-real_estate_back_button.pack(pady=3, anchor="w")
+interior_button.pack(fill=tk.X, pady=3)
+price104_button.pack(fill=tk.X, pady=3)
+real_estate_back_button.pack(fill=tk.X, pady=3)
 
 # 🔥 功能分頁排列
 # 🔥 左右兩欄各 4 個按鈕（中間留空作為間距）
 # 左欄：載入案件、讀取結構化JSON、匯入封存、匯出封存
-utility_load_data_button.pack(pady=4, anchor="e")
-read_json_button.pack(pady=4, anchor="e")
-utility_import_archive_button.pack(pady=4, anchor="e")
-utility_export_archive_button.pack(pady=4, anchor="e")
+utility_load_data_button.pack(fill=tk.X, pady=4)
+read_json_button.pack(fill=tk.X, pady=4)
+utility_import_archive_button.pack(fill=tk.X, pady=4)
+utility_export_archive_button.pack(fill=tk.X, pady=4)
 # 右欄：修改帳密、Chrome縮放設定、開啟工作資料夾、回至主頁
-utility_credential_button.pack(pady=4, anchor="w")
-utility_zoom_button.pack(pady=4, anchor="w")
-utility_open_folder_button.pack(pady=4, anchor="w")
-utility_back_button.pack(pady=4, anchor="w")
+utility_credential_button.pack(fill=tk.X, pady=4)
+utility_zoom_button.pack(fill=tk.X, pady=4)
+utility_open_folder_button.pack(fill=tk.X, pady=4)
+utility_back_button.pack(fill=tk.X, pady=4)
 
 # 🔥 土地使用分區分頁排列
 # 左欄：國土測繪圖資、高雄都市計畫
-land_use_nlscmaps_button.pack(pady=3, anchor="e")
-land_use_urbangis_button.pack(pady=3, anchor="e")
+land_use_nlscmaps_button.pack(fill=tk.X, pady=3)
+land_use_urbangis_button.pack(fill=tk.X, pady=3)
 # 中欄：全國土地使用分區
-land_use_luz_button.pack(pady=3, anchor="center")
+land_use_luz_button.pack(fill=tk.X, pady=3)
 # 右欄：回至主頁
-land_use_back_button.pack(pady=3, anchor="w")
+land_use_back_button.pack(fill=tk.X, pady=3)
 
 # 🔥 使用執照查詢分頁排列
 # 左欄：高雄市
-building_license_kh_button.pack(pady=3, anchor="e")
+building_license_kh_button.pack(fill=tk.X, pady=3)
 # 中欄：屏東縣、台南市
-building_license_pt_button.pack(pady=3, anchor="center")
-building_license_tn_button.pack(pady=3, anchor="center")
+building_license_pt_button.pack(fill=tk.X, pady=3)
+building_license_tn_button.pack(fill=tk.X, pady=3)
 # 右欄：回主選單
-building_license_back_button.pack(pady=3, anchor="w")
+building_license_back_button.pack(fill=tk.X, pady=3)
 
 # 謄本專區頁面排列（兩欄）
 # 兩欄後左右空間較大 → 把按鈕加寬（只針對此分頁，不動共用 style），並填滿欄寬使其等長
@@ -5912,6 +5967,39 @@ finance_button.pack(fill=tk.X, pady=3)
 kaohsiung_tax_button.pack(fill=tk.X, pady=3)
 cadastral_map_tool_button.pack(fill=tk.X, pady=3)  # 🔥 地籍圖處理工具
 transcript_back_button.pack(fill=tk.X, pady=3)
+
+# 🎨 新外觀：會打開分頁的按鈕右側標「›」；同一頁的按鈕字級統一(字太長時整頁一起縮)
+for _b in (transcript_button, land_use_zone_button, real_estate_price_button, utility_button, start_land_use_button):
+    _b.page = True
+# 原本灰白的按鈕各給一個色系(整頁都有顏色才協調)；回主頁統一灰藍
+for _b, _c in ((start_land_use_button, M.INDIGO), (start_important_facility_button, M.TEAL),
+               (start_V523_button, M.SLATE), (start_land_partition_button, M.CYAN), (start_mapping_button, M.BROWN),
+               (interior_button, M.CYAN), (price104_button, M.PINK),
+               (kaohsiung_tax_button, M.AMBER), (finance_button, "#A88600"),
+               (cadastral_map_tool_button, M.PURPLE),
+               # 功能分頁：同一套色票
+               (utility_load_data_button, M.BLUE), (read_json_button, M.CYAN),
+               (utility_import_archive_button, M.GREEN), (utility_export_archive_button, M.TEAL),
+               (utility_credential_button, M.AMBER), (utility_zoom_button, M.INDIGO),
+               (utility_open_folder_button, M.BROWN),
+               # 土地使用分區分頁
+               (land_use_nlscmaps_button, M.BLUE), (land_use_urbangis_button, M.GREEN),
+               (land_use_luz_button, M.INDIGO),
+               (building_license_kh_button, M.CYAN), (building_license_pt_button, M.TEAL),
+               (building_license_tn_button, M.AMBER)):
+    _b.color = _c
+# 謄本頁：調閱(實心)＋對應的結構化(淡色)同一色系 —— 電子＝藍、電傳＝青綠
+for _b, _c, _solid in ((hinet_button, M.BLUE, True), (structured_transcript_button, M.BLUE, False),
+                       (qpt_hinet_button, M.TEAL, True), (telereport_structured_button, M.TEAL, False)):
+    _b.color, _b.filled = _c, _solid
+for _grp in (main_page_buttons, real_estate_page_buttons, transcript_page_buttons, utility_page_buttons,
+             land_use_page_buttons, building_license_page_buttons):
+    M.uniform_group(_grp)
+# 謄本頁分隔線改成細淡線
+for _w in transcript_left_frame.winfo_children():
+    if _w.winfo_class() == "Frame":
+        _w.configure(bg=M.LINE, height=max(1, M.px(1)))
+
 
 def start_subprocess(button, script_name):
     global is_running, process, selected_json_path, json_dir, current_running_button
@@ -6198,6 +6286,7 @@ def exit_subprocess(button):
         # 🔥 如果是 land.py 手動關閉，也要更新視窗標題
         if current_running_button == start_land_button:
             root.after(100, update_title_from_data_json)
+            root.after(700, lambda: _recheck_transcript_link(unlink=True))
 
         try:
             downloads_dir = os.path.join(os.getcwd(), "downloads")
@@ -6326,7 +6415,7 @@ def update_centered_divider(text, char="=", margin=2):
 def update_message(message):
     global message_box, input_field
     parts = re.split(r'(\033\[[0-9;]*m)', message)
-    current_fg = 'white'; current_bg = 'black'
+    current_fg = 'white'; current_bg = M.CONSOLE_BG
     message_box.config(state=tk.NORMAL)
     # 常用 256-color 對照（橘色等）
     _XTERM256 = {
@@ -6355,9 +6444,9 @@ def update_message(message):
                     if 30 <= code_int <= 37 or 90 <= code_int <= 97:
                         current_fg = ANSI_COLOR_MAP.get(str(code_int), 'white')
                     elif 40 <= code_int <= 47:
-                        current_bg = ANSI_COLOR_MAP.get(str(code_int), 'black')
+                        current_bg = ANSI_COLOR_MAP.get(str(code_int), M.CONSOLE_BG)
                     elif code_int == 0:
-                        current_fg = 'white'; current_bg = 'black'
+                        current_fg = 'white'; current_bg = M.CONSOLE_BG
                 i += 1
         else:
             tag_name = f"{current_fg}_{current_bg}"
@@ -7160,10 +7249,133 @@ def prefill_input_field(value):
     except Exception as e:
         update_message(f"[錯誤] 預填輸入框失敗: {e}")
 
+def _short_lot(lot):
+    """0013-0000 → 13、0013-0002 → 13-2(狀態標籤與提示用)"""
+    try:
+        m, _, c = str(lot).strip().partition("-")
+        return str(int(m)) + (f"-{int(c)}" if c and int(c) else "")
+    except Exception:
+        return str(lot)
+
+
+def _recheck_transcript_link(unlink=True):
+    """data.json(目前案件)換了之後，檢查目前選用的謄本結構化 JSON 是不是同一個案件。
+    完全不同地段 → unlink=True：解除連結(不刪檔)並提示重新結構化；unlink=False：只把狀態標籤標成「不符」"""
+    global selected_json_path
+    if not selected_json_path:
+        return
+    try:
+        ok, _w, d, t, order = check_data_consistency(selected_json_path)
+    except Exception as e:
+        print(f"[謄本檢查] 失敗：{e}")
+        return
+    print(f"[謄本檢查] 一致={ok} 順序問題={order} 案件={d} 謄本={t}", flush=True)
+    if not (d and t) or ok or order:
+        return          # 一致、或只是順序不同(另有自動重排) → 不動
+    old = f"{t['area']}{t['section']}{_short_lot(t['lot_number'])}"
+    new = f"{d['area']}{d['section']}{_short_lot(d['lot_number'])}"
+    update_divider()
+    if unlink:
+        old_file = os.path.basename(selected_json_path)
+        selected_json_path = None
+        try:
+            cfg = load_config() or {}
+            cfg["selected_json"] = ""
+            save_config(cfg, show_message=False)
+        except Exception:
+            pass
+        json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
+        update_message(f"\033[93m⚠ 目前案件已換成【{new}】，原本選用的謄本結構化資料是【{old}】，不是同一個案件\033[0m")
+        update_message(f"   已自動解除連結（檔案沒有刪除：output\\{old_file}）")
+        update_message("   → 請到【謄本與土增稅】為新案件調閱謄本並重新做「謄本結構化」")
+    else:
+        json_status_label.config(text=f"謄本是「{old}」的，與目前案件不符", fg='#FF8C00')
+        update_message(f"\033[93m⚠ 謄本結構化資料是【{old}】的，與目前案件【{new}】不符\033[0m")
+        update_message("   → 請到【謄本與土增稅】重新做「謄本結構化」，或用【功能分頁 › 讀取結構化JSON】選對的檔案")
+    update_divider()
+
+
+def open_quick_lookup(text):
+    """萬用查詢欄：沒有子程式在跑時，下方輸入欄打地址/地號 → 查地號、建號、社區 → 建立案件"""
+    try:
+        import quick_case
+    except Exception as e:
+        update_message(f"[錯誤] 無法載入快速建立案件功能：{e}")
+        return
+
+    def on_saved(entries, mode, folder):
+        if isinstance(entries, dict):
+            entries = [entries]
+        update_message("")
+        update_message(f"\033[92m✓ 已{'建立新案件' if mode == 'new' else '加入目前案件'}"
+                       f"（{len(entries)} 筆）：\033[0m" if len(entries) > 1 else
+                       f"\033[92m✓ 已{'建立新案件' if mode == 'new' else '加入目前案件'}：\033[0m")
+        for entry in entries:
+            update_message(f"\033[92m   {entry['area']}{entry['section']} {entry['lot_number']}地號\033[0m")
+            if entry.get("build_no"):
+                update_message(f"\033[92m      建號 {entry['build_no']}（{entry.get('door', '')}）\033[0m")
+            if entry.get("community"):
+                update_message(f"\033[92m      社區：{entry['community']}\033[0m")
+        update_message(f"   資料夾：{folder}")
+        update_message("   接下來可直接執行各查詢功能（data.json 已更新）")
+        if mode == "new":
+            root.after(300, lambda: _recheck_transcript_link(unlink=True))
+        try:
+            update_title_from_data_json()
+        except Exception:
+            pass
+
+    update_message(f"🔎 查詢「{text}」…（結果會開新視窗）")
+    # 🔥 寫「程式資料夾的 data.json 主檔」(跟地籍便民一樣)，再由 quick_case 備份到案件資料夾/4.其他相關。
+    #    不能用 get_data_json_path()：它回傳的是「目前案件資料夾裡的備份」，建新案件會把新資料寫進舊案件的備份、主檔反而沒更新
+    quick_case.open_quick_case(root, text, os.path.join(PROGRAM_DIR, 'data.json'), BASE_DIR, on_saved=on_saved, log=update_message,
+                               input_widget=input_field)
+
+
+def _panel_query(text):
+    """萬用查詢面板選好按「查詢」→ 走萬用查詢流程(子程式執行中不接，輸入欄是給子程式的)"""
+    if is_running:
+        update_message("⚠️ 目前有功能正在執行，請等它結束再查詢")
+        return
+    open_quick_lookup(text)
+
+
+def show_quick_intro(force=False):
+    """萬用查詢面板(啟動時自動跳；勾「啟動時不要自動跳出」後只在打「說明」時跳)"""
+    if is_running and not force:
+        return
+    try:
+        import quick_case
+        quick_case.show_intro(root, input_field, PROGRAM_DIR, force=force, on_query=_panel_query)
+    except Exception as e:
+        print(f"[萬用查詢面板] 無法顯示：{e}")
+
+
+def open_quick_panel(tab=None):
+    """輸入欄「☰ 選單」或空白按 Enter：打開萬用查詢面板(地籍選單/地址選單)"""
+    if is_running:
+        update_message("⚠️ 目前有功能正在執行，請等它結束再查詢")
+        return
+    try:
+        import quick_case
+        quick_case.open_panel(root, input_field, PROGRAM_DIR, _panel_query, tab)
+    except Exception as e:
+        update_message(f"[錯誤] 無法開啟查詢面板：{e}")
+
+
 def send_input(event=None):
     global process, is_running
     if not is_running:
-        update_message("[警告] 沒有運行中的子程序，無法發送輸入")
+        # 🔥 沒有子程式在跑：輸入欄當「萬用查詢欄」(地址/地號 → 建立案件)
+        q = input_field.get().strip()
+        if q in ("說明", "?", "？", "help"):
+            input_field.delete(0, tk.END)
+            show_quick_intro(force=True)
+        elif q and q != "請在此輸入...":
+            input_field.delete(0, tk.END)
+            open_quick_lookup(q)
+        else:
+            open_quick_panel()      # 空白按 Enter → 打開地籍/地址選單
         return
     if not process:
         update_message("[警告] 沒有程序實例")
@@ -7182,7 +7394,7 @@ def send_input(event=None):
         input_field.delete(0, tk.END)
         # 🔥 重新加上 placeholder
         input_field.insert(0, "請在此輸入...")
-        input_field.config(fg="gray")
+        input_field.config(fg="#6B7280")
         if process.stdin and not process.stdin.closed:
             process.stdin.write(user_input + '\n')
             process.stdin.flush()
@@ -8286,10 +8498,12 @@ def show_startup_reminder():
     update_divider()
     update_message("\033[38;5;208m🔥 【重要提醒】地籍資料查詢系統\033[0m")
     update_divider()
-    update_message("\033[97;41m 📍 新批次請先執行【地籍便民系統】（橙色按鈕） \033[0m")
-    update_message("📁 將自動建立【地區地段-地號】資料夾作為儲存目錄")
+    update_message("\033[97;41m 📍 新案件請先「建立案件」，兩種方式擇一 \033[0m")
+    update_message("   ①【地籍便民系統】（橙色按鈕）：在地籍圖網頁上查地號")
+    update_message("   ②【萬用查詢】：下方輸入欄打地址或地號按 Enter，或按輸入欄右邊「☰ 選單」用地籍／地址選單挑")
+    update_message("   兩種都會建立【地區地段-地號】資料夾、存成同一份 data.json，可以混用")
     update_message("📋 建議執行順序：")
-    update_message("   1️地籍便民系統 → 建立【資料夾】")
+    update_message("   1️建立案件（地籍便民系統 或 萬用查詢）")
     update_message("   2️【謄本與土增稅】：")
     update_message("          全國地政電子謄本 → 電子謄本結構化")
     update_message("   3️土增稅查詢")
@@ -8298,6 +8512,10 @@ def show_startup_reminder():
     update_message("   6️編輯物件資料【物件調查表】")
     update_divider()
     update_message("\033[97;41m 💡 橙色按鈕為優先執行功能，請注意！ \033[0m")
+    update_message("\033[96m 🔎 萬用查詢：輸入欄打「地址」或「地號」按 Enter，自動查地號、建號、社區並建立案件\033[0m")
+    update_message("\033[96m    例：前鎮區和平二路236之2號12樓　或　前鎮區竹北段一小段2096\033[0m")
+    update_message("\033[96m    多筆用「、」或「,」分開，後面可只寫號碼：前鎮區竹北段一小段2096、2097、2100-1\033[0m")
+    update_message("\033[96m    建立「新案件」後，原本的謄本結構化若是別的案件會自動解除，請重新做謄本結構化\033[0m")
     update_message("")
 
 # === 資料一致性檢查（啟動時自動執行）===
@@ -8501,13 +8719,19 @@ def check_and_warn_data_consistency():
                 update_divider()
             # 「無需調整」→ 靜默，不顯示
         elif data_info and transcript_info and not is_consistent and not is_order_issue:
-            # 完全不同地段，僅警告不自動處理
+            # 完全不同地段，僅警告不自動處理；狀態標籤標成「不符」，免得看到綠色「已做」誤以為可直接用
             update_divider()
             update_message("[警告] data.json 與謄本完全不同地段（可能是不同案件）")
             update_message(f"  data.json[0]: {data_info['area']}{data_info['section']} {data_info['lot_number']}")
             update_message(f"  謄本[0]: {transcript_info['area']}{transcript_info['section']} {transcript_info['lot_number']}")
-            update_message("  → 不會自動重排；如需切換案件請手動載入正確的 data.json")
+            update_message("  → 不會自動重排；如需切換案件請手動載入正確的 data.json，或重新做謄本結構化")
             update_divider()
+            try:
+                json_status_label.config(
+                    text=f"謄本是「{transcript_info['area']}{transcript_info['section']}{_short_lot(transcript_info['lot_number'])}」的，與目前案件不符",
+                    fg='#FF8C00')
+            except Exception:
+                pass
 
     except Exception as e:
         # 檢查失敗不影響程式啟動，但把錯誤秀到訊息區方便除錯
@@ -8553,9 +8777,30 @@ def update_title_from_data_json():
         print(f"[警告] 更新視窗標題失敗：{e}")
 
 # 延遲顯示提醒訊息和資料一致性檢查
+# 🔥 主介面組裝完成：先把排版算好，再一次顯示主視窗、關掉「載入中」小窗
+try:
+    root.update_idletasks()
+    try:
+        root.attributes("-alpha", 0.0)       # 先透明顯示、畫完再現身(避免先閃一下白畫面)
+    except Exception:
+        pass
+    root.deiconify()
+    root.update()
+    try:
+        root.attributes("-alpha", 1.0)
+    except Exception:
+        pass
+finally:
+    try:
+        if _splash_win is not None:
+            _splash_win.destroy()
+    except Exception:
+        pass
+
 root.after(100, show_startup_reminder)
 root.after(500, check_and_warn_data_consistency)  # 在提醒訊息之後執行
 root.after(2000, _bg_check_update)  # 🔥 啟動 2 秒後背景檢查 GitHub 是否有新版（不擋主介面）
+root.after(1200, show_quick_intro)  # 🆕 萬用查詢欄新功能介紹(勾「不再顯示」後就不跳)
 
 # 🔥 如果啟動時已載入 JSON，更新狀態列顯示
 if selected_json_path:

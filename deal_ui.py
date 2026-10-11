@@ -37,6 +37,11 @@ THEMES = {
     "cyan":   ("#00838F", "#EBF8FA", "#BDE5EA"),
     "slate":  ("#455A64", "#F2F5F7", "#CFD8DC"),
     "brown":  ("#795548", "#F8F3F0", "#E0D2CB"),
+    # 較明顯的色系(快速建立案件用)：底色、邊框都加深，三種彼此分得開
+    "blue_strong":   ("#0B4FA8", "#DCEAFE", "#7FAEEB"),
+    "green_strong":  ("#1B6B3A", "#D9F2E1", "#7CC79A"),
+    "purple_strong": ("#5B2BB0", "#ECE3FB", "#B49BEA"),
+    "orange_strong": ("#B35400", "#FFE9D2", "#F0B47A"),
 }
 
 
@@ -110,7 +115,18 @@ def scroll_body(root):
     canvas.configure(yscrollcommand=sb.set)
     canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
     sb.pack(side=tk.RIGHT, fill=tk.Y)
-    canvas.bind_all("<MouseWheel>", lambda e: canvas.yview_scroll(int(-e.delta / 120), "units"))
+    def _wheel(e):
+        # 只在「這個視窗還在、而且滑鼠就在這個視窗上」時捲動；視窗關掉後不會再干擾主程式的滾輪
+        try:
+            if not canvas.winfo_exists():
+                return
+            w = canvas.winfo_containing(e.x_root, e.y_root)
+            if w is None or w.winfo_toplevel() is not canvas.winfo_toplevel():
+                return
+            canvas.yview_scroll(int(-e.delta / 120), "units")
+        except (tk.TclError, KeyError):
+            pass
+    canvas.bind_all("<MouseWheel>", _wheel, add="+")
     return body, canvas
 
 
@@ -176,7 +192,8 @@ def label(parent, text, bold=False, color=TEXT, **kw):
 class RoundButton(tk.Canvas):
     """圓角按鈕(畫在 Canvas 上)。kind: primary/accent/ghost/chip；color 可指定主色(chip 用同色系)"""
 
-    def __init__(self, parent, text, command, kind="primary", color=None, font=None, radius=None, padx=None, pady=None):
+    def __init__(self, parent, text, command, kind="primary", color=None, font=None, radius=None, padx=None, pady=None,
+                 image=None, image_right=False):
         pbg = parent.cget("bg")
         main = color or PRIMARY
         if kind == "primary":
@@ -191,11 +208,21 @@ class RoundButton(tk.Canvas):
         f = tkfont.Font(font=self.font)
         px = padx if padx is not None else (24 if kind in ("primary", "accent", "ghost") else 14)
         py = pady if pady is not None else (10 if kind in ("primary", "accent", "ghost") else 5)
-        w, h = f.measure(text) + px * 2, f.metrics("linespace") + py * 2
+        iw = image.width() + 10 if image is not None else 0        # 可選小圖(例：阿生頭像)
+        tw = f.measure(text)
+        w = tw + iw + px * 2
+        h = max(f.metrics("linespace"), image.height() if image is not None else 0) + py * 2
         super().__init__(parent, width=w, height=h, bg=pbg, highlightthickness=0, cursor="hand2")
         r = radius if radius is not None else h / 2
         self._shape = _round_rect(self, 1, 1, w - 1, h - 1, r, fill=fill, outline="")
-        self._text = self.create_text(w / 2, h / 2, text=text, font=self.font, fill=fg)
+        if image is not None:
+            self._img = image
+            ix = (w - px - image.width() / 2) if image_right else (px + image.width() / 2)
+            self.create_image(ix, h / 2, image=image)
+            tx = (px + tw / 2) if image_right else (px + iw + tw / 2)
+        else:
+            tx = w / 2
+        self._text = self.create_text(tx, h / 2, text=text, font=self.font, fill=fg)
         self.fill, self.hover, self.command = fill, hover, command
         self.bind("<Enter>", lambda e: self.itemconfigure(self._shape, fill=self.hover))
         self.bind("<Leave>", lambda e: self.itemconfigure(self._shape, fill=self.fill))
@@ -250,6 +277,70 @@ def check(parent, text, var):
     return tk.Checkbutton(parent, text=text, variable=var, font=F, fg=TEXT, bg=parent.cget("bg"),
                           activebackground=parent.cget("bg"), selectcolor="white", highlightthickness=0,
                           cursor="hand2", anchor="w", justify="left")
+
+
+class BigCheck(tk.Canvas):
+    """大顆圓角勾選框(取代 Windows 預設的小方框)。大小跟著字型行高(→ 也跟著 DPI 縮放)。
+    radio_value 不是 None 時當圓形單選鈕用(var 為 IntVar/StringVar)"""
+
+    def __init__(self, parent, var, color=None, enabled=True, radio_value=None, font=None):
+        size = int(tkfont.Font(font=font or F).metrics("linespace") * 1.05)
+        super().__init__(parent, width=size, height=size, bg=parent.cget("bg"), highlightthickness=0,
+                         cursor="hand2" if enabled else "arrow")
+        self.var, self.color, self.enabled, self.rv, self.size = var, color or PRIMARY, enabled, radio_value, size
+        self.bind("<Button-1>", lambda e: self.toggle())
+        self._tr = var.trace_add("write", lambda *a: self._draw())
+        self.bind("<Destroy>", self._untrace)
+        self._draw()
+
+    def _untrace(self, e=None):
+        try:
+            self.var.trace_remove("write", self._tr)
+        except Exception:
+            pass
+
+    def on(self):
+        try:
+            return self.var.get() == self.rv if self.rv is not None else bool(self.var.get())
+        except tk.TclError:
+            return False
+
+    def toggle(self):
+        if not self.enabled:
+            return
+        if self.rv is not None:
+            self.var.set(self.rv)
+        else:
+            self.var.set(not self.var.get())
+
+    def _draw(self):
+        try:
+            self.delete("all")
+        except tk.TclError:
+            return
+        s, on = self.size, self.on()
+        lw = max(2, int(s * 0.09))
+        main = self.color if self.enabled else "#AEB4BD"
+        if self.rv is not None:                       # 圓形單選
+            self.create_oval(lw, lw, s - lw, s - lw, fill="white", outline=main if on else "#8A94A3", width=lw)
+            if on:
+                d = s * 0.28
+                self.create_oval(d, d, s - d, s - d, fill=main, outline="")
+            return
+        _round_rect(self, lw / 2 + 1, lw / 2 + 1, s - lw / 2 - 1, s - lw / 2 - 1, s * 0.22,
+                    fill=main if on else ("white" if self.enabled else "#EEF0F3"),
+                    outline=main if on else "#8A94A3", width=lw)
+        if on:                                        # 白色打勾
+            self.create_line(s * 0.26, s * 0.52, s * 0.43, s * 0.69, s * 0.75, s * 0.33,
+                             fill="white", width=max(2, int(s * 0.13)), capstyle="round", joinstyle="round")
+
+
+def big_check(parent, var, color=None, enabled=True, font=None):
+    return BigCheck(parent, var, color, enabled, None, font)
+
+
+def big_radio(parent, var, value, color=None, font=None):
+    return BigCheck(parent, var, color, True, value, font)
 
 
 def repaint(widget):

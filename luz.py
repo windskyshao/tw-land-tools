@@ -463,8 +463,10 @@ def _luz_create_driver_attached():
 
 
 driver = None
+_luz_attached = False
 if LUZ_USE_ATTACH_MODE:
     driver = _luz_create_driver_attached()
+    _luz_attached = driver is not None
 
 if driver is None:
     # 退路：原本的一般模式（stealth=True 仍可降低被偵測機率）
@@ -1163,7 +1165,18 @@ if total_entries > 1:
     print("", flush=True)
 
 # 結束 Selenium session
-driver.quit()
+# 🔥 附著模式的 Chrome 是我們用一般方式另外開的，driver.quit() 只會斷開連線、不會關它
+#    → 先請瀏覽器「正常關閉」(Browser.close)，cf_clearance 通行證 cookie 才會好好存回專用設定檔
+if _luz_attached:
+    try:
+        driver.execute_cdp_cmd("Browser.close", {})
+        print("[附著模式] 已關閉查詢用的 Chrome", flush=True)
+    except Exception:
+        pass
+try:
+    driver.quit()
+except Exception:
+    pass
 
 def notify_main_program():
     print("全國土地使用分區查詢已完成執行", flush=True)
