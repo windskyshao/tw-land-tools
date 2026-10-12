@@ -882,7 +882,7 @@ class Login104Woo:
                 return False
             return True  # 返回選單
     
-    def save_page_as_pdf(self):
+    def save_page_as_pdf(self, label=None):
         """將當前頁面儲存為PDF，使用data.json中的第一筆資料建立目錄"""
         try:
             # 確保我們有第一筆資料
@@ -908,7 +908,7 @@ class Login104Woo:
             os.makedirs(save_path, exist_ok=True)
             
             # 準備檔案名稱的基本部分
-            filename_base = f"104實價登錄-{data['area']}{data['section']}"  # 例如：104實價登錄-鳳山區鳳甲段
+            filename_base = f"104實價登錄-{data['area']}{label or data['section']}"  # 例如：104實價登錄-鳳山區鳳甲段(社區那份用社區名)
             
             # 檢查現有檔案，決定使用哪個字母
             existing_files = [f for f in os.listdir(save_path) if f.startswith(filename_base) and f.endswith('.pdf')]
@@ -1032,12 +1032,63 @@ class Login104Woo:
             for i, data in enumerate(unique_sections, 1):
                 print(f"\n>>> [{i}/{len(unique_sections)}] 正在處理: {data['city']} {data['area']} {data['section']}", flush=True)
 
-                # 執行搜尋
+                # 第一次:地段＋類別「土地」
                 self.search_land_info_auto(data)
 
                 # 自動存檔
                 print(f"正在自動儲存 PDF...", flush=True)
                 self.save_page_as_pdf()
+
+                # 🔥 第二次:這筆地號上的社區(與內政部實價相同作法;社區名=data.json community,沒有就用座標問阿生地圖)
+                try:
+                    com = data.get("community") or ""
+                    if not com:
+                        import landmap_api as _LM
+                        com = _LM.community_for(data) or ""
+                except Exception as _ce:
+                    com = ""
+                    print(f"查社區名失敗: {_ce}", flush=True)
+                if com:
+                    print(f"\n>>> 再用社區名查詢: {com}", flush=True)
+                    self.search_land_info_auto(data, keyword=com, category=None)
+                    # 104 的社區名寫法常跟內政部不同(例「YouStar」查無)→ 改用這個社區實際成交門牌的「路名+號」再查
+                    try:
+                        _txt = self.driver.execute_script("return document.body.innerText;") or ""
+                    except Exception:
+                        _txt = ""
+                    if "無成交資料" in _txt:
+                        for _kw in self._community_door_keywords(data, com):
+                            print(f"104 用社區名查無資料 → 改用門牌「{_kw}」查", flush=True)
+                            self.search_land_info_auto(data, keyword=_kw, category=None)
+                            try:
+                                _txt = self.driver.execute_script("return document.body.innerText;") or ""
+                            except Exception:
+                                _txt = ""
+                            if "無成交資料" not in _txt:
+                                # 🔥 門牌查到後,從結果讀出 104 自己的社區名(連結提示「看同棟成交N/社區全名」)再查一次
+                                #    → 拿到整個社區所有門牌的成交(只用一個門牌會漏掉同社區其他號)
+                                try:
+                                    _names = self.driver.execute_script(
+                                        "return [...document.querySelectorAll('a[title*=\"看同棟成交\"]')]"
+                                        ".map(a => (a.getAttribute('title') || '').split('/').pop().trim()).filter(Boolean);") or []
+                                except Exception:
+                                    _names = []
+                                _c104 = max(set(_names), key=_names.count) if _names else ""
+                                if _c104 and _c104 != com:
+                                    print(f"104 的社區名是「{_c104}」→ 用它再查一次(整個社區)", flush=True)
+                                    self.search_land_info_auto(data, keyword=_c104, category=None)
+                                    try:
+                                        _t2 = self.driver.execute_script("return document.body.innerText;") or ""
+                                    except Exception:
+                                        _t2 = ""
+                                    if "無成交資料" in _t2:   # 用社區名查不到 → 退回門牌那份
+                                        print(f"用「{_c104}」查無資料，改回門牌「{_kw}」的結果", flush=True)
+                                        self.search_land_info_auto(data, keyword=_kw, category=None)
+                                break
+                    print(f"正在自動儲存 PDF...", flush=True)
+                    self.save_page_as_pdf(label=com)
+                else:
+                    print("這筆地號查不到社區名，只查土地", flush=True)
 
                 print(f"✓ [{i}/{len(unique_sections)}] 完成: {data['city']} {data['area']} {data['section']}", flush=True)
 
@@ -1074,8 +1125,28 @@ class Login104Woo:
             print(f"批次模式發生錯誤: {str(e)}", flush=True)
             self.normal_mode()
 
-    def search_land_info_auto(self, data):
-        """自動查詢地段資訊（無需使用者互動）"""
+    def _community_door_keywords(self, data, com):
+        """社區名 → 阿生地圖實價資料裡這個社區成交的門牌 → 最常見的「路名+號」(例 和平二路236),最多 2 個。"""
+        import re
+        try:
+            import landmap_api as _LM
+            code = _LM.CITY_CODES.get(_LM.norm_city(data.get("city", "")), "")
+            j = _LM._get("/api/lvr_community", city=code, com=com)
+            cnt = {}
+            for f in (j.get("features") or []):
+                a = str((f.get("properties") or {}).get("a") or "")
+                a = a.translate({ord(c): ord(c) - 0xFEE0 for c in "０１２３４５６７８９"})
+                m = re.search(r"([^\s市縣區鄉鎮]{1,8}?(?:路|街|大道)(?:[一二三四五六七八九十]段)?(?:\d+巷)?(?:\d+弄)?)(\d+)", a)
+                if m:
+                    k = m.group(1) + m.group(2)
+                    cnt[k] = cnt.get(k, 0) + 1
+            return [k for k, _ in sorted(cnt.items(), key=lambda kv: -kv[1])][:2]
+        except Exception as e:
+            print(f"取社區門牌失敗: {e}", flush=True)
+            return []
+
+    def search_land_info_auto(self, data, keyword=None, category="土地"):
+        """自動查詢地段資訊（無需使用者互動）。keyword=社區名時 category=None(類別不限)"""
         try:
             # 檢查當前URL並保持在相同的搜尋頁面類型
             current_url = self.driver.current_url
@@ -1146,8 +1217,14 @@ class Login104Woo:
 
                 if category_select:
                     try:
-                        Select(category_select).select_by_visible_text("土地")
-                        print("已選擇類別: 土地", flush=True)
+                        if category:
+                            Select(category_select).select_by_visible_text(category)
+                            print(f"已選擇類別: {category}", flush=True)
+                        else:   # 查社區:類別不限(選第一個選項)
+                            _sel = Select(category_select)
+                            print("類別選項: " + "、".join(o.text.strip() for o in _sel.options), flush=True)
+                            _sel.select_by_index(0)
+                            print(f"已選擇類別: {_sel.first_selected_option.text.strip()}(不限)", flush=True)
                     except:
                         pass
             except Exception as e:
@@ -1167,8 +1244,8 @@ class Login104Woo:
 
                 if keyword_input:
                     keyword_input.clear()
-                    keyword_input.send_keys(data['section'])
-                    print(f"已輸入關鍵字(地段): {data['section']}", flush=True)
+                    keyword_input.send_keys(keyword or data['section'])
+                    print(f"已輸入關鍵字({'社區' if keyword else '地段'}): {keyword or data['section']}", flush=True)
             except Exception as e:
                 print(f"輸入關鍵字時發生錯誤: {str(e)}", flush=True)
 

@@ -1313,65 +1313,135 @@ def save_pdf(file_name: str, save_directory: str):
         """)
         time.sleep(2.5)  # 🔥 增加等待時間，讓使用者能看到慢速捲動過程
 
-        # 找到並點擊地圖攝影機控制按鈕（使用 aria-label）
+        # 🔥 2026-10-12 智慧調整:依頁面裡這塊地的框線(terrains)讓地圖剛好框住整塊地(大地自動縮小、小地放大),
+        #    街景改找離土地最近的 Google 街景點(原本小黃人放在土地中心,大塊地中心沒有路→街景全黑),鏡頭轉向土地。
+        #    讀不到框線才退回原本「放大兩次」。
+        _smart = ""
+        _door_ll = None   # 🔥 街景優先用「門牌位置」(臨路那一面);沒門牌/定位不到才用離土地最近的街景點
         try:
-            camera_button = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="地圖攝影機控制項"]'))
-            )
-            time.sleep(0.5)  # 🔥 增加延遲，讓使用者看到按鈕
-            camera_button.click()
-            print("已點擊地圖攝影機控制按鈕", flush=True)
-            time.sleep(0.8)  # 🔥 增加延遲，讓控制按鈕展開
-        except Exception as e:
-            print(f"找不到地圖攝影機控制按鈕: {e}", flush=True)
-
-        # 找到並點擊放大按鈕（+）兩次
+            with open(get_data_json_path(), "r", encoding="utf-8") as _f:
+                _d0 = (json.load(_f) or [{}])[0]
+            _door = str(_d0.get("door") or "").strip()
+            if _door and "地號" not in _door:
+                _full = _door if _door.startswith(("臺", "台", "新北", "桃園", "高雄", "基隆", "新竹", "嘉義", "苗栗", "彰化", "南投", "雲林", "屏東", "宜蘭", "花蓮", "澎湖", "金門", "連江"))                     else f"{_d0.get('city', '')}{'' if _door.startswith(_d0.get('area', '') or '@@') else _d0.get('area', '')}{_door}"   # 補縣市+行政區才查得到
+                import landmap_api as _LM
+                _j = _LM._get("/api/address", q=_full)
+                _c = next((x for x in (_j.get("results") or []) if x.get("type") == "門牌"), None)
+                if _c:
+                    _door_ll = {"lat": float(_c["lat"]), "lng": float(_c["lng"])}
+                    print(f"[街景] 用門牌定位：{_full}", flush=True)
+                else:
+                    print(f"[街景] 門牌「{_full}」定位不到，改用離土地最近的街景點", flush=True)
+        except Exception as _de:
+            print(f"[街景] 門牌定位失敗，改用離土地最近的街景點: {_de}", flush=True)
         try:
-            # 🔥 記錄當前滾動位置
-            scroll_position = driver.execute_script("return window.pageYOffset;")
-
-            # 第一次放大
-            zoom_in_button = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="放大"]'))
-            )
-            time.sleep(0.5)  # 讓使用者看到放大按鈕
-
-            # 使用 JavaScript 點擊，避免觸發滾動
-            driver.execute_script("arguments[0].click();", zoom_in_button)
-            time.sleep(0.8)  # 等待地圖放大動畫完成
-            print("已放大地圖（第 1 次）", flush=True)
-
-            # 🔥 恢復滾動位置
-            driver.execute_script(f"window.scrollTo(0, {scroll_position});")
-            time.sleep(0.3)
-
-            # 🔥 第二次放大：重新定位按鈕元素（避免 stale element）
-            zoom_in_button = WebDriverWait(driver, 5).until(
-                EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="放大"]'))
-            )
-
-            # 使用 JavaScript 點擊，避免觸發滾動
-            driver.execute_script("arguments[0].click();", zoom_in_button)
-            time.sleep(0.8)  # 等待地圖放大動畫完成
-            print("已放大地圖（第 2 次）", flush=True)
-
-            # 🔥 再次恢復滾動位置
-            driver.execute_script(f"window.scrollTo(0, {scroll_position});")
-            time.sleep(0.3)
-
-            # 🔥 再次點擊控制按鈕，隱藏控制項（讓上下左右 +- 六個按鈕消失）
+            driver.set_script_timeout(45)
+            _smart = driver.execute_async_script("""
+              const doorLL = arguments[0];
+              const done = arguments[arguments.length - 1];
+              try {
+                const pts = String(window.terrains || '').trim().split(/\s+/).map(t => t.split(','))
+                  .filter(a => a.length >= 2 && !isNaN(+a[0]) && !isNaN(+a[1])).map(a => new google.maps.LatLng(+a[1], +a[0]));
+                if (!pts.length || !window.map1) return done('no-poly');
+                const b = new google.maps.LatLngBounds(); pts.forEach(p => b.extend(p));
+                const c = b.getCenter();
+                const hd = (f, t) => { const r = Math.PI / 180, la1 = f.lat() * r, la2 = t.lat() * r, dl = (t.lng() - f.lng()) * r;
+                  return (Math.atan2(Math.sin(dl) * Math.cos(la2), Math.cos(la1) * Math.sin(la2) - Math.sin(la1) * Math.cos(la2) * Math.cos(dl)) / r + 360) % 360; };
+                let fin = false; const end = (m) => { if (!fin) { fin = true; done(m); } };
+                setTimeout(() => end('fit:' + map1.getZoom() + '|sv:timeout'), 30000);
+                google.maps.event.addListenerOnce(map1, 'idle', () => {
+                  const z = map1.getZoom(); if (z > 20) map1.setZoom(20); if (z < 15) map1.setZoom(15);   // 分區圖圖層只有 15~20 級
+                  const pano = map1.getStreetView(), svs = new google.maps.StreetViewService();
+                  const src = (google.maps.StreetViewSource && google.maps.StreetViewSource.GOOGLE) || google.maps.StreetViewSource.OUTDOOR;
+                  const radii = [50, 100, 200, 400]; let i = 0;
+                  const tryDoor = (k) => {   // 門牌點附近 30/60/100m 找街景,鏡頭朝門牌
+                    const dr = [30, 60, 100];
+                    if (!doorLL || k >= dr.length) return tryR();
+                    const dp = new google.maps.LatLng(doorLL.lat, doorLL.lng);
+                    svs.getPanorama({ location: dp, radius: dr[k], source: src, preference: google.maps.StreetViewPreference.NEAREST }, (d, st) => {
+                      if (st === 'OK' && d && d.location) {
+                        pano.setPano(d.location.pano); pano.setPov({ heading: hd(d.location.latLng, dp), pitch: 0 }); pano.setZoom(0); pano.setVisible(true);
+                        setTimeout(() => end('fit:' + map1.getZoom() + '|sv:門牌' + dr[k] + 'm'), 3500);
+                      } else tryDoor(k + 1);
+                    });
+                  };
+                  const tryR = () => {
+                    if (i >= radii.length) return end('fit:' + map1.getZoom() + '|sv:none');
+                    svs.getPanorama({ location: c, radius: radii[i], source: src, preference: google.maps.StreetViewPreference.NEAREST }, (d, st) => {
+                      if (st === 'OK' && d && d.location) {
+                        pano.setPano(d.location.pano); pano.setPov({ heading: hd(d.location.latLng, c), pitch: 0 }); pano.setZoom(0); pano.setVisible(true);
+                        setTimeout(() => end('fit:' + map1.getZoom() + '|sv:' + radii[i] + 'm'), 3500);
+                      } else { i++; tryR(); }
+                    });
+                  };
+                  tryDoor(0);
+                });
+                map1.fitBounds(b, 40);
+              } catch (e) { done('err:' + e); }
+            """, _door_ll)
+            print(f"[地圖/街景自動調整] {_smart}", flush=True)
+        except Exception as _se:
+            print(f"[地圖/街景自動調整] 失敗,改用原本放大兩次: {_se}", flush=True)
+        if not str(_smart).startswith("fit:"):
+            # 找到並點擊地圖攝影機控制按鈕（使用 aria-label）
             try:
-                camera_button = WebDriverWait(driver, 3).until(
+                camera_button = WebDriverWait(driver, 5).until(
                     EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="地圖攝影機控制項"]'))
                 )
-                driver.execute_script("arguments[0].click();", camera_button)
-                print("已隱藏地圖控制按鈕", flush=True)
-                time.sleep(0.5)
-            except Exception as hide_e:
-                print(f"隱藏控制按鈕時發生錯誤: {hide_e}", flush=True)
+                time.sleep(0.5)  # 🔥 增加延遲，讓使用者看到按鈕
+                camera_button.click()
+                print("已點擊地圖攝影機控制按鈕", flush=True)
+                time.sleep(0.8)  # 🔥 增加延遲，讓控制按鈕展開
+            except Exception as e:
+                print(f"找不到地圖攝影機控制按鈕: {e}", flush=True)
 
-        except Exception as e:
-            print(f"放大地圖時發生錯誤: {e}", flush=True)
+            # 找到並點擊放大按鈕（+）兩次
+            try:
+                # 🔥 記錄當前滾動位置
+                scroll_position = driver.execute_script("return window.pageYOffset;")
+
+                # 第一次放大
+                zoom_in_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="放大"]'))
+                )
+                time.sleep(0.5)  # 讓使用者看到放大按鈕
+
+                # 使用 JavaScript 點擊，避免觸發滾動
+                driver.execute_script("arguments[0].click();", zoom_in_button)
+                time.sleep(0.8)  # 等待地圖放大動畫完成
+                print("已放大地圖（第 1 次）", flush=True)
+
+                # 🔥 恢復滾動位置
+                driver.execute_script(f"window.scrollTo(0, {scroll_position});")
+                time.sleep(0.3)
+
+                # 🔥 第二次放大：重新定位按鈕元素（避免 stale element）
+                zoom_in_button = WebDriverWait(driver, 5).until(
+                    EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="放大"]'))
+                )
+
+                # 使用 JavaScript 點擊，避免觸發滾動
+                driver.execute_script("arguments[0].click();", zoom_in_button)
+                time.sleep(0.8)  # 等待地圖放大動畫完成
+                print("已放大地圖（第 2 次）", flush=True)
+
+                # 🔥 再次恢復滾動位置
+                driver.execute_script(f"window.scrollTo(0, {scroll_position});")
+                time.sleep(0.3)
+
+                # 🔥 再次點擊控制按鈕，隱藏控制項（讓上下左右 +- 六個按鈕消失）
+                try:
+                    camera_button = WebDriverWait(driver, 3).until(
+                        EC.element_to_be_clickable((By.CSS_SELECTOR, 'button[aria-label="地圖攝影機控制項"]'))
+                    )
+                    driver.execute_script("arguments[0].click();", camera_button)
+                    print("已隱藏地圖控制按鈕", flush=True)
+                    time.sleep(0.5)
+                except Exception as hide_e:
+                    print(f"隱藏控制按鈕時發生錯誤: {hide_e}", flush=True)
+
+            except Exception as e:
+                print(f"放大地圖時發生錯誤: {e}", flush=True)
 
     except Exception as e:
         print(f"調整地圖顯示時發生錯誤: {e}", flush=True)

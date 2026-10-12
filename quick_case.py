@@ -629,7 +629,8 @@ class QuickCaseWindow:
             pass
         b = self.back
         if b:
-            open_panel(b["root"], b["inp"], b["flag_dir"], b["on_query"], b.get("tab"), restore=b.get("values"))
+            open_panel(b["root"], b["inp"], b["flag_dir"], b["on_query"], b.get("tab"), restore=b.get("values"),
+                       case_info=b.get("case_info"))
             return
         w = self.input_widget
         try:
@@ -989,6 +990,107 @@ class FilterCombo(ttk.Combobox):
         return cand[0] if len(cand) == 1 else None
 
 
+def _num_key(s):
+    """地號/建號比對鍵：1375、1375-0、1375-0000 → '1375-0'；26539-000 → '26539-0'"""
+    m = re.match(r"\s*0*(\d+)(?:\s*-\s*0*(\d+))?\s*$", str(s or ""))
+    if not m:
+        return None
+    return f"{int(m.group(1))}-{int(m.group(2) or 0)}"
+
+
+def _short_no(key):
+    """'1375-0' → '1375'、'13-2' → '13-2'(顯示用)"""
+    a, _, b = (key or "").partition("-")
+    return a if b in ("", "0") else f"{a}-{b}"
+
+
+def compare_case(data_path, trans_path):
+    """目前案件(data.json)逐筆列出，並和謄本結構化 JSON 比對。
+    不切縣市/行政區字串(會切錯)：謄本的「區段」前綴只用「結尾是段名、裡面含行政區」判斷同一段。
+    回傳 {status: ok/partial/bad/none/nocase, case, trans_file, entries, extras, rows}
+      entries：data.json 每一筆 {label, lot_state, builds:[(文字, 狀態)], community, coord}
+      extras：謄本有、案件沒有 [(種類, 文字)]
+      狀態：ok=謄本有、missing=謄本沒有、None=還沒做結構化"""
+    fix = lambda s: str(s or "").replace("巿", "市").replace("\n", "").replace(" ", "").replace("\u3000", "")
+    res = {"status": "nocase", "case": "", "trans_file": "", "entries": [], "extras": [], "rows": []}
+    try:
+        with open(data_path, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except Exception:
+        data = []
+    if isinstance(data, dict):
+        data = [data]
+    trans = []
+    if trans_path and os.path.exists(trans_path):
+        res["trans_file"] = os.path.basename(trans_path)
+        try:
+            with open(trans_path, "r", encoding="utf-8") as f:
+                tj = json.load(f)
+            for it in tj if isinstance(tj, list) else []:
+                s = str((it.get("基本資訊") or {}).get("地號建號", ""))
+                m = re.search(r"(\S+?)\s*(\d+)\s*-\s*(\d+)\s*(地號|建號)", s)
+                if m:
+                    trans.append([m.group(4), fix(m.group(1)), _num_key(f"{m.group(2)}-{m.group(3)}"), False])
+        except Exception:
+            pass
+
+    def find(kind, area, sect, k):
+        for t in trans:
+            if t[0] == kind and t[2] == k and sect and t[1].endswith(sect) and (not area or area in t[1] or t[1] == sect):
+                t[3] = True
+                return "ok"
+        return "missing" if trans else None
+    n_lot = n_bld = 0
+    for e in data if isinstance(data, list) else []:
+        if not isinstance(e, dict):
+            continue
+        area, sect = fix(e.get("area")), fix(e.get("section"))
+        k = _num_key(e.get("lot_number"))
+        label = f"{fix(e.get('city'))}{area}{sect} {_short_no(k) if k else (e.get('lot_number') or '？')} 地號"
+        ent = {"label": label, "lot_state": find("地號", area, sect, k) if k else None, "builds": [],
+               "community": str(e.get("community") or "").strip(), "coord": bool(str(e.get("coordinates") or "").strip())}
+        if k:
+            n_lot += 1
+            res["rows"].append(("地號", label, ent["lot_state"]))
+        blds = [(b.get("build_no"), b.get("door", "")) for b in (e.get("builds") or []) if isinstance(b, dict)]
+        if not blds and e.get("build_no"):
+            blds = [(e.get("build_no"), e.get("door", ""))]
+        seen = set()
+        for bno, door in blds:
+            bk = _num_key(bno)
+            if not bk or bk in seen:
+                continue
+            seen.add(bk)
+            n_bld += 1
+            stt = find("建號", area, sect, bk)
+            door = str(door or "").strip()
+            ent["builds"].append((f"建號 {_short_no(bk)}" + (f"（{door}）" if door else ""), stt))
+            res["rows"].append(("建號", bk, stt))
+        res["entries"].append(ent)
+    if not res["entries"]:
+        return res
+    res["case"] = f"共 {n_lot} 筆地號" + (f"、{n_bld} 戶建號" if n_bld else "")
+    for t in trans:
+        if not t[3]:
+            res["extras"].append((t[0], f"{t[1]} {_short_no(t[2])} {t[0]}"))
+    if not trans:
+        res["status"] = "none"
+    else:
+        ok = sum(1 for r in res["rows"] if r[2] == "ok")
+        bad = sum(1 for r in res["rows"] if r[2] == "missing") + sum(1 for x in res["extras"] if x[0] == "地號")
+        res["status"] = "ok" if not bad else ("bad" if ok == 0 else "partial")
+    return res
+
+
+def _short_trans_name(name):
+    """trans_岡山區石螺段1375_土地謄本_第二類_20251114_1850.json → 岡山區石螺段1375 土地謄本 第二類（2025-11-14 18:50）"""
+    m = re.match(r"(?:trans|transcript_data)_(.*?)_(\d{8})_(\d{4})\.json$", name or "")
+    if not m:
+        return name
+    d, t = m.group(2), m.group(3)
+    return f"{m.group(1).replace('_土地建物謄本', '').replace('_土地謄本', '').replace('_', ' ')}　{d[:4]}-{d[4:6]}-{d[6:]} {t[:2]}:{t[2:]}"
+
+
 class QuickIntro:
     """萬用查詢面板(擺在主介面旁邊)：分頁 ① 地籍選單(縣市→行政區→段小段→地號)
     ② 地址選單(國土測繪中心門牌格式：縣市→鄉鎮市區→街路→段→巷→弄→號(之)→樓) ③ 怎麼用。
@@ -997,7 +1099,9 @@ class QuickIntro:
 
     TABS = [("lot", "🗺️ 地籍選單"), ("addr", "🏠 地址選單"), ("help", "💡 怎麼用")]
 
-    def __init__(self, root, input_widget, flag_dir, placeholder="", on_query=None, tab=None, guide=True, restore=None):
+    def __init__(self, root, input_widget, flag_dir, placeholder="", on_query=None, tab=None, guide=True, restore=None,
+                 case_info=None):
+        self.case_info = case_info              # 回傳 (data.json 路徑, 目前選用的謄本結構化 JSON 路徑)
         self.root, self.inp, self.flag_dir, self.placeholder = root, input_widget, flag_dir, placeholder
         self.rv = dict(restore or {})            # 回上一步：要帶回的值(段小段/街路等清單載入後才填)
         self.on_query, self.guide = on_query, guide
@@ -1030,8 +1134,12 @@ class QuickIntro:
         self._build_lot()
         self._build_addr()
         self._build_help()
-        self.msg = tk.Label(body, text="", font=ui.FB, fg=ui.BAD, bg=ui.BG, justify="left", wraplength=self.wrap)
-        self.msg.pack(anchor="w")
+        self._build_status()
+        self._anchor = tk.Frame(body, bg=ui.BG, height=1)      # 分頁/比對卡都排在它前面
+        self._anchor.pack(fill=tk.X)
+        # 錯誤提示：有訊息才浮在面板底部(不佔版面，空間留給比對清單)
+        self.msg = tk.Label(body, text="", font=ui.FB, fg=ui.BAD, bg="#FFF4E5", justify="left", wraplength=self.wrap,
+                            padx=10, pady=4, highlightthickness=1, highlightbackground="#F5C27A")
         self.tab_var.trace_add("write", lambda *a: self._show_tab())
         start = tab or ("help" if guide and not _tips_get(flag_dir, "qp_used") else _tips_get(flag_dir, "qp_tab", "lot"))
         self.tab_var.set(dict(self.TABS).get(start, names[0]))
@@ -1143,6 +1251,11 @@ class QuickIntro:
     def _say(self, text, ok=False):
         try:
             self.msg.config(text=text, fg=ui.THEMES["green_strong"][0] if ok else ui.BAD)
+            if text:
+                self.msg.place(x=0, rely=1.0, y=-2, anchor="sw")
+                self.msg.lift()
+            else:
+                self.msg.place_forget()
         except tk.TclError:
             pass
 
@@ -1270,13 +1383,14 @@ class QuickIntro:
         # 號：國土測繪門牌寫法是「236之2號」(之在號前面)
         units(c, [("no", "之", 6, False), ("no_zhi", "號", 4, False)], "門牌號")
         units(c, [("fl", "樓", 4, False), ("fl_zhi", "之", 4, True)], "樓層")
-        for line in ("・沒有的欄位空著就好；段可以打「1」或「一」",
-                     "・門牌沒有「之」，就只填「之」前面那格",
-                     "・例：中山北路／一段／12巷／3弄／236 之 2 號／12 樓 之 1",
-                     "・樓層是用來比對那一戶的建號；門牌本身只到「號」"):
+        for line in ("・沒有的欄位空著；段可打「1」或「一」；沒有「之」只填前面那格",
+                     "・例：中山北路一段12巷3弄 236之2號 12樓之1（樓層用來比對建號）"):
             tk.Label(c, text=line, font=self.HF, fg=INK2, bg=bg, anchor="w").pack(anchor="w", padx=(8, 0))
-        ui.button(c, "🔍  查詢地址", self._query_addr, "primary", ui.THEMES["green_strong"][0], font=self.BF, padx=28, pady=12).pack(anchor="e", pady=(4, 2))
-        tk.Label(c, text="路名資料：內政部戶政司「全國路名資料」115 年", font=self.HF, fg=INK2, bg=bg).pack(anchor="w", padx=(8, 0))
+        br = tk.Frame(c, bg=bg)
+        br.pack(fill=tk.X, pady=(4, 2))
+        ui.button(br, "🔍  查詢地址", self._query_addr, "primary", ui.THEMES["green_strong"][0], font=self.BF, padx=28, pady=12).pack(side=tk.RIGHT)
+        tk.Label(br, text="路名資料：內政部戶政司\n「全國路名資料」115 年", font=self.HF, fg=INK2, bg=bg, justify="left"
+                 ).pack(side=tk.LEFT, padx=(8, 0))
         self.ad_city.set(_tips_get(self.flag_dir, "qp_city", "") or "高雄市")
         for k, v in (self.rv.get("ad") or {}).items():
             if k in self.ad:
@@ -1347,6 +1461,163 @@ class QuickIntro:
         tk.Label(page, text="之後要再打開這個面板：按輸入欄右邊的「☰ 選單」，或輸入欄空白時按 Enter。",
                  font=ui.FS, fg=INK2, bg=ui.BG).pack(anchor="w", pady=(2, 0))
 
+    # ---------- 地籍、地址頁下方：目前案件 ↔ 謄本結構化 比對 ----------
+    # 第二部分(謄本結構化)：一條色帶簡單講結果，顏色跟主介面狀態標籤同一套
+    _ST_BANNER = {
+        "ok": ("✓ 謄本結構化：與目前案件相符", "#1B7F3B", "#E3F5E8"),
+        "partial": ("⚠ 謄本結構化部分對不上 → 請到【謄本與土增稅】重做", "#FFFFFF", "#D93025"),
+        "bad": ("⚠ 謄本結構化是別的案件 → 請到【謄本與土增稅】重做", "#FFFFFF", "#D93025"),
+        "none": ("○ 謄本結構化：目前案件還沒做（調好謄本後到【謄本與土增稅】做）", "#B35400", "#FFEBD6"),
+        "nocase": ("○ 謄本結構化：還沒有案件", "#B35400", "#FFEBD6"),
+    }
+
+    def _build_status(self):
+        """地籍、地址兩頁各放一張比對卡(各自依剩餘高度收筆數)"""
+        self.st = {}
+        if not self.case_info:
+            return
+        try:
+            data_path, trans_path = self.case_info()
+            r = compare_case(data_path, trans_path)
+        except Exception as e:
+            print(f"[萬用查詢] 案件比對失敗：{e}")
+            return
+        for tab in ("lot", "addr"):
+            self.st[tab] = self._make_status(r)
+
+    def _make_status(self, r):
+        """第一部分(重點)：目前案件 data.json 的內容——幾筆地段地號、幾戶建號、逐筆列出，
+        讓使用者判斷還要加什麼，或重新建立新案件。第二部分：謄本結構化一條色帶簡單比對"""
+        blue, tint, edge = ui.THEMES["blue_strong"]
+        box = tk.Frame(self.body, bg=ui.BG)
+        st = {"box": box, "rows": [], "more": None, "tip": None, "total": 0, "bad": 0, "cv": None}
+        n_lot = len(r["entries"])
+        n_bld = sum(len(e["builds"]) for e in r["entries"])
+
+        # ===== 第一部分：data.json =====
+        part1 = tk.Frame(box, bg="white", highlightthickness=2, highlightbackground=blue)
+        part1.pack(fill=tk.X)
+        head = tk.Frame(part1, bg=blue)
+        head.pack(fill=tk.X)
+        tk.Label(head, text="📋 目前案件（data.json）", font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue,
+                 padx=12).pack(side=tk.LEFT, pady=4)
+        cnt = (f"地段地號 {n_lot} 筆　建號 {n_bld} 戶" if n_lot else "還沒有案件")
+        tk.Label(head, text=cnt, font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue, padx=12).pack(side=tk.RIGHT, pady=4)
+        c = tk.Frame(part1, bg="white", padx=12, pady=6)
+        c.pack(fill=tk.X)
+        if not n_lot:
+            tk.Label(c, text="用上面的選單查地號或地址，按「建立新案件」就會寫進 data.json", font=self.HF,
+                     fg=INK, bg="white", anchor="w").pack(anchor="w")
+        else:
+            wrapf = tk.Frame(c, bg="white", highlightthickness=1, highlightbackground=edge)
+            wrapf.pack(fill=tk.X)
+            cv = tk.Canvas(wrapf, bg="white", highlightthickness=0, height=40)
+            sb = ttk.Scrollbar(wrapf, orient="vertical", command=cv.yview)
+            cv.configure(yscrollcommand=sb.set)
+            cv.pack(side=tk.LEFT, fill=tk.X, expand=True)
+            tb = tk.Frame(cv, bg="white", padx=8, pady=2)
+            win = cv.create_window(0, 0, window=tb, anchor="nw")
+            st.update(cv=cv, sb=sb, tb=tb, full=0)
+
+            def fit(_e=None):
+                cv.itemconfigure(win, width=cv.winfo_width())
+                h = tb.winfo_reqheight()
+                cv.configure(scrollregion=(0, 0, 0, h))
+                if st["full"] != h:                    # 內容高度變了 → 先給全高，_place 再依螢幕縮
+                    st["full"] = h
+                    cv.configure(height=h)
+                sb.pack(side=tk.RIGHT, fill=tk.Y) if int(float(cv.cget("height"))) < h else sb.pack_forget()
+            tb.bind("<Configure>", fit)
+            cv.bind("<Configure>", fit)
+            st["fit"] = fit
+            row = 0
+            for i, e in enumerate(r["entries"], 1):
+                lines = [("", f"{i}. {e['label']}", INK, (ui.FAMILY, 15, "bold"))]
+                for txt, _stt in e["builds"]:
+                    lines.append(("", "　　" + txt, INK, (ui.FAMILY, 15)))
+                if not e["builds"]:
+                    lines.append(("", "　　建號：（沒有）", INK2, (ui.FAMILY, 14)))
+                if e["community"]:
+                    lines.append(("", f"　　社區：{e['community']}", INK2, (ui.FAMILY, 14)))
+                if not e["coord"]:
+                    lines.append(("⚠", "　　沒有座標（地圖類查詢會抓不到位置，建議重新建立）", "#C62828", (ui.FAMILY, 14, "bold")))
+                for icon, txt, col, f in lines:
+                    tk.Label(tb, text=icon, font=(ui.FAMILY, 14, "bold"), fg=col, bg="white").grid(row=row, column=0)
+                    tk.Label(tb, text=txt, font=f, fg=col, bg="white", anchor="w").grid(row=row, column=1, sticky="w")
+                    row += 1
+            tb.grid_columnconfigure(1, weight=1)
+
+            def wheel(ev):
+                if int(float(cv.cget("height"))) < st["full"]:
+                    cv.yview_scroll(-1 if ev.delta > 0 else 1, "units")
+                return "break"
+
+            def bind_wheel(w):
+                w.bind("<MouseWheel>", wheel)
+                for ch in w.winfo_children():
+                    bind_wheel(ch)
+            bind_wheel(cv)
+            st["tip"] = tk.Label(c, text="→加地號／建號：查詢後按「加入目前案件」；換案件：按「建立新案件」",
+                                 font=self.HF, fg=blue, bg="white", anchor="w", justify="left")
+            st["tip"].pack(anchor="w", pady=(6, 0))
+
+        # ===== 第二部分：謄本結構化(簡單比對) =====
+        text, fg, bbg = self._ST_BANNER[r["status"]]
+        part2 = tk.Frame(box, bg=bbg, highlightthickness=1,
+                         highlightbackground=bbg if r["status"] in ("partial", "bad") else edge)
+        part2.pack(fill=tk.X, pady=(6, 0))
+        tk.Label(part2, text=text, font=(ui.FAMILY, 15, "bold"), fg=fg, bg=bbg, anchor="w", padx=12
+                 ).pack(anchor="w", pady=(4, 0))
+        name = _short_trans_name(r["trans_file"])
+        sub = {"ok": f"使用：{name}", "partial": f"使用：{name}", "bad": f"謄本是：{name}"}.get(r["status"], "")
+        if sub:
+            tk.Label(part2, text=sub, font=self.HF, fg=fg, bg=bbg, anchor="w", padx=12).pack(anchor="w", pady=(0, 4))
+        return st
+
+    def _st_more_update(self, st):
+        if st["more"] is None:
+            return
+        hidden = st["total"] - len(st["rows"])
+        if hidden <= 0:
+            st["more"].grid_remove()
+            return
+        if st["rows"]:
+            st["more"].config(text=f"…另有 {hidden} 筆")
+        else:
+            st["more"].config(text=f"共 {st['total']} 筆" + (f"，其中 {st['bad']} 筆對不上" if st["bad"] else ""))
+        st["more"].grid()
+
+    def _st_shrink(self, st, avail):
+        """螢幕不夠高：先把清單區縮到約 3 行高(可捲動)，再收提示行，最後清單區縮到 1 行半"""
+        top = self.top
+        cv = st.get("cv")
+        if cv is None:
+            if st["tip"] is not None and top.winfo_reqheight() > avail:
+                st["tip"].destroy()
+                st["tip"] = None
+            return
+        line = max(24, st["tb"].winfo_reqheight() // max(1, len(st["tb"].grid_slaves(column=1))))
+
+        def squeeze(floor):
+            over = top.winfo_reqheight() - avail
+            h = int(float(cv.cget("height")))
+            if over > 0 and h > floor:
+                cv.configure(height=max(floor, h - over))
+                top.update_idletasks()
+                st["fit"]()
+        squeeze(min(st["full"], int(line * 2.5)))
+        if top.winfo_reqheight() > avail and st["tip"] is not None:
+            st["tip"].destroy()
+            st["tip"] = None
+            top.update_idletasks()
+            h = int(float(cv.cget("height")))
+            room = avail - top.winfo_reqheight()
+            if room > 0:                               # 收掉提示行多出來的空間還給清單
+                cv.configure(height=min(st["full"], h + room))
+                top.update_idletasks()
+        squeeze(int(line * 1.6))
+        st["fit"]()
+
     def _show_tab(self):
         key = next((k for k, n in self.TABS if n == self.tab_var.get()), "lot")
         for k, w in self.pages.items():
@@ -1355,9 +1626,14 @@ class QuickIntro:
                 while target.master is not self.body:
                     target = target.master
             if k == key:
-                target.pack(fill=tk.X, before=self.msg)
+                target.pack(fill=tk.X, before=self._anchor)
             else:
                 target.pack_forget()
+        for k, st in getattr(self, "st", {}).items():   # 比對卡只放在地籍、地址兩頁下方
+            if k == key:
+                st["box"].pack(fill=tk.X, pady=(2, 4), before=self._anchor)
+            else:
+                st["box"].pack_forget()
         self._say("")
         if not getattr(self, "_measuring", False):
             _tips_set(self.flag_dir, qp_tab=key)
@@ -1369,6 +1645,7 @@ class QuickIntro:
         key = next((k for k, n in self.TABS if n == self.tab_var.get()), "lot")
         _RETURN.clear()
         _RETURN.update(root=self.root, inp=self.inp, flag_dir=self.flag_dir, on_query=self.on_query, tab=key,
+                       case_info=self.case_info,
                        values={"sect": self.lot_sect.get(), "lots": self.lot_no.get(), "road": self.ad_road.get(),
                                "ad": {k: v.get() for k, v in self.ad.items()}})
         self._close()
@@ -1400,6 +1677,10 @@ class QuickIntro:
             top.update_idletasks()
         except tk.TclError:
             return
+        avail = self._avail_height()
+        for st in getattr(self, "st", {}).values():
+            if st["box"].winfo_ismapped():
+                self._st_shrink(st, avail)
         H = max(top.winfo_reqheight(), getattr(self, "_maxH", 0))   # 固定用三頁中最高的高度
         self._maxH = H
         W = self.W
@@ -1429,6 +1710,19 @@ class QuickIntro:
                 self._make_arrow(on_left, (fx - gap + 4) if on_left else (fx + fw + 4), iy)
         except Exception:
             top.geometry(f"{W}x{H}")
+
+    def _avail_height(self):
+        """工作區(扣掉工作列)高度 − 標題列"""
+        h = self.top.winfo_screenheight()
+        try:
+            import ctypes
+            from ctypes import wintypes
+            rc = wintypes.RECT()
+            if ctypes.windll.user32.SystemParametersInfoW(0x30, 0, ctypes.byref(rc), 0):
+                h = rc.bottom - rc.top
+        except Exception:
+            pass
+        return h - 45
 
     def _make_arrow(self, on_left, x, iy):
         """主介面旁的透明小視窗，畫一支會前後動的橘色箭頭指著輸入欄"""
@@ -1535,7 +1829,7 @@ _PANEL = {"w": None}
 
 
 def show_intro(root, input_widget, flag_dir, force=False, placeholder="", on_query=None, tab=None, guide=True,
-               restore=None):
+               restore=None, case_info=None):
     """啟動時呼叫：沒勾過「啟動時不要自動跳出」才跳；force=True(打「說明」/按選單)一定跳。
     同時只開一個面板(已開著就換分頁並帶到最前面)"""
     if not force and intro_hidden(flag_dir):
@@ -1549,7 +1843,7 @@ def show_intro(root, input_widget, flag_dir, force=False, placeholder="", on_que
             return w
     except tk.TclError:
         pass
-    _PANEL["w"] = QuickIntro(root, input_widget, flag_dir, placeholder, on_query, tab, guide, restore)
+    _PANEL["w"] = QuickIntro(root, input_widget, flag_dir, placeholder, on_query, tab, guide, restore, case_info)
     return _PANEL["w"]
 
 
@@ -1564,9 +1858,10 @@ def close_panel():
     _PANEL["w"] = None
 
 
-def open_panel(root, input_widget, flag_dir, on_query, tab=None, restore=None):
+def open_panel(root, input_widget, flag_dir, on_query, tab=None, restore=None, case_info=None):
     """輸入欄「☰ 選單」或空白按 Enter：打開查詢面板(不閃箭頭)"""
-    return show_intro(root, input_widget, flag_dir, True, "", on_query, tab, guide=False, restore=restore)
+    return show_intro(root, input_widget, flag_dir, True, "", on_query, tab, guide=False, restore=restore,
+                      case_info=case_info)
 
 
 def open_quick_case(root, text, data_json_path, base_dir, on_saved=None, log=None, input_widget=None):

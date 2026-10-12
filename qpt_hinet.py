@@ -1974,30 +1974,102 @@ def main():
             except:
                 pass
 
+def _builds_of(entries):
+    """data.json 這幾筆裡的建號(萬用查詢會寫 build_no / builds；去重、保持順序)"""
+    out = []
+    for e in entries:
+        nos = [b.get('build_no') for b in (e.get('builds') or []) if isinstance(b, dict)] or [e.get('build_no')]
+        for n in nos:
+            n = str(n or '').strip()
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
+def _prefill_from_data_json():
+    """送件前：data.json 有資料就詢問是否帶入(縣市/地區/地段/地號/建號)，免手動輸入。
+    回傳 (county, district, section, land_number_input, gland_number_input) 或 None。
+    電傳逗號 = 不同地號／建號各別調閱；不同地段要分開調，混段時選一組。"""
+    try:
+        path = get_data_json_path()
+        if not os.path.exists(path):
+            return None
+        with open(path, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        if not isinstance(data, list) or not data:
+            return None
+    except Exception as e:
+        print(f"\033[90m（讀取 data.json 失敗，改為手動輸入：{e}）\033[0m", flush=True)
+        return None
+    print(f"\n\033[96m偵測到 data.json，共 {len(data)} 筆：\033[0m", flush=True)
+    for i, e in enumerate(data, 1):
+        _b = _builds_of([e])
+        print(f"  {i}. {e.get('city','')} {e.get('area','')} {e.get('section','')} {e.get('lot_number','')}"
+              + (f"　建號 {'、'.join(_b)}" if _b else ""), flush=True)
+    print("\033[93m要直接帶入這些資料嗎？(直接按 Enter 或 Y = 帶入 ／ N = 自己輸入)：\033[0m", flush=True)
+    ans = input().strip().lower()
+    if ans not in ('y', ''):
+        return None
+    groups = []
+    for e in data:
+        key = (e.get('city', '') or '高雄市', e.get('area', ''), e.get('section', ''))
+        for g in groups:
+            if g[0] == key:
+                g[1].append(e)
+                break
+        else:
+            groups.append((key, [e]))
+    if len(groups) == 1:
+        chosen = groups[0]
+    else:
+        print("\n\033[93m偵測到多個地段；不同地段要分開調閱，本次請選一個帶入（其餘地段可再執行一次）：\033[0m", flush=True)
+        for i, (k, es) in enumerate(groups, 1):
+            print(f"\033[93m  {i}. {k[0]} {k[1]} {k[2]}（{len(es)} 筆）\033[0m", flush=True)
+        while True:
+            print("請輸入編號：", flush=True)
+            pick = input().strip()
+            if pick.isdigit() and 1 <= int(pick) <= len(groups):
+                chosen = groups[int(pick) - 1]
+                break
+            print("請輸入有效編號。", flush=True)
+    (city, district, section), entries = chosen
+    lots = [str(e.get('lot_number', '')).strip() for e in entries if str(e.get('lot_number', '')).strip()]
+    builds = _builds_of(entries)
+    print(f"\033[38;5;46m✓ 已帶入：{city} {district} {section}　地號：{','.join(lots) or '（無）'}"
+          f"　建號：{','.join(builds) or '（無）'}\033[0m", flush=True)
+    return city.replace("台", "臺"), district, section, ','.join(lots), ','.join(builds)
+
+
 def get_user_input():
-    # 提示輸入縣市
-    print("請輸入縣市 (直接按 Enter 使用預設值：高雄市):", flush=True)
-    county = input().replace("台", "臺")
-    if not county.strip():  # 判斷輸入是否為空
-        county = "高雄市"  # 如果為空，設定預設值
-    print(f"您輸入的縣市是: {county}", flush=True)
+    # 🔥 送件前：若 data.json 有資料，先問是否帶入（免手動輸入縣市/地區/地段/地號/建號）
+    _pf = _prefill_from_data_json()
+    if _pf:
+        county, district, section, land_number_input, _pf_gland = _pf
+    else:
+        _pf_gland = None
+        # 提示輸入縣市
+        print("請輸入縣市 (直接按 Enter 使用預設值：高雄市):", flush=True)
+        county = input().replace("台", "臺")
+        if not county.strip():  # 判斷輸入是否為空
+            county = "高雄市"  # 如果為空，設定預設值
+        print(f"您輸入的縣市是: {county}", flush=True)
 
-    # 提示輸入地區
-    print("請輸入地區:", flush=True)
-    district = input()
-    print(f"您輸入的地區是: {district}", flush=True)
+        # 提示輸入地區
+        print("請輸入地區:", flush=True)
+        district = input()
+        print(f"您輸入的地區是: {district}", flush=True)
 
-    # 提示輸入地段
-    print("請輸入地段:", flush=True)
-    section = input()
-    print(f"您輸入的地段是: {section}", flush=True)
+        # 提示輸入地段
+        print("請輸入地段:", flush=True)
+        section = input()
+        print(f"您輸入的地段是: {section}", flush=True)
 
-    # 提示輸入地號 - 更新提示訊息
-    print("\033[93m⚠️ 提醒：若為大樓/公寓的「持分土地」，第二類會列出全部持分所有權人(可能上百筆)。\033[0m", flush=True)
-    print("\033[93m   建議改用『建物優先』(改填建號)，系統會依坐落土地的登記次序只調該筆；\033[0m", flush=True)
-    print("\033[93m   若仍直接查土地地號，屆時偵測到多筆會再讓你選擇，請勿一律全選。\033[0m", flush=True)
-    print("請輸入地號 (以逗號','分隔為不同地號批次調閱):", flush=True)
-    land_number_input = input()
+        # 提示輸入地號 - 更新提示訊息
+        print("\033[93m⚠️ 提醒：若為大樓/公寓的「持分土地」，第二類會列出全部持分所有權人(可能上百筆)。\033[0m", flush=True)
+        print("\033[93m   建議改用『建物優先』(改填建號)，系統會依坐落土地的登記次序只調該筆；\033[0m", flush=True)
+        print("\033[93m   若仍直接查土地地號，屆時偵測到多筆會再讓你選擇，請勿一律全選。\033[0m", flush=True)
+        print("請輸入地號 (以逗號','分隔為不同地號批次調閱):", flush=True)
+        land_number_input = input()
     # 處理空字符串情況，確保即使沒有輸入也要建立一個列表
     if land_number_input.strip():
         # 現在以逗號分隔不同地號
@@ -2009,8 +2081,12 @@ def get_user_input():
         print("您輸入的地號是: ", flush=True)
 
     # 提示輸入建號 - 支援多建號輸入
-    print("請輸入建號 (以逗號','分隔為不同建號批次調閱):", flush=True)
-    gland_number_input = input()
+    if _pf is not None:
+        # 有從 data.json 帶入：建號也一起帶(沒有就是空的)；後面的確認畫面還可以改
+        gland_number_input = _pf_gland or ""
+    else:
+        print("請輸入建號 (以逗號','分隔為不同建號批次調閱):", flush=True)
+        gland_number_input = input()
     # 處理空字符串情況，確保即使沒有輸入也要建立一個列表
     if gland_number_input.strip():
         # 現在以逗號分隔不同建號

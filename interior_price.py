@@ -463,6 +463,25 @@ class InteriorPriceSearch:
             # 等待基本頁面載入
             time.sleep(2)
 
+            # 🔥 等網站的「載入中…」轉圈消失才往下(內政部網站慢,表格先出現「無資料」、結果還在載→會截到空表)
+            _js_loading = """return [...document.querySelectorAll('div,span,p,img')].some(e=>{
+                if(e.childElementCount>3||!/載入中/.test(e.textContent||e.alt||''))return false;
+                const s=getComputedStyle(e),r=e.getBoundingClientRect();
+                return s.display!='none'&&s.visibility!='hidden'&&parseFloat(s.opacity)>0&&r.width>0&&r.height>0;});"""
+            _t_end = time.time() + 60
+            _waited = False
+            while time.time() < _t_end:
+                try:
+                    if not self.driver.execute_script(_js_loading):
+                        break
+                except Exception:
+                    break
+                _waited = True
+                time.sleep(1)
+            if _waited:
+                yprint("網站載入完成")
+                time.sleep(1)
+
             # 嘗試等待表格或列表元素
             try:
                 # 等待任何一個可能的結果元素出現
@@ -661,6 +680,69 @@ class InteriorPriceSearch:
             yprint(f"❌ 自動填表錯誤: {e}")
             return False
 
+    def _result_count(self):
+        """目前查詢結果筆數(讀「查詢結果 : N 筆」/「顯示 0 筆」/「查無資料」);讀不到回 None。"""
+        try:
+            self.switch_to_inner_frame()
+            t = self.driver.execute_script("return document.body.innerText;") or ""
+        except Exception:
+            return None
+        m = re.search(r"查詢結果\s*[:：]\s*([\d,]+)\s*筆", t)
+        if m:
+            return int(m.group(1).replace(",", ""))
+        if "查無資料" in t:   # 只認載完才出現的「查無資料，請確認…」(載入中表格會短暫顯示「無資料/顯示 0 筆」,不能當真)
+            return 0
+        return None
+
+    def _wait_count(self, secs=30):
+        """等網站明確顯示「查詢結果 N 筆」或「查無資料」(內政部網站慢,表格先出現、結果晚幾秒)。"""
+        end = time.time() + secs
+        while time.time() < end and not should_exit:
+            n = self._result_count()
+            if n is not None:
+                return n
+            time.sleep(1)
+        return None
+
+    def _widen_years_until_data(self):
+        """🔥 查到 0 筆 → 交易期間起始年一年一年往前推(最早民國101年,實價登錄開辦)再查,直到有資料。
+        (預設只查近 1 年,土地/冷門地段常 0 筆→截到空表)"""
+        global should_exit
+        self.wait_for_results_load()
+        n0 = self._wait_count()
+        cprint(f"查詢結果筆數: {n0 if n0 is not None else '讀不到'}")
+        if n0 != 0:
+            return
+        try:
+            self.switch_to_inner_frame()
+            # 查完後是「結果頁」:交易期間在 l_startY(首頁才是 p_startY)
+            y0 = int(self.driver.execute_script(
+                "var s=document.getElementById('l_startY')||document.getElementById('p_startY');return s?s.value:0;") or 0)
+        except Exception as e:
+            yprint(f"讀不到交易期間起始年: {e}")
+            return
+        for y in range(y0 - 1, 100, -1):
+            if should_exit:
+                return
+            yprint(f"近期查無資料 → 交易期間起始年改為 {y} 年再查")
+            try:
+                self.switch_to_inner_frame()
+                self.driver.execute_script(
+                    "var s=document.getElementById('l_startY')||document.getElementById('p_startY'); s.value=arguments[0];"
+                    "s.dispatchEvent(new Event('change',{bubbles:true}));"
+                    "if(document.getElementById('l_startY')&&typeof loadQueryPrice==='function'){loadQueryPrice();}"   # 結果頁的「搜尋」
+                    "else{document.querySelector(\"button[go_type='list']\").click();}", str(y))
+            except Exception as e:
+                yprint(f"改交易期間失敗: {e}")
+                return
+            time.sleep(1.5)                     # 讓網站先清掉上一次的「查無資料」再讀
+            self.wait_for_results_load()
+            n = self._wait_count()
+            if n:
+                cprint(f"✅ 從 {y} 年起查到 {n} 筆")
+                return
+        yprint("⚠ 從民國 101 年(實價登錄開辦)起都查無資料")
+
     def wait_for_input(self, prompt_message):
         """等待用戶輸入，但能夠同時檢查退出標誌"""
         global input_queue, should_exit
@@ -730,6 +812,7 @@ class InteriorPriceSearch:
                 # 自動查詢模式：直接截圖不等待
                 cprint("✅ 自動填表完成，自動截圖＋存檔")
                 time.sleep(1)  # 稍等一下讓結果完全顯示
+                self._widen_years_until_data()   # 近 1 年 0 筆 → 一年一年往前推直到有資料
             else:
                 # 手動模式：等待使用者確認
                 cmd = self.wait_for_input("✅ 自動填表完成，請檢查結果後按 Enter 截圖＋存檔")
@@ -983,6 +1066,17 @@ if __name__ == "__main__":
                 if not app.search_one(itm, auto_capture=True, mode=itm["_mode"]):
                     break
             else:
+                # 🔥 無頭(網頁版案件附件)沒人能按 L:用社區名查完,再自動用地段(含土地交易)查一份,兩份都留
+                if has_com and os.environ.get("LAND_HEADLESS") == "1" and not should_exit:
+                    done_sec = set()
+                    for itm in items:
+                        key = (itm.get("city", ""), itm.get("area", ""), itm.get("section", ""))
+                        if key in done_sec or should_exit:
+                            continue
+                        done_sec.add(key)
+                        cprint(f"\n再用地段查詢(含土地): {itm.get('area', '')} {itm.get('section', '')}")
+                        if not app.search_one(itm, auto_capture=True, mode="section"):
+                            break
                 if not should_exit:
                     yprint("⚠ 提醒：若存檔不如預期請手動更改檔名")
 

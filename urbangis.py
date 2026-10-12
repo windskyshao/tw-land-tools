@@ -566,6 +566,20 @@ def _disp_rare(s):
     return ''.join('〔?〕' if _is_rare_placeholder_char(c) else c for c in (s or ''))
 
 
+def _norm_title(t):
+    """查詢結果標題去空白(網站顯示「鳳山區 勝利段2」,目標是「鳳山區勝利段2」→ 原本精確比對永遠失敗)。"""
+    return re.sub(r"\s+", "", t or "")
+
+
+def _lot_tail_ok(title, area, lot_number):
+    """模糊比對:以行政區開頭、以地號結尾,且地號前一個字不能是數字或「-」
+    (否則目標 2 號會吃到 12、22、1-2…點錯別筆地號)。"""
+    t, lot = _norm_title(title), str(lot_number)
+    if not (t.startswith(area) and t.endswith(lot)) or len(t) <= len(lot):
+        return False
+    return not (t[-len(lot) - 1].isdigit() or t[-len(lot) - 1] == "-")
+
+
 def _match_section_with_rare_char(target, options, quiet=False):
     """把任一邊的造字/問號/方框當成『任意一個字』，其餘字元必須完全相同且總長度相同。
     只有『唯一命中』才自動選（多筆命中寧可讓使用者選，避免「磚子磘段」誤選成「一小段」）。
@@ -797,10 +811,10 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
     """
     在截圖完成後,執行都市計畫圖資詳細查詢流程:
     1. 關閉分區查詢的訊息彈窗
-    2. 點擊比例尺選單,選擇 2500
+    2. 點擊比例尺選單,選擇 5000(點紅框叫出都市計畫圖資料欄)
     3. 點擊紅框區域,顯示都市計畫圖訊息
     4. 擷取都市計畫圖訊息資料（返回資料，不再存檔）
-    5. 點擊比例尺選單,選擇 1000
+    5. 點擊比例尺選單,選擇 2500(截圖)
     6. 截圖並存檔 PNG/PDF（同時加入 png_files/identifiers，供合併 PDF 使用）
 
     🔥 修改：返回都市計畫圖資料字典，不再直接存檔
@@ -844,18 +858,18 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             print("請手動關閉彈窗，然後按 Enter 繼續...", flush=True)
             input()
 
-        # 步驟 2: 點擊比例尺選單,選擇 2500
-        print("步驟 2: 設定地圖比例尺為 2500...", flush=True)
+        # 步驟 2: 點擊比例尺選單,選擇 5000
+        print("步驟 2: 設定地圖比例尺為 5000...", flush=True)
         try:
             scale_select_element = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, "selScale"))
             )
-            Select(scale_select_element).select_by_value("2500")
-            print("✓ 已自動設定比例尺為 2500", flush=True)
+            Select(scale_select_element).select_by_value("5000")
+            print("✓ 已自動設定比例尺為 5000", flush=True)
             time.sleep(2)  # 等待地圖重新渲染
         except TimeoutException:
             print("⚠ 無法自動設定比例尺", flush=True)
-            print("請手動點擊比例尺選單並選擇 2500,然後按 Enter 繼續...", flush=True)
+            print("請手動點擊比例尺選單並選擇 5000,然後按 Enter 繼續...", flush=True)
             input()
 
         # 步驟 3: 點擊紅框區域,顯示都市計畫圖訊息（帶驗證和自動調整）
@@ -869,6 +883,7 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
 
         # 🔥 道路用地：跳過第二次點擊與建蔽容積擷取（道路本來就沒有建蔽率/容積率）
         is_road_only = bool(expected_zone) and "道路用地" in expected_zone
+        skip_extract = False   # 無頭時點不到相同分區→步驟 4 不讀畫面(免得記成鄰區資料)
 
         click_success = False
         manual_click_needed = False
@@ -1125,6 +1140,20 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             manual_click_needed = True
 
         # 如果自動點擊失敗，請求手動點擊
+        if manual_click_needed and os.environ.get("LAND_HEADLESS") == "1":
+            # 🔥 無頭(網頁版案件附件)沒人能手動點:絕不能把最後點錯的「鄰區」資料欄截進去/記成這筆的建蔽容積
+            #    → 關掉資料欄、照常截圖,並回報需人工核對
+            try:
+                driver.execute_script("""
+                    var cs = document.querySelectorAll('div.titleButton.close, button[title="關閉"]');
+                    for (var i = 0; i < cs.length; i++) { cs[i].click(); }
+                """)
+                time.sleep(1)
+            except Exception:
+                pass
+            print(f"WARN: 都市計畫圖點不到相同分區(應為「{expected_zone}」),截圖不含資料欄,建蔽容積請人工核對", flush=True)
+            manual_click_needed = False
+            skip_extract = True
         if manual_click_needed:
             print("=" * 39, flush=True)
             print("🔴 需要手動操作！", flush=True)
@@ -1139,6 +1168,10 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             # 🔥 道路用地：跳過資料擷取與比對
             if is_road_only:
                 print("ℹ 道路用地，跳過建蔽容積資料擷取與比對", flush=True)
+                urban_plan_data = None
+                raise _SkipUrbanPlanQuery
+            if skip_extract:
+                print("ℹ 點不到相同分區，不擷取畫面資料(避免記成鄰區的建蔽容積)", flush=True)
                 urban_plan_data = None
                 raise _SkipUrbanPlanQuery
 
@@ -1278,18 +1311,18 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             traceback.print_exc()
             urban_plan_data = None
 
-        # 步驟 5: 點擊比例尺選單,選擇 1000
-        print("步驟 5: 設定地圖比例尺為 1000...", flush=True)
+        # 步驟 5: 點擊比例尺選單,選擇 2500
+        print("步驟 5: 設定地圖比例尺為 2500...", flush=True)
         try:
             scale_select_element = WebDriverWait(driver, 10).until(
                 EC.presence_of_element_located((By.ID, "selScale"))
             )
-            Select(scale_select_element).select_by_value("1000")
-            print("✓ 已自動設定比例尺為 1000", flush=True)
+            Select(scale_select_element).select_by_value("2500")
+            print("✓ 已自動設定比例尺為 2500", flush=True)
             time.sleep(2)  # 等待地圖重新渲染
         except TimeoutException:
             print("⚠ 無法自動設定比例尺", flush=True)
-            print("請手動點擊比例尺選單並選擇 1000,然後按 Enter 繼續...", flush=True)
+            print("請手動點擊比例尺選單並選擇 2500,然後按 Enter 繼續...", flush=True)
             input()
 
         # 步驟 6: 截圖並存檔 PNG/PDF
@@ -1418,21 +1451,21 @@ for data in data_list:
         for item in result_items:
             title_text = item.get_attribute("title")
             # print(f"查詢結果項目: {title_text}", flush=True)
-            if title_text == target_title:
+            if _norm_title(title_text) == _norm_title(target_title):   # 去空白再比(網站標題區名與段名間有空白)
                 result_item = item
                 result_found = True
                 break
-  
-        # 若無法找到完整匹配，進行模糊匹配
+
+        # 若無法找到完整匹配，進行模糊匹配(只有唯一一筆符合才自動點,避免 2 號吃到 12/22)
         if not result_found:
             print(f"無法找到完整匹配，嘗試模糊比對: 以『行政區』開始並以『地號』結尾", flush=True)
-            for item in result_items:
-                title_text = item.get_attribute("title")
-                if title_text.startswith(area) and title_text.endswith(lot_number):
-                    result_item = item
-                    result_found = True
-                    print(f"模糊比對找到匹配: {title_text}", flush=True)
-                    break
+            _fz = [item for item in result_items if _lot_tail_ok(item.get_attribute("title"), area, lot_number)]
+            if len(_fz) == 1:
+                result_item = _fz[0]
+                result_found = True
+                print(f"模糊比對找到匹配: {result_item.get_attribute('title')}", flush=True)
+            elif len(_fz) > 1:
+                print(f"模糊比對有 {len(_fz)} 筆符合，為避免選錯改由您手動選擇", flush=True)
 
         # 若無法找到任何匹配結果，提示手動操作
         if not result_found:
@@ -1715,7 +1748,7 @@ for data in data_list:
         result_found = False
         # (1) 精確比對
         for item, title_text in zip(result_items, _titles):
-            if title_text == target_title:
+            if _norm_title(title_text) == _norm_title(target_title):   # 去空白再比(網站標題「鳳山區 勝利段2」)
                 result_item = item
                 result_found = True
                 break
@@ -1732,7 +1765,7 @@ for data in data_list:
         #     （分區查詢已驗證有效：造字有時是整個消失，例「大寮區磚子段4884」少了一個字）
         if not result_found:
             _cands = [(i, t) for i, t in enumerate(_titles)
-                      if t and t.startswith(area) and t.endswith(str(lot_number))]
+                      if t and _lot_tail_ok(t, area, lot_number)]   # 地號前一字不可是數字/-(2 號別吃到 12、22)
             if len(_cands) == 1:
                 result_item = result_items[_cands[0][0]]
                 result_found = True

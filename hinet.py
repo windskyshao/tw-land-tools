@@ -38,7 +38,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait, Select
 from selenium.webdriver.support import expected_conditions as EC
-from selenium.common.exceptions import NoSuchElementException,TimeoutException
+from selenium.common.exceptions import UnexpectedAlertPresentException, NoSuchElementException,TimeoutException
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
@@ -306,6 +306,26 @@ def get_captcha_image_from_canvas(driver):
     print("從 Canvas 取得驗證碼圖片（記憶體處理）", flush=True)
     return captcha_image
 
+_DDDD = None
+
+
+def _ddddocr_read(pil_image):
+    """ddddocr 認驗證碼；不是 4~5 碼英數(或沒裝 ddddocr)就回傳空字串，交給 RapidOCR"""
+    global _DDDD
+    try:
+        import ddddocr
+        if _DDDD is None:
+            with suppress_stdout_stderr():
+                _DDDD = ddddocr.DdddOcr(show_ad=False)
+        buf = io.BytesIO()
+        pil_image.convert("RGB").save(buf, format="PNG")
+        t = ''.join(ch for ch in str(_DDDD.classification(buf.getvalue())) if ch.isalnum())
+        return t if len(t) in (4, 5) else ""
+    except Exception as e:
+        print(f"（ddddocr 無法使用，改用 RapidOCR：{e}）", flush=True)
+        return ""
+
+
 def handle_captcha(driver, register_type, retry_count=0):
     max_retries = 3
     captcha_image_path = None  # 🔥 驗證碼改記憶體處理後不一定有檔案，先給預設值避免 referenced before assignment
@@ -393,26 +413,31 @@ def handle_captcha(driver, register_type, retry_count=0):
                 print(f"Canvas 提取失敗: {canvas_error}", flush=True)
                 raise Exception("所有驗證碼截圖方法都失敗")
 
-        # 使用 RapidOCR 識別驗證碼 (延遲載入以提升啟動速度)
-        print("使用 RapidOCR 識別驗證碼...", flush=True)
-        from rapidocr_helper import create_rapidocr_reader, rapidocr_readtext
-        reader = create_rapidocr_reader(
-            use_angle_cls=False,
-            use_text_score=True,
-            text_score=0.3,
-            det_db_thresh=0.2,
-            det_db_box_thresh=0.3,
-            det_db_unclip_ratio=1.8,
-            max_side_len=1280
-        )
+        # 先用 ddddocr(驗證碼專用，實測比 RapidOCR 準)，認不出 4~5 碼英數才退回 RapidOCR
+        captcha_text = _ddddocr_read(captcha_image)
+        if captcha_text:
+            print(f"使用 ddddocr 識別驗證碼 → {captcha_text}", flush=True)
+        else:
+            # 使用 RapidOCR 識別驗證碼 (延遲載入以提升啟動速度)
+            print("使用 RapidOCR 識別驗證碼...", flush=True)
+            from rapidocr_helper import create_rapidocr_reader, rapidocr_readtext
+            reader = create_rapidocr_reader(
+                use_angle_cls=False,
+                use_text_score=True,
+                text_score=0.3,
+                det_db_thresh=0.2,
+                det_db_box_thresh=0.3,
+                det_db_unclip_ratio=1.8,
+                max_side_len=1280
+            )
 
-        # 將 PIL Image 轉換為 numpy 數組，直接傳給 RapidOCR（避免路徑問題）
-        captcha_image_np = np.array(captcha_image)
-        with suppress_stdout_stderr():
-            result = rapidocr_readtext(reader, captcha_image_np, detail=0)
+            # 將 PIL Image 轉換為 numpy 數組，直接傳給 RapidOCR（避免路徑問題）
+            captcha_image_np = np.array(captcha_image)
+            with suppress_stdout_stderr():
+                result = rapidocr_readtext(reader, captcha_image_np, detail=0)
 
-        # 獲取驗證碼結果
-        captcha_text = ''.join(result).strip()
+            # 獲取驗證碼結果
+            captcha_text = ''.join(result).strip()
         print(f"\033[93m識別出的驗證碼為: {captcha_text}\033[0m", flush=True)
 
         # 輸入驗證碼
@@ -547,6 +572,27 @@ def handle_captcha(driver, register_type, retry_count=0):
                     print(f"手動輸入驗證碼時出錯: {inner_e}", flush=True)
                     manual_attempt += 1
                     continue  # 🔥 重新循環，再次嘗試
+
+
+def _take_alert(driver, wait_sec):
+    """等最多 wait_sec 秒，有警告框就讀出文字並按「確定」，回傳文字；沒有回傳 None"""
+    try:
+        WebDriverWait(driver, wait_sec).until(EC.alert_is_present())
+        a = driver.switch_to.alert
+        t = a.text
+        a.accept()
+        return t or ""
+    except Exception:
+        return None
+
+
+def _explain_login_alert(text):
+    print(f"\033[93m網站訊息：{text or '（警告框）'}\033[0m", flush=True)
+    if "尚未安裝元件" in (text or ""):
+        print("\033[93m→ 通常是前一步「登入驗證碼」認錯，網站退回登入頁時跳出的；程式會重新登入。\033[0m", flush=True)
+        print("\033[93m  （若每次都出現：請確認已安裝 HiCOS 卡片管理工具、讀卡機與自然人憑證有插好）\033[0m", flush=True)
+    else:
+        print("\033[93m→ 登入沒有成功，程式會重新登入。\033[0m", flush=True)
 
 
 def login_attempt(driver, register_type, username, password, card_cert=None, max_retries=3):
@@ -709,6 +755,11 @@ def login_attempt(driver, register_type, username, password, card_cert=None, max
                     
                     driver.find_element(By.CLASS_NAME, "btn.btn-primary").click()
                     print("憑證資料已送出", flush=True)
+                    _alert = _take_alert(driver, 3)
+                    if _alert is not None:
+                        _explain_login_alert(_alert)
+                        attempt += 1
+                        continue
                     
                     # 如果這是新輸入的資訊，詢問是否保存（改存 Windows 認證管理員）
                     if not (card_cert and card_cert.get("id_no") and card_cert.get("pin")):
@@ -772,6 +823,12 @@ def login_attempt(driver, register_type, username, password, card_cert=None, max
 
             return True
 
+        except UnexpectedAlertPresentException as e:
+            # 網站跳出警告框(多半是驗證碼錯被退回) → 按掉後重新登入，不印整串錯誤堆疊
+            _alert = _take_alert(driver, 1)
+            _explain_login_alert(_alert if _alert is not None else (getattr(e, "alert_text", "") or ""))
+            attempt += 1
+            continue
         except Exception as e:
             print(f"登入過程中出現異常: {e}", flush=True)
             # 檢查是否是讀卡機問題
@@ -2039,9 +2096,22 @@ def main():
         sys.stdout.flush()
         sys.stderr.flush()
         
+def _builds_of(entries):
+    """data.json 這幾筆裡的建號(萬用查詢會寫 build_no / builds；去重、保持順序)"""
+    out = []
+    for e in entries:
+        nos = [b.get('build_no') for b in (e.get('builds') or []) if isinstance(b, dict)] or [e.get('build_no')]
+        for n in nos:
+            n = str(n or '').strip()
+            if n and n not in out:
+                out.append(n)
+    return out
+
+
 def _prefill_from_data_json():
     """送件前：若 data.json 有資料，詢問是否帶入，免手動輸入。
-    回傳 (county, district, section, land_number_input) 或 None（不帶入/無資料）。
+    回傳 (county, district, section, land_number_input, gland_number) 或 None（不帶入/無資料）。
+    gland_number：data.json 有建號就帶入(多戶用逗號)，沒有則為 None(照舊詢問)。
     ⚠️ 官方系統「不同地段必須分開調閱」，故依『縣市+地區+地段』分組，混段時讓使用者選一組帶入。"""
     try:
         path = get_data_json_path()
@@ -2058,7 +2128,9 @@ def _prefill_from_data_json():
     # 顯示清單
     print(f"\n\033[96m偵測到 data.json，共 {len(data)} 筆：\033[0m", flush=True)
     for i, e in enumerate(data, 1):
-        print(f"  {i}. {e.get('city','')} {e.get('area','')} {e.get('section','')} {e.get('lot_number','')}", flush=True)
+        _b = _builds_of([e])
+        print(f"  {i}. {e.get('city','')} {e.get('area','')} {e.get('section','')} {e.get('lot_number','')}"
+              + (f"　建號 {'、'.join(_b)}" if _b else ""), flush=True)
     print("\033[93m要直接帶入這些資料嗎？(直接按 Enter 或 Y = 帶入 ／ N = 自己輸入)：\033[0m", flush=True)
     ans = input().strip().lower()
     if ans not in ('y', ''):
@@ -2105,14 +2177,19 @@ def _prefill_from_data_json():
         land_number_input = lots[0] if lots else ''
 
     print(f"\033[38;5;46m✓ 已帶入：{city} {district} {section}　地號：{land_number_input or '（無）'}\033[0m", flush=True)
-    return city, district, section, land_number_input
+    builds = _builds_of(entries)
+    gland = ','.join(builds) if builds else None
+    if gland:
+        print(f"\033[38;5;46m✓ 已帶入建號：{gland}\033[0m", flush=True)
+    return city, district, section, land_number_input, gland
 
 
 def get_user_input():
     # 🔥 送件前：若 data.json 有資料，先問是否帶入（免手動輸入縣市/地區/地段/地號）
     _pf = _prefill_from_data_json()
+    _pf_gland = None
     if _pf:
-        county, district, section, land_number_input = _pf
+        county, district, section, land_number_input, _pf_gland = _pf
     else:
         # 提示輸入縣市
         print("請輸入縣市 (直接按 Enter 使用預設值：高雄市):", flush=True)
@@ -2147,9 +2224,14 @@ def get_user_input():
     if len(land_number_list) > 1:
         # 分批調閱（多筆地號）時：建號沒有分批機制，若輸入會跟著每一批重複送出
         print("\033[91m⚠ 您選的是『分批調閱』（多筆地號）。建號沒有分批機制，若在此輸入建號，會跟著每一批重複送出；分批調閱時建議『不要輸入建號』，直接按 Enter 跳過。\033[0m", flush=True)
-    print("請輸入建號 (若沒有建號或不需要，直接按 Enter 跳過):", flush=True)
-    gland_number = input()
-    print(f"您輸入的建號是: {gland_number if gland_number.strip() else '（無）'}", flush=True)
+    if _pf_gland:
+        # data.json 已有建號(萬用查詢建立的案件) → 直接帶入；後面的確認畫面還可以改
+        gland_number = _pf_gland
+        print(f"建號（從 data.json 帶入）: {gland_number}", flush=True)
+    else:
+        print("請輸入建號 (若沒有建號或不需要，直接按 Enter 跳過):", flush=True)
+        gland_number = input()
+        print(f"您輸入的建號是: {gland_number if gland_number.strip() else '（無）'}", flush=True)
 
     # 提示輸入統一編號
     print("請輸入統一編號(一類):", flush=True)

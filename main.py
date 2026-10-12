@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8r"
-BUILD_DATE = "2026-10-11"
+VERSION = "1.1.8s"
+BUILD_DATE = "2026-10-12"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -425,6 +425,54 @@ def save_data_json(data_list):
     except Exception as e:
         print(f"儲存 data.json 時發生錯誤：{e}")
         return False
+
+def _sync_data_json():
+    """程式資料夾的 data.json(主檔，子程式讀這份) 和 案件資料夾/4.其他相關/data.json(主程式標題、比對讀這份)
+    內容不一樣時，用「較新」的那份蓋過另一份(被蓋的先備份成 data.json.bak)。
+    曾發生只寫到其中一份 → 兩邊各說各話(子程式查的跟畫面顯示的不是同一份)。
+    回傳說明文字(有同步時)，沒事回傳 None"""
+    root_p = os.path.join(PROGRAM_DIR, 'data.json')
+    case_p = get_data_json_path()
+    if os.path.normcase(os.path.abspath(case_p)) == os.path.normcase(os.path.abspath(root_p)):
+        return None
+    if not (os.path.exists(root_p) and os.path.exists(case_p)):
+        return None
+    try:
+        with open(root_p, 'r', encoding='utf-8') as f:
+            a = json.load(f)
+        with open(case_p, 'r', encoding='utf-8') as f:
+            b = json.load(f)
+    except Exception as e:
+        print(f"[data.json 同步] 讀取失敗，不動：{e}")
+        return None
+    if a == b:
+        return None
+    if os.path.getmtime(case_p) > os.path.getmtime(root_p):
+        src, dst, which = case_p, root_p, "案件資料夾 4.其他相關 的那份"
+    else:
+        src, dst, which = root_p, case_p, "程式資料夾的主檔"
+    try:
+        import shutil
+        shutil.copy2(dst, dst + ".bak")
+        shutil.copy2(src, dst)
+    except Exception as e:
+        print(f"[data.json 同步] 失敗：{e}")
+        return None
+    msg = f"兩份 data.json 內容不一致，已用較新的「{which}」同步（舊的另存 {os.path.basename(dst)}.bak）"
+    print(f"[data.json 同步] {msg}：{src} → {dst}")
+    return msg
+
+
+def _sync_data_json_ui():
+    """同步並在訊息區告知(主介面已建好時用)"""
+    msg = _sync_data_json()
+    if msg:
+        try:
+            update_message(f"\033[93m⚠ {msg}\033[0m")
+        except Exception:
+            pass
+    return msg
+
 
 # === 通訊錄載入函數 ===
 def load_contacts_from_excel(file_path='通訊錄.xlsx'):
@@ -4555,6 +4603,7 @@ def update_json_status_display():
 def start_subprocess_internal(script_name):
     """內部函數，用於連續模式執行腳本"""
     global is_running, process, selected_json_path, json_dir, current_running_button
+    _sync_data_json_ui()      # 子程式讀主檔 → 先確認兩份 data.json 一致
 
     # 🔥 解析 nlma_nbupic.py:城市 格式（連續模式專用識別碼，因同一支腳本對應屏東/臺南兩個按鈕）
     nbupic_city = None
@@ -6003,6 +6052,7 @@ for _w in transcript_left_frame.winfo_children():
 
 def start_subprocess(button, script_name):
     global is_running, process, selected_json_path, json_dir, current_running_button
+    _sync_data_json_ui()      # 子程式讀主檔 → 先確認兩份 data.json 一致
 
     # 🔥 設定當前執行的按鈕（用於追蹤執行狀態和更新標題）
     current_running_button = button
@@ -7340,13 +7390,19 @@ def _panel_query(text):
     open_quick_lookup(text)
 
 
+def _case_info():
+    """萬用查詢面板的比對卡用：(data.json 主檔, 目前選用的謄本結構化 JSON)"""
+    _sync_data_json_ui()
+    return os.path.join(PROGRAM_DIR, 'data.json'), selected_json_path
+
+
 def show_quick_intro(force=False):
     """萬用查詢面板(啟動時自動跳；勾「啟動時不要自動跳出」後只在打「說明」時跳)"""
     if is_running and not force:
         return
     try:
         import quick_case
-        quick_case.show_intro(root, input_field, PROGRAM_DIR, force=force, on_query=_panel_query)
+        quick_case.show_intro(root, input_field, PROGRAM_DIR, force=force, on_query=_panel_query, case_info=_case_info)
     except Exception as e:
         print(f"[萬用查詢面板] 無法顯示：{e}")
 
@@ -7358,7 +7414,7 @@ def open_quick_panel(tab=None):
         return
     try:
         import quick_case
-        quick_case.open_panel(root, input_field, PROGRAM_DIR, _panel_query, tab)
+        quick_case.open_panel(root, input_field, PROGRAM_DIR, _panel_query, tab, case_info=_case_info)
     except Exception as e:
         update_message(f"[錯誤] 無法開啟查詢面板：{e}")
 
@@ -8798,6 +8854,7 @@ finally:
         pass
 
 root.after(100, show_startup_reminder)
+root.after(400, lambda: _sync_data_json_ui() and update_title_from_data_json())   # 兩份 data.json 不一致 → 用較新的同步
 root.after(500, check_and_warn_data_consistency)  # 在提醒訊息之後執行
 root.after(2000, _bg_check_update)  # 🔥 啟動 2 秒後背景檢查 GitHub 是否有新版（不擋主介面）
 root.after(1200, show_quick_intro)  # 🆕 萬用查詢欄新功能介紹(勾「不再顯示」後就不跳)

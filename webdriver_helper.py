@@ -311,6 +311,19 @@ def get_chrome_driver_service():
     print("[WebDriver] 使用系統 PATH 中的 ChromeDriver")
     return Service('chromedriver')
 
+# 🧪 無螢幕(headless)模式：環境變數 LAND_HEADLESS=1 時，子程式的 Chrome 改成無螢幕、固定視窗大小，
+#    並停用模擬鍵盤縮放(無螢幕時按鍵會送到眼前的其他視窗)。平常不會設，對現有使用完全沒影響。
+#    用途：驗證「伺服器端/網頁版自動產生官方網頁附件」(2026-10-11)。
+HEADLESS = os.environ.get("LAND_HEADLESS") == "1"
+if HEADLESS:
+    try:
+        import keyboard as _kb                  # 子程式直接用 keyboard 按 Ctrl+- 縮放的也一併停用
+        for _fn in ("press_and_release", "press", "release", "send", "write"):
+            setattr(_kb, _fn, lambda *a, **k: None)
+    except Exception:
+        pass
+
+
 def create_chrome_driver(options=None, stealth=False):
     """
     建立 Chrome WebDriver
@@ -331,6 +344,11 @@ def create_chrome_driver(options=None, stealth=False):
     """
     if options is None:
         options = webdriver.ChromeOptions()
+
+    if HEADLESS:
+        options.add_argument("--headless=new")
+        options.add_argument(f"--window-size={os.environ.get('LAND_HEADLESS_SIZE', '1600,1000')}")
+        options.add_argument("--force-device-scale-factor=1")
 
     if not stealth:
         # 🔥 強制使用淺色模式（避免暗黑模式影響截圖品質）
@@ -410,6 +428,8 @@ def verify_and_fix_chrome_window(driver, target_ratio=2/3):
         或 None（執行失敗時）
     """
     import time
+    if HEADLESS:
+        return None                             # 無螢幕：不調視窗
     try:
         time.sleep(0.3)
         chrome_screen_width = driver.execute_script("return screen.width") or 0
@@ -594,6 +614,9 @@ def apply_page_zoom(driver, zoom_count, key=None, base_dir=None):
     import time
     from selenium.webdriver.common.by import By
 
+    if HEADLESS:
+        print("[頁面縮放] 無螢幕模式，不縮放", flush=True)
+        return None
     override = _read_zoom_override(key, base_dir)
     logical_w = 0
     if override is not None:
