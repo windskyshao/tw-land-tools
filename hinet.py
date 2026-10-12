@@ -595,9 +595,39 @@ def _explain_login_alert(text):
         print("\033[93m→ 登入沒有成功，程式會重新登入。\033[0m", flush=True)
 
 
+def _hinet_zoom_needed():
+    """跟下面「頁面縮放」同一套判斷：高 DPI/小螢幕才需要縮放(要先停在電子謄本網站上按 Ctrl+-)"""
+    try:
+        config_path = os.path.join(BASE_DIR, 'window_config.json')
+        if not os.path.exists(config_path):
+            return False
+        with open(config_path, 'r', encoding='utf-8') as f:
+            config = json.load(f)
+        dpi = config.get('dpi_scale', 1.0)
+        logical_width = config.get('screen_width', 1920) / dpi
+        return dpi >= 1.5 or (dpi >= 1.25 and logical_width < 1200)
+    except Exception:
+        return False
+
+
+def _open_login_fast(driver):
+    """直接開登入頁(/Login/AAALogin 會自動轉到 HiNet 帳號頁)，不經過首頁 MainNew。
+    首頁伺服器時快時慢(實測慢時第一個位元組要 7 秒、加上圖片/訪客計數等資源，模擬慢速時光首頁 27 秒)，
+    登入不需要首頁。帳號欄出現回 True；失敗回 False(改走舊路：首頁→點登入)"""
+    try:
+        driver.get("https://ep.land.nat.gov.tw/Login/AAALogin")
+        WebDriverWait(driver, 15).until(EC.presence_of_element_located((By.ID, "aa-uid")))
+        return True
+    except Exception as e:
+        print(f"（直接開登入頁失敗：{str(e).splitlines()[0][:80]}）", flush=True)
+        return False
+
+
 def login_attempt(driver, register_type, username, password, card_cert=None, max_retries=3):
     attempt = 0
     zoom_applied = False  # 🔥 標記是否已經執行過縮放，避免重複縮放
+    # 🔥 不需要縮放的電腦直接開登入頁(快)；需要縮放的照舊先開首頁(縮放要套在電子謄本網站上)
+    fast_login = not _hinet_zoom_needed()
 
     while attempt < max_retries:
         try:
@@ -606,8 +636,18 @@ def login_attempt(driver, register_type, username, password, card_cert=None, max
                 return False
             
             print(f"第 {attempt + 1} 次嘗試登入...", flush=True)
-            print("打開目標網站:【全國地政電子謄本系統】", flush=True)
-            driver.get("https://ep.land.nat.gov.tw/EpaperDoc/MainNew")
+            direct = False
+            if fast_login:
+                print("直接開啟【登入頁面】（跳過較慢的首頁）", flush=True)
+                _t0 = time.time()
+                direct = _open_login_fast(driver)
+                if direct:
+                    print(f"登入頁面已開啟（{time.time() - _t0:.1f} 秒）", flush=True)
+                else:
+                    print("登入頁面沒有順利出現，改走首頁再點【登入】", flush=True)
+            if not direct:
+                print("打開目標網站:【全國地政電子謄本系統】", flush=True)
+                driver.get("https://ep.land.nat.gov.tw/EpaperDoc/MainNew")
 
             # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
             try:
@@ -679,10 +719,11 @@ def login_attempt(driver, register_type, username, password, card_cert=None, max
 
                 zoom_applied = True  # 🔥 標記已執行過縮放
 
-            print("點擊【登入】，跳轉至【登入頁面】", flush=True)
-            WebDriverWait(driver, 10).until(
-                EC.presence_of_element_located((By.XPATH, "//a[@href='/Login/AAALogin']"))
-            ).click()
+            if not direct:
+                print("點擊【登入】，跳轉至【登入頁面】", flush=True)
+                WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, "//a[@href='/Login/AAALogin']"))
+                ).click()
 
             print("填入【用戶識別碼】", flush=True)
             WebDriverWait(driver, 10).until(

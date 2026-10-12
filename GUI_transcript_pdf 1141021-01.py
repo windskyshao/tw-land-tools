@@ -25,7 +25,19 @@ except (AttributeError, ValueError):
 
 import tkinter as tk
 from tkinter import ttk, scrolledtext, messagebox, filedialog
-import pandas as pd
+class _LazyPandas:
+    """pandas 用到才載入(載入要 1.5~4 秒，只有匯出 Excel 才用得到)→ 程式啟動快很多。
+    用法跟 pd 一樣：pd.DataFrame(...)、pd.ExcelWriter(...)"""
+    _mod = None
+
+    def __getattr__(self, name):
+        if _LazyPandas._mod is None:
+            import pandas as _pandas
+            _LazyPandas._mod = _pandas
+        return getattr(_LazyPandas._mod, name)
+
+
+pd = _LazyPandas()
 import json
 import fitz  # PyMuPDF
 import re
@@ -1876,7 +1888,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.1 (2026-09-21) | 電子謄本功能測試版",
+                               text="v2.2 (2026-10-12) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2386,7 +2398,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.1 (2026-09-21) | {status_text}",
+                            text=f"v2.2 (2026-10-12) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -4525,7 +4537,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.1 (2026-09-21) | 電子謄本功能測試版",
+                            text="v2.2 (2026-10-12) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -4536,7 +4548,7 @@ class ModernTranscriptGUI:
         if hasattr(self, 'status_label'):
             self.status_label.config(text=f"🟢 {message}")
 
-    def show_custom_messagebox(self, title, message, msg_type="info"):
+    def show_custom_messagebox(self, title, message, msg_type="info", default_no=False):
         """自定義訊息對話框 - 修正版本"""
         dialog = tk.Toplevel(self.master)
         dialog.title(title)
@@ -4663,10 +4675,11 @@ class ModernTranscriptGUI:
         
         # 🔧 修正：確保按鈕有足夠大小和間距
         if msg_type == "yesno":
-            no_btn = ModernButton(button_frame, "否", command=on_no, style="secondary")
+            # default_no=True(例如「是否開啟資料夾」)：預設「否」→ 否用醒目色、Enter=否
+            no_btn = ModernButton(button_frame, "否", command=on_no, style="success" if default_no else "secondary")
             no_btn.pack(side="right", padx=(5, 0))
             
-            yes_btn = ModernButton(button_frame, "是", command=on_yes, style="success")
+            yes_btn = ModernButton(button_frame, "是", command=on_yes, style="secondary" if default_no else "success")
             yes_btn.pack(side="right", padx=(0, 5))
         else:
             ok_btn = ModernButton(button_frame, "確定", command=on_no, style="primary")
@@ -4676,12 +4689,14 @@ class ModernTranscriptGUI:
         #    是/否對話框 → Y 或 Enter = 是，N 或 Esc = 否
         #    一般對話框   → Enter 或 Esc = 確定（關閉）
         if msg_type == "yesno":
-            for k in ('<Return>', '<KP_Enter>', '<y>', '<Y>'):
+            enter_yes = () if default_no else ('<Return>', '<KP_Enter>')
+            enter_no = ('<Return>', '<KP_Enter>') if default_no else ()
+            for k in enter_yes + ('<y>', '<Y>'):
                 dialog.bind(k, lambda e: on_yes())
-            for k in ('<n>', '<N>', '<Escape>'):
+            for k in enter_no + ('<n>', '<N>', '<Escape>'):
                 dialog.bind(k, lambda e: on_no())
             try:
-                yes_btn.focus_set()  # 預設焦點在「是」
+                (no_btn if default_no else yes_btn).focus_set()  # 預設焦點
             except Exception:
                 pass
         else:
@@ -6828,7 +6843,7 @@ class ModernTranscriptGUI:
                         f"💾 儲存目錄: {os.path.dirname(exported_files[0][1])}\n\n"
                         f"是否要開啟檔案所在資料夾？")
                 
-                result = self.show_custom_messagebox("批次匯出完成", message, "yesno")
+                result = self.show_custom_messagebox("批次匯出完成", message, "yesno", default_no=True)
                 
                 if result:
                     self.open_output_folder()
@@ -7340,7 +7355,7 @@ class ModernTranscriptGUI:
                     f"💾 儲存目錄: {os.path.dirname(filepath)}\n\n"
                     f"是否要開啟檔案所在資料夾？")
             
-            result = self.show_custom_messagebox("匯出完成", message, "yesno")
+            result = self.show_custom_messagebox("匯出完成", message, "yesno", default_no=True)
             
             if result:
                 self.open_output_folder()
@@ -7391,7 +7406,7 @@ class ModernTranscriptGUI:
                         f"💾 儲存目錄: {os.path.dirname(exported_files[0][1])}\n\n"
                         f"是否要開啟檔案所在資料夾？")
                 
-                result = self.show_custom_messagebox("批次匯出完成", message, "yesno")
+                result = self.show_custom_messagebox("批次匯出完成", message, "yesno", default_no=True)
                 
                 if result:
                     self.open_output_folder()
@@ -8746,7 +8761,9 @@ def main():
 
         # 檢查必要模組
         try:
-            import pandas as pd
+            import importlib.util
+            if importlib.util.find_spec("pandas") is None:      # 只確認有裝，不在啟動時載入(很慢)
+                raise ImportError("pandas")
             _boot("正在準備資料元件...")
         except ImportError:
             print("❌ pandas: 未安裝", flush=True)

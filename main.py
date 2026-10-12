@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8t"
+VERSION = "1.1.8u"
 BUILD_DATE = "2026-10-12"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -472,6 +472,82 @@ def _sync_data_json_ui():
         except Exception:
             pass
     return msg
+
+
+def _proc_has_window(pid):
+    """這個程序(含它衍生的子程序：單檔 exe 真正開視窗的是子程序)有沒有可見、有標題的視窗"""
+    try:
+        import ctypes
+        from ctypes import wintypes
+        pids = {pid}
+        try:
+            pids |= {c.pid for c in psutil.Process(pid).children(recursive=True)}
+        except Exception:
+            pass
+        u = ctypes.windll.user32
+        found = []
+
+        def cb(h, _l):
+            if u.IsWindowVisible(h):
+                owner = wintypes.DWORD()
+                u.GetWindowThreadProcessId(h, ctypes.byref(owner))
+                if owner.value in pids and u.GetWindowTextLengthW(h) > 0:
+                    found.append(h)
+                    return False
+            return True
+        u.EnumWindows(ctypes.WINFUNCTYPE(ctypes.c_bool, wintypes.HWND, wintypes.LPARAM)(cb), 0)
+        return bool(found)
+    except Exception:
+        return False
+
+
+def _show_launch_popup(name, proc, timeout=90):
+    """外部工具(單檔 exe，每次啟動要先解壓，約 10 秒)：跳小視窗「正在啟動…」，
+    工具視窗出現 / 程式結束 / 逾時 就自動關掉，免得使用者以為沒反應一直重按"""
+    try:
+        import time as _t
+        win = tk.Toplevel(root)
+        win.title("啟動中")
+        win.transient(root)
+        win.resizable(False, False)
+        win.configure(bg="white")
+        try:
+            win.attributes("-topmost", True)
+        except Exception:
+            pass
+        box = tk.Frame(win, bg="white", padx=28, pady=20, highlightthickness=2, highlightbackground=M.BLUE)
+        box.pack(fill=tk.BOTH, expand=True)
+        tk.Label(box, text=f"⏳ 正在啟動「{name}」…", font=("Microsoft JhengHei", 16, "bold"),
+                 fg="#0F172A", bg="white").pack(anchor="w")
+        tk.Label(box, text="工具開啟需要一點時間（約 10 秒），請稍候，不用重按", font=("Microsoft JhengHei", 13),
+                 fg="#1E293B", bg="white").pack(anchor="w", pady=(6, 10))
+        bar = ttk.Progressbar(box, mode="indeterminate", length=360)
+        bar.pack(fill=tk.X)
+        bar.start(12)
+        win.update_idletasks()
+        w, h = win.winfo_reqwidth(), win.winfo_reqheight()
+        x = root.winfo_rootx() + (root.winfo_width() - w) // 2
+        y = root.winfo_rooty() + (root.winfo_height() - h) // 3
+        win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        t0 = _t.time()
+
+        def poll():
+            try:
+                if not win.winfo_exists():
+                    return
+                done = proc.poll() is not None or _proc_has_window(proc.pid) or _t.time() - t0 > timeout
+                if done:
+                    win.destroy()
+                else:
+                    win.after(300, poll)
+            except Exception:
+                try:
+                    win.destroy()
+                except Exception:
+                    pass
+        win.after(500, poll)
+    except Exception as e:
+        print(f"[啟動提示] 無法顯示：{e}")
 
 
 # === 通訊錄載入函數 ===
@@ -4806,6 +4882,9 @@ def start_subprocess_internal(script_name):
             startupinfo=startupinfo
         )
         is_running = True
+        # 🔥 外部工具 exe(電子/電傳謄本結構化…)啟動要等好幾秒 → 跳「正在啟動…」小視窗
+        if cmd and str(cmd[0]).lower().endswith(".exe") and "python" not in os.path.basename(str(cmd[0])).lower():
+            _show_launch_popup(os.path.splitext(os.path.basename(str(cmd[0])))[0], process)
         threading.Thread(target=read_output, args=(process,), daemon=True).start()
     except Exception as e:
         update_message(f"啟動程序失敗: {str(e)}")
@@ -5819,7 +5898,8 @@ def launch_cadastral_map_tool():
         latest_exe = exe_files[0]
 
         update_message(f"啟動地籍圖處理工具：{os.path.basename(latest_exe)}")
-        subprocess.Popen([latest_exe])
+        _p = subprocess.Popen([latest_exe])
+        _show_launch_popup(os.path.splitext(os.path.basename(latest_exe))[0], _p)
 
     except Exception as e:
         update_message(f"[錯誤] 啟動地籍圖處理工具失敗：{e}")
@@ -6303,6 +6383,9 @@ def start_subprocess(button, script_name):
             startupinfo=startupinfo
         )
         is_running = True
+        # 🔥 外部工具 exe(電子/電傳謄本結構化…)啟動要等好幾秒 → 跳「正在啟動…」小視窗
+        if cmd and str(cmd[0]).lower().endswith(".exe") and "python" not in os.path.basename(str(cmd[0])).lower():
+            _show_launch_popup(os.path.splitext(os.path.basename(str(cmd[0])))[0], process)
         threading.Thread(target=read_output, args=(process,), daemon=True).start()
     except Exception as e:
         update_message(f"[錯誤] 啟動程序失敗: {str(e)}")
