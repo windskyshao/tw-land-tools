@@ -9,8 +9,9 @@
 import os
 import re
 import sys
+import json
 import argparse
-from datetime import date
+from datetime import date, datetime
 
 import fitz
 
@@ -82,6 +83,55 @@ def gather(case_dir):
     v["起"] = v["迄"] = None
     v["租約檔"] = rr.find_lease_file(case_dir) or ""      # 只用來決定存檔位置(跟租約同資料夾)
     return v, notes
+
+
+# ---------------- 記憶：同案件全部記住；換案件也記住「上網、賣方%、買方經紀人、同一批賣方經紀人的%」
+CASE_MEM = "業績分配表設定.json"          # 案件資料夾 4.其他相關
+LAST_MEM = "perf_report_last.json"        # 主程式資料夾(換案件也帶)
+_MEM_KEYS = ("契約編號", "物件編號", "物件名稱", "物件地址", "起", "迄", "類型", "上網", "賣方%", "經紀人", "買方經紀人")
+
+
+def _mem_paths(case_dir):
+    return (os.path.join(case_dir, "4.其他相關", CASE_MEM),
+            os.path.join(getattr(rr, "_settings_dir", SCRIPT_DIR) or SCRIPT_DIR, LAST_MEM))
+
+
+def apply_memory(case_dir, v, notes):
+    case_p, last_p = _mem_paths(case_dir)
+    cm = rr._load_json(case_p)
+    if isinstance(cm, dict) and cm:
+        for k in _MEM_KEYS:
+            if k in cm:
+                v[k] = cm[k]
+        notes.insert(0, ("info", f"已帶入這個案件上次的輸入（{cm.get('_saved', '')}）"))
+        return
+    lm = rr._load_json(last_p)
+    if not isinstance(lm, dict) or not lm:
+        return
+    for k in ("上網", "賣方%", "買方經紀人"):
+        if k in lm:
+            v[k] = lm[k]
+    names = [a[0] for a in v.get("經紀人") or []]
+    last = lm.get("經紀人") or []
+    if names and [a[0] for a in last] == names:          # 同一批賣方經紀人 → 連 % 一起帶
+        v["經紀人"] = [list(a) for a in last]
+    else:
+        _split_even(v)                                    # 依記住的賣方% 重新平均
+    notes.insert(0, ("info", f"已帶入上次的設定（上網、賣方%、買方經紀人；上一個案件：{lm.get('_case', '')}）"))
+
+
+def save_memory(case_dir, out):
+    case_p, last_p = _mem_paths(case_dir)
+    stamp = datetime.now().strftime("%Y-%m-%d %H:%M")
+    data = {k: out.get(k) for k in _MEM_KEYS}
+    data.update(_saved=stamp, _case=os.path.basename(case_dir))
+    for path in (case_p, last_p):
+        try:
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "w", encoding="utf-8") as f:
+                json.dump(data, f, ensure_ascii=False, indent=1)
+        except Exception as e:
+            print(f"[警告] 記憶沒存成功：{e}")
 
 
 def _split_even(v):
@@ -475,11 +525,17 @@ def run_dialog(case_dir, v, notes, template_path):
         except Exception as e:
             big_dialog("產生失敗", str(e))
             return
+        save_memory(case_dir, out)
         result["ok"], result["path"] = True, path
         root.destroy()
 
+    def on_cancel():
+        save_memory(case_dir, collect())        # 取消/關窗也記住，下次打開不用重填
+        root.destroy()
+    root.protocol("WM_DELETE_WINDOW", on_cancel)
+
     ui.button(foot, "📄  產生業績分配表 PDF", on_ok).pack(side=tk.RIGHT)
-    ui.button(foot, "取消", root.destroy, "ghost").pack(side=tk.RIGHT, padx=10)
+    ui.button(foot, "取消", on_cancel, "ghost").pack(side=tk.RIGHT, padx=10)
     tk.Label(foot, text="產生後會自動打開 PDF，每格都可再點進去改", font=ui.FS, fg=ui.SUB, bg=ui.CARD).pack(side=tk.LEFT)
     root.mainloop()
     return result
@@ -501,6 +557,7 @@ def main():
         return 1
     case_dir = os.path.abspath(a.case_dir)
     v, notes = gather(case_dir)
+    apply_memory(case_dir, v, notes)
     for lv, m in notes:
         print(f"[{'警告' if lv == 'warn' else '資訊'}] {m}")
     if a.no_gui:

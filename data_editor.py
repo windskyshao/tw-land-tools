@@ -375,6 +375,24 @@ def open_perf_report():
         _launch_case_tool("perf_report.py", "業績分配表", case_dir)
 
 
+def open_marketing_deck():
+    """行銷簡報(大樓版)：挑照片 → 產生 16:9 不動產行銷報告 PPTX(存到匯出資料夾或案件資料夾)"""
+    case_dir, data_final_path = _case_dir_from_editor()
+    if not case_dir:
+        return
+    try:
+        with open(data_final_path, "r", encoding="utf-8") as f:
+            型式 = json.load(f).get("型式", "")
+    except Exception:
+        型式 = ""
+    if 型式 and not any(k in 型式 for k in ("大樓", "華廈", "公寓", "套房", "辦公", "商辦")):
+        if not show_large_yesno("目前只有大樓版", f"這個物件的型式是「{型式}」，\n行銷簡報目前只做了大樓版，仍要繼續嗎？"):
+            return
+    if update_message:
+        update_message("[行銷簡報] 開啟挑照片視窗…（照片多時縮圖要幾秒才會全部出現）")
+    _launch_case_tool("marketing_deck.py", "行銷簡報", case_dir)
+
+
 def generate_report_from_button():
     """從按鈕手動生成報告"""
     global report_type, entries
@@ -9415,6 +9433,11 @@ def open_data_editor():
     tk.Button(button_frame, text="📊 業績分配表", command=open_perf_report,
              font=("Microsoft JhengHei", 12, "bold"), bg='#00897B', fg='white',
              width=13, height=2).pack(side=tk.LEFT, padx=10)
+
+    # 行銷簡報(大樓版)
+    tk.Button(button_frame, text="🎞 行銷簡報", command=open_marketing_deck,
+             font=("Microsoft JhengHei", 12, "bold"), bg='#3E83B6', fg='white',
+             width=12, height=2).pack(side=tk.LEFT, padx=10)
 
     # 🔥 匯出封存按鈕（支持 Shift+點擊強制重設）
     def export_archive_wrapper(event=None):
