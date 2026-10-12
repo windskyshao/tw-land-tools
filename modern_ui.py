@@ -467,9 +467,15 @@ class PillEntry(tk.Frame):
         self._draw()
 
     def _mh(self, on):
+        # ⚠ 只改顏色、不重畫：整個重畫會刪掉滑鼠底下的按鈕 → 觸發 Leave → 又重畫 → 又 Enter…
+        #    無限循環，主程式卡死轉圈(v1.1.8r/s 的 bug)
+        if on == self._menu_hover:
+            return
         self._menu_hover = on
         self.cv.configure(cursor="hand2" if on else "")
-        self._draw()
+        rid = getattr(self, "_menu_rect", None)
+        if rid:
+            self.cv.itemconfigure(rid, fill=mix(BLUE, "#FFFFFF", 0.72 if on else 0.84))
 
     def _draw(self):
         cv = self.cv
@@ -493,7 +499,7 @@ class PillEntry(tk.Frame):
             x0 = x1 - bw
             y0, y1 = h * 0.2, h * 0.8
             fill = mix(BLUE, "#FFFFFF", 0.72 if self._menu_hover else 0.84)
-            round_rect(cv, x0, y0, x1, y1, (y1 - y0) / 2, fill=fill, outline="", tags="menu")
+            self._menu_rect = round_rect(cv, x0, y0, x1, y1, (y1 - y0) / 2, fill=fill, outline="", tags="menu")
             self._menu_font = f
             cv.create_text((x0 + x1) / 2, h / 2, text=label, font=f, fill=mix(BLUE, "#000000", 0.3), tags="menu")
             self._menu_w = bw + h * 0.3
