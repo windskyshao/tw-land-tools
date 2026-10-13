@@ -73,6 +73,7 @@ sys.stderr = open(os.devnull, "w")
 CURRENT_QUERY_DESCRIPTION = None
 # 新增全局變數來存儲預選的查詢類型
 PRESELECTED_QUERY_TYPE = None
+SUGGEST_ADDRESS_QUERY = False  # 地號全部查無時，下一步建議改用地址查詢
 # 添加全局變數，用於控制程式完全退出
 SHOULD_EXIT_PROGRAM = False
 
@@ -344,6 +345,39 @@ def select_data_for_lot_query():
         except ValueError:
             print("請輸入有效的數字（可用逗號分隔多個序號，或輸入 'a' 全選）", flush=True)
 
+def _street_door(door, city="", area=""):
+    """門牌去掉縣市/行政區/里鄰前綴，只留「廟前路135號」這段"""
+    d = (door or "").strip().replace(" ", "").replace("\u3000", "")
+    for pre in (city or "", (city or "").replace("臺", "台"), (city or "").replace("台", "臺")):
+        if pre and d.startswith(pre):
+            d = d[len(pre):]
+            break
+    if area and d.startswith(area):
+        d = d[len(area):]
+    d = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", d)
+    return d
+
+
+def _doors_from_data_json(data_list=None):
+    """data.json 裡的門牌(door 與 builds[].door)，去重、只留路名號碼段。回傳 [門牌,...]"""
+    try:
+        if data_list is None:
+            with open(get_data_json_path(), 'r', encoding='utf-8') as f:
+                data_list = json.load(f)
+    except Exception:
+        return []
+    out = []
+    for e in data_list or []:
+        if not isinstance(e, dict):
+            continue
+        cands = [e.get("door", "")] + [b.get("door", "") for b in (e.get("builds") or []) if isinstance(b, dict)]
+        for c in cands:
+            d = _street_door(c, e.get("city", ""), e.get("area", ""))
+            if d and any(k in d for k in ("路", "街", "巷", "號")) and d not in out:
+                out.append(d)
+    return out
+
+
 def input_address_for_query():
     """
     讓用戶輸入建築地址，包含完整的驗證和重試機制，並從data.json自動載入city和area
@@ -354,9 +388,11 @@ def input_address_for_query():
     # 嘗試從data.json讀取第一筆資料的city和area
     default_city = None
     default_area = None
+    doors = []
     try:
         with open(get_data_json_path(), 'r', encoding='utf-8') as file:
             data_list = json.load(file)
+            doors = _doors_from_data_json(data_list)
             if data_list and len(data_list) > 0:
                 first_data = data_list[0]
                 default_city = first_data.get('city')
@@ -378,8 +414,33 @@ def input_address_for_query():
         # 顯示預設的縣市區信息，讓用戶只需輸入後續地址
         if default_city and default_area:
             print(f"使用預設縣市區：{default_city}{default_area}", flush=True)
-            print("請輸入後續地址（例如：建國路三段260號）：", flush=True)
-            street_address = input().strip()
+            street_address = ""
+            if doors and attempt == 0:
+                # 🔥 data.json 有門牌就直接帶入，免手動輸入
+                if len(doors) == 1:
+                    print(f"\033[96mdata.json 有門牌：{doors[0]}\033[0m", flush=True)
+                    print("\033[93m直接按 Enter 帶入此門牌，或輸入其他後續地址：\033[0m", flush=True)
+                else:
+                    print("\033[96mdata.json 有以下門牌：\033[0m", flush=True)
+                    for i, d in enumerate(doors, 1):
+                        print(f"\033[96m  [{i}] {d}\033[0m", flush=True)
+                    print("\033[93m輸入編號帶入（直接按 Enter = 1），或輸入其他後續地址：\033[0m", flush=True)
+                ans = input().strip()
+                picked = None
+                if ans == "":
+                    picked = doors[0]
+                elif ans.isdigit() and 1 <= int(ans) <= len(doors):
+                    picked = doors[int(ans) - 1]
+                if picked:
+                    address = f"{default_city}{default_area}{picked}"
+                    print(f"已帶入地址：{address}", flush=True)
+                    return {"city": default_city, "area": default_area, "address": address}
+                street_address = ans
+            if not street_address:
+                print("請輸入後續地址（例如：建國路三段260號）：", flush=True)
+                street_address = input().strip()
+            # 使用者若打了完整地址，去掉重複的縣市區
+            street_address = _street_door(street_address, default_city, default_area)
             
             # 生成完整地址
             address = f"{default_city}{default_area}{street_address}"
@@ -923,7 +984,7 @@ def test():
     主要執行函數，先詢問查詢類型，然後依據類型執行不同流程
     支持連續查詢模式，每次查詢完成後詢問用戶是否繼續
     """
-    global PRESELECTED_QUERY_TYPE, driver
+    global PRESELECTED_QUERY_TYPE, driver, SUGGEST_ADDRESS_QUERY
     try:
         continue_querying = True
         
@@ -1008,6 +1069,7 @@ def test():
                         )
                     os.makedirs(base_directory, exist_ok=True)
 
+                    lot_found = 0  # 有查到資料的地號數，全部查無時提示改用地址查詢
                     # 🔥 循環處理所有選擇的資料
                     for data_index, data_item in enumerate(selected_data, 1):
                         print(f"\n\033[96m{'='*60}\033[0m", flush=True)
@@ -1037,6 +1099,7 @@ def test():
                             break  # 退出資料循環
 
                         elif status == "success" and results:
+                            lot_found += 1
                             print(f"查詢成功，共找到 {len(results)} 筆資料。", flush=True)
 
                             # 將結果添加到全局結果集
@@ -1106,6 +1169,9 @@ def test():
                             driver.get("https://cloudbm.nlma.gov.tw/CPTL/cpt0407m.do?")
                             time.sleep(2)  # 等待頁面載入
                             # 直接 continue 到下一輪迴圈
+
+                    if lot_found == 0:
+                        SUGGEST_ADDRESS_QUERY = True
 
                 elif query_type == "2":  # 建築地址查詢
                     # 設置查詢結果和狀態變量
@@ -1328,9 +1394,20 @@ def ask_continue_query():
     print("[2] 繼續查詢建築地址", flush=True)
     print("[3] 繼續手動查詢", flush=True)
     print("[0] 結束程式", flush=True)
-    print("請輸入選項編號(0-3)：", flush=True)
-    
+    global SUGGEST_ADDRESS_QUERY
+    suggest = SUGGEST_ADDRESS_QUERY
+    SUGGEST_ADDRESS_QUERY = False
+    if suggest:
+        doors = _doors_from_data_json()
+        print("\033[93m💡 地號查不到使用執照資料（不少執照是用地址登記），建議改用 [2] 建築地址查詢"
+              + (f"，data.json 有門牌：{'、'.join(doors[:3])}" if doors else "") + "\033[0m", flush=True)
+        print("請輸入選項編號(0-3，直接按 Enter = 2 改用地址查詢)：", flush=True)
+    else:
+        print("請輸入選項編號(0-3)：", flush=True)
+
     choice = input().strip()
+    if suggest and choice == "":
+        choice = "2"
     
     if choice == "0":
         print("程式結束，感謝使用！", flush=True)

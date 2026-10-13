@@ -3226,6 +3226,18 @@ def run_with_complete_features(args):
 
         print(f"\n程式執行完成", flush=True)
         print(f"成功處理：{success_count}/{total_count}", flush=True)
+        # 🔥 顯示總稅額(原本最後總結沒印，只存在 Excel/JSON)；0 元附說明
+        if success_count > 0:
+            try:
+                _t_once = sum(int(v.get('total_residential_tax') or 0) for v in OWNER_TOTAL_TRACKER.values())
+                _t_gen = sum(int(v.get('total_general_tax') or 0) for v in OWNER_TOTAL_TRACKER.values())
+                print("\n=== 稅額統計摘要 ===", flush=True)
+                print(f"\033[93m自用稅額總計：{_t_once:,} 元\033[0m", flush=True)
+                print(f"\033[93m一般稅額總計：{_t_gen:,} 元\033[0m", flush=True)
+                if not _t_once and not _t_gen:
+                    print("（官方試算稅額為 0：目前公告現值沒有超過物價調整後的前次移轉現值，沒有漲價，不用繳土地增值稅）", flush=True)
+            except Exception as _e:
+                print(f"（稅額總計顯示失敗：{_e}）", flush=True)
         if success_count > 0:
             print(f"\033[93mExcel結果檔案：{excel_path}\033[0m", flush=True)  # 亮黃色
         if pdf_data_list:

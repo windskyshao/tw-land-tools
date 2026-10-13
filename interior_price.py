@@ -627,13 +627,16 @@ class InteriorPriceSearch:
         global should_exit
         if should_exit:
             return False
-        keyword = item.get("community", "") if mode == "community" else item.get("section", "")
+        keyword = (item.get("community", "") if mode == "community"
+                   else item.get("road", "") if mode == "road" else item.get("section", ""))
 
         cprint(f"\n【填寫表單】使用以下數據:")
         cprint(f"  城市: {item.get('city', 'N/A')}")
         cprint(f"  區域: {item.get('area', 'N/A')}")
         if mode == "community":
             cprint(f"  社區: {keyword}")
+        elif mode == "road":
+            cprint(f"  路名(透天): {keyword}")
         else:
             cprint(f"  地段: {keyword}")
 
@@ -658,14 +661,19 @@ class InteriorPriceSearch:
 
             # 交易類別「土地」(customCheck2)：用地段查要勾、用社區名查不勾。
             # 依目前狀態決定要不要點(舊寫法每次都點一下，多筆時第二次會把它取消掉)
-            want_land = "true" if mode != "community" else "false"
-            yprint("勾選「土地」交易類別" if mode != "community" else "只查「房地」(不勾土地)")
+            want_land = "true" if mode == "section" else "false"
+            yprint("勾選「土地」交易類別" if mode == "section" else "只查「房地」(不勾土地)")
             self.driver.execute_script(
                 "var c=document.getElementById('customCheck2');"
                 f"if(c && c.checked!=={want_land}){{document.querySelector(\"label[for='customCheck2']\").click();}}")
+            # 進階條件「建物型態：透天厝」只給路名查詢用，其它查詢要取消(否則會沿用上一次的篩選)
+            if mode != "road":
+                self.driver.execute_script(
+                    "var t=document.getElementById('customCheck02');"
+                    "if(t && t.checked){t.checked=false;t.dispatchEvent(new Event('change',{bubbles:true}));}")
 
             # 輸入社區名或地段(網頁同一個欄位：門牌/地段/社區名稱)
-            yprint(f"輸入{'社區' if mode == 'community' else '地段'}: {keyword}")
+            yprint(f"輸入{'社區' if mode == 'community' else '路名' if mode == 'road' else '地段'}: {keyword}")
             build_inp = self.driver.find_element(By.ID, "p_build")
             build_inp.clear()
             build_inp.send_keys(keyword)
@@ -703,6 +711,28 @@ class InteriorPriceSearch:
                 return n
             time.sleep(1)
         return None
+
+    def _apply_townhouse_filter(self):
+        """路名查詢結果 → 進階條件勾「透天厝」、交易期間從民國 101 年(實價登錄開辦)起再查一次。
+        (同一條路上透天成交一年沒幾筆，看長期才有參考性；實測旗津廟前路近一年 1 筆(還是華廈)→透天 7 筆)"""
+        self.wait_for_results_load()
+        self._wait_count()
+        try:
+            self.switch_to_inner_frame()
+            self.driver.execute_script(
+                "var t=document.getElementById('customCheck02'); if(t){t.checked=true;t.dispatchEvent(new Event('change',{bubbles:true}));}"
+                "var s=document.getElementById('l_startY')||document.getElementById('p_startY');"
+                "if(s){s.value='101';s.dispatchEvent(new Event('change',{bubbles:true}));}"
+                "if(typeof loadQueryPrice==='function'){loadQueryPrice();}"
+                "else{document.querySelector(\"button[go_type='list']\").click();}")
+            yprint("已勾選建物型態「透天厝」、交易期間改從民國 101 年起")
+        except Exception as e:
+            yprint(f"設定透天厝篩選失敗: {e}")
+            return
+        time.sleep(1.5)
+        self.wait_for_results_load()
+        n = self._wait_count()
+        cprint(f"透天厝成交筆數: {n if n is not None else '讀不到'}")
 
     def _widen_years_until_data(self):
         """🔥 查到 0 筆 → 交易期間起始年一年一年往前推(最早民國101年,實價登錄開辦)再查,直到有資料。
@@ -790,6 +820,14 @@ class InteriorPriceSearch:
         if should_exit:
             return False
 
+        if mode == "road":
+            # 路名查詢排在地段/社區之後，網頁停在結果頁會填不進去(要等 20 秒逾時)→ 先回首頁
+            try:
+                self.driver.switch_to.default_content()
+                self.driver.get(self.url)
+                time.sleep(5)
+            except Exception:
+                pass
         ok = self.fill_form(item, mode)
         if should_exit:
             return False
@@ -812,14 +850,20 @@ class InteriorPriceSearch:
                 # 自動查詢模式：直接截圖不等待
                 cprint("✅ 自動填表完成，自動截圖＋存檔")
                 time.sleep(1)  # 稍等一下讓結果完全顯示
-                self._widen_years_until_data()   # 近 1 年 0 筆 → 一年一年往前推直到有資料
+                if mode == "road":
+                    self._apply_townhouse_filter()   # 路名 → 只看透天厝、從 101 年起
+                else:
+                    self._widen_years_until_data()   # 近 1 年 0 筆 → 一年一年往前推直到有資料
             else:
                 # 手動模式：等待使用者確認
                 cmd = self.wait_for_input("✅ 自動填表完成，請檢查結果後按 Enter 截圖＋存檔")
                 if cmd == "q" or should_exit:
                     return False
         # 截圖前重新讀取當前的區域和地段
-        self.capture_page()
+        if mode == "road":
+            self.capture_page(postfix=_sanitize(f"{item.get('area', '')}{item.get('road', '')}透天"))
+        else:
+            self.capture_page()
         return True
 
     # 🔥 Chrome 死亡 watchdog（背景執行緒）
@@ -968,6 +1012,23 @@ if __name__ == "__main__":
                 items.append(it)
         has_com = any(it["_mode"] == "community" for it in items)
 
+        # 🏠 沒有社區名(透天/店面)但 data.json 有門牌 → 另外用「路名＋透天厝」查周邊透天成交
+        if _LM is not None:
+            road_seen = set()
+            for it in [x for x in raw_items if x["_mode"] == "section"]:
+                try:
+                    roads = _LM.roads_for(raw_items, it)
+                except Exception:
+                    roads = []
+                for rd in roads:
+                    key = (it.get("city", ""), it.get("area", ""), rd)
+                    if key in road_seen:
+                        continue
+                    road_seen.add(key)
+                    ri = dict(it, road=rd, _mode="road")
+                    items.append(ri)
+                    cprint(f"  {it.get('area', '')} 門牌在「{rd}」→ 另外用路名查透天厝成交")
+
         cprint(f"去重後剩餘 {len(items)} 組搜尋參數\n")
 
         # 獲取第一項數據，用於輸出目錄
@@ -1061,7 +1122,7 @@ if __name__ == "__main__":
                     yprint("主循環檢測到退出標志，準備退出...")
                     break
 
-                kw = itm["community"] if itm["_mode"] == "community" else itm.get("section", "")
+                kw = itm["community"] if itm["_mode"] == "community" else itm.get("road") if itm["_mode"] == "road" else itm.get("section", "")
                 cprint(f"\n[{idx}/{len(items)}] 處理: {itm.get('city', '')} {itm.get('area', '')} {kw}")
                 if not app.search_one(itm, auto_capture=True, mode=itm["_mode"]):
                     break

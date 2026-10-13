@@ -28,7 +28,8 @@ FAM = "Microsoft JhengHei"
 EMOJI = "Segoe UI Emoji"
 
 
-def pick(photos, facts, default_out, page="a4l", on_save=None, template="building", suggest="building", show_agents=True):
+def pick(photos, facts, default_out, page="a4l", on_save=None, template="building", suggest="building", show_agents=True,
+         back_cover=False, theme="fzt"):
     from marketing_deck import TEMPLATES
     try:
         import ctypes
@@ -44,11 +45,12 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
     root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
     if not TEMPLATES.get(template, (0, 0, 0, 0, False))[4]:
         template = "building"
-    state = {"page": page, "template": template, "out": default_out, "show_agents": show_agents}
+    state = {"page": page, "template": template, "out": default_out, "show_agents": show_agents, "back_cover": back_cover,
+             "theme": theme}
 
     def save():
         if on_save:
-            on_save(state["page"], state["template"], state["show_agents"])
+            on_save(state["page"], state["template"], state["show_agents"], state["back_cover"], state["theme"])
 
     step = 1
     while True:
@@ -68,7 +70,8 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
             if r != "go":
                 return None
             chosen = [p for p in photos if p["cat"] != "不使用"]
-            return chosen, state["out"], state["page"], state["template"], state["show_agents"]
+            return (chosen, state["out"], state["page"], state["template"], state["show_agents"], state["back_cover"],
+                    state["theme"])
         if step == 0:
             save()
             _close(root)
@@ -100,7 +103,7 @@ def _steps_bar(parent, active):
 
 # ---------------------------------------------------------------- ① 版型與版面
 def _step_template(root, facts, state, suggest, sc, W):
-    from marketing_deck import TEMPLATES, PAGE_CHOICES
+    from marketing_deck import TEMPLATES, PAGE_CHOICES, THEMES
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
@@ -142,8 +145,7 @@ def _step_template(root, facts, state, suggest, sc, W):
 
     def choose_tpl(key, ok):
         if not ok:
-            messagebox.showinfo("製作中", f"「{TEMPLATES[key][1]}」版型還在製作中，做好會在這裡開放。\n目前先用「大樓・華廈」版。",
-                                parent=root)
+            ui.message(root, "製作中", f"「{TEMPLATES[key][1]}」版型還在製作中，做好會在這裡開放。\n目前先用「大樓・華廈」版。")
             return
         state["template"] = key
         paint_cards()
@@ -214,7 +216,7 @@ def _step_template(root, facts, state, suggest, sc, W):
 
     def choose_page(key, ok):
         if not ok:
-            messagebox.showinfo("製作中", "A4 直式還在製作中，等各版型橫式都做好後開放。", parent=root)
+            ui.message(root, "製作中", "A4 直式還在製作中，等各版型橫式都做好後開放。")
             return
         state["page"] = key
         paint_pages()
@@ -237,8 +239,77 @@ def _step_template(root, facts, state, suggest, sc, W):
         ptiles[key] = (fr, cv, parts, ok, (pw, ph))
         for w in [fr, cv] + parts:
             w.bind("<Button-1>", lambda e, k=key, o=ok: choose_page(k, o))
+    # ---- 色系 ----
+    hd3 = tk.Frame(body, bg=ui.BG)
+    hd3.pack(fill=tk.X, pady=(16, 6))
+    tk.Label(hd3, text="選擇色系", font=(FAM, 20, "bold"), fg=INK, bg=ui.BG).pack(side=tk.LEFT)
+    tk.Label(hd3, text="換頁首頁尾、卡片底色與重點字的顏色；照片、地籍圖不受影響", font=(FAM, 14), fg=INK2,
+             bg=ui.BG).pack(side=tk.LEFT, padx=16)
+    trow = tk.Frame(body, bg=ui.BG)
+    trow.pack(fill=tk.X, pady=(0, 10))
+    for c in range(len(THEMES)):
+        trow.grid_columnconfigure(c, weight=1, uniform="th")
+    ttiles = {}
+    TW_, TH_ = int(150 * sc), int(84 * sc)            # 小色卡(一頁簡報的縮圖)
+
+    def _mix(c1, c2, k):
+        a = [int(c1[i:i + 2], 16) for i in (0, 2, 4)]
+        b = [int(c2[i:i + 2], 16) for i in (0, 2, 4)]
+        return "#%02X%02X%02X" % tuple(int(a[i] + (b[i] - a[i]) * k) for i in range(3))
+
+    def draw_swatch(cv, t):
+        cv.delete("all")
+        head = t["head"] or ("0276AB", "E89AB3")       # 富住通原色：公版的藍→粉
+        foot = t["foot"] or ("8E1D4F", "19408F")
+        hh, fh = int(TH_ * 0.2), max(4, int(TH_ * 0.07))
+        cv.create_rectangle(0, 0, TW_, TH_, fill="#" + t["bg"], outline="#CBD5E1")
+        for x in range(0, TW_, 3):
+            k = x / TW_
+            cv.create_rectangle(x, 0, x + 3, hh, fill=_mix(*head, k), outline="")
+            cv.create_rectangle(x, TH_ - fh, x + 3, TH_, fill=_mix(*foot, k), outline="")
+        cv.create_rectangle(8, hh * 0.3, TW_ * 0.42, hh * 0.7, fill="white", outline="")     # 標題字
+        for j in range(3):                                                            # 三張卡片
+            x0 = 8 + j * (TW_ - 16) / 3
+            cv.create_rectangle(x0 + 2, hh + 8, x0 + (TW_ - 16) / 3 - 4, hh + 8 + TH_ * 0.22,
+                                fill="white", outline="#" + t["line"])
+            cv.create_rectangle(x0 + 2, hh + 8, x0 + 6, hh + 8 + TH_ * 0.22,
+                                fill="#B88E3E" if j == 0 else "#" + t["sky"], outline="")
+        cv.create_rectangle(8, hh + 14 + TH_ * 0.24, TW_ - 8, TH_ - fh - 6, fill="#" + t["panel"], outline="")
+        for j in range(2):
+            yy = hh + 20 + TH_ * 0.24 + j * TH_ * 0.12
+            cv.create_rectangle(16, yy, TW_ * 0.35, yy + 4, fill="#" + t["sky_dk"], outline="")
+            cv.create_rectangle(TW_ * 0.4, yy, TW_ * 0.8, yy + 4, fill="#94A3B8", outline="")
+
+    def paint_themes():
+        for key, (fr, cv, parts) in ttiles.items():
+            sel = key == state.get("theme", "fzt")
+            bg = BLUE_BG if sel else "white"
+            fr.configure(bg=bg, highlightbackground=BLUE if sel else "#CBD5E1", highlightthickness=3 if sel else 1)
+            for w in parts:
+                w.configure(bg=bg)
+            parts[0].configure(text=("✓ " if sel else "") + THEMES[key]["name"], fg=BLUE if sel else INK)
+
+    def choose_theme(key):
+        state["theme"] = key
+        paint_themes()
+
+    for i, (key, t) in enumerate(THEMES.items()):
+        fr = tk.Frame(trow, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=10,
+                      cursor="hand2")
+        fr.grid(row=0, column=i, padx=6, pady=6, sticky="nsew")
+        cv = tk.Canvas(fr, width=TW_, height=TH_, highlightthickness=0, bg="white")
+        cv.pack()
+        draw_swatch(cv, t)
+        a = tk.Label(fr, text=t["name"], font=(FAM, 15, "bold"), fg=INK, bg="white")
+        a.pack(pady=(6, 0))
+        b = tk.Label(fr, text=t["desc"], font=(FAM, 12), fg=INK2, bg="white")
+        b.pack()
+        ttiles[key] = (fr, cv, [a, b])
+        for w in (fr, cv, a, b):
+            w.bind("<Button-1>", lambda e, k=key: choose_theme(k))
     paint_cards()
     paint_pages()
+    paint_themes()
 
     # ---- 頁尾 ----
     tk.Label(foot, text="選好按「下一步」挑照片；挑照片時也可以按「‹ 上一步」回來改", font=(FAM, 13), fg=INK2,
@@ -412,7 +483,7 @@ OFF_BG = "#EEF1F5"      # 不使用區(淡灰)
 
 
 def _step_arrange(root, photos, facts, state, sc, W):
-    from marketing_deck import CATS, PAGES, TEMPLATES, PHOTO_PAGES, caption_of, guess_cat, ordered
+    from marketing_deck import CATS, PAGES, TEMPLATES, PHOTO_PAGES, caption_of, guess_cat, ordered, split_pages
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
@@ -433,6 +504,12 @@ def _step_arrange(root, photos, facts, state, sc, W):
     lab = tk.Label(tool, text=f"封面顯示專案人員：{names}", font=(FAM, 14, "bold"), fg=INK, bg=ui.BG, cursor="hand2")
     lab.pack(side=tk.LEFT, padx=(8, 0))
     lab.bind("<Button-1>", lambda e: ag_var.set(not ag_var.get()))
+    # 封底(直式 LOGO＋Full Life＋公司電話)：使用者自己選要不要
+    bc_var = tk.BooleanVar(master=root, value=state.get("back_cover", False))
+    ui.big_check(tool, bc_var).pack(side=tk.LEFT, padx=(28, 0))
+    lab2 = tk.Label(tool, text="加封底（公司 LOGO、Full Life、電話）", font=(FAM, 14, "bold"), fg=INK, bg=ui.BG, cursor="hand2")
+    lab2.pack(side=tk.LEFT, padx=(8, 0))
+    lab2.bind("<Button-1>", lambda e: bc_var.set(not bc_var.get()))
 
     body, canvas = ui.scroll_body(stage)
     thumbs = {}               # (路徑, 小圖?) → PhotoImage
@@ -509,6 +586,152 @@ def _step_arrange(root, photos, facts, state, sc, W):
             items[i]["order"], items[j]["order"] = items[j]["order"], items[i]["order"]
         render()
 
+    # ===== 滑鼠拖曳排序 =====
+    # 拖照片縮圖：放到別張照片上 → 插到那張的位置(跨頁就換到那一頁)；放到某頁標題/空白處 → 排到那頁最後；
+    # 放到「不使用」區 → 不使用。按住不動直接放開 = 沒事(不會誤觸)
+    tile_of = {}              # 照片框 Frame → 照片
+    zone_of = {}              # 頁面區塊 Frame → 那頁的分類(tuple)；不使用區 → ("不使用",)
+    drag = {"p": None, "x": 0, "y": 0, "on": False, "ghost": None, "hl": None}
+
+    def _find(widget, table):
+        w = widget
+        while w is not None:
+            if w in table:
+                return w
+            w = getattr(w, "master", None)
+        return None
+
+    def _highlight(fr):
+        old = drag["hl"]
+        if old is fr:
+            return
+        if old is not None:
+            try:
+                old.configure(highlightbackground=old._orig_hl, highlightthickness=old._orig_th)
+            except tk.TclError:
+                pass
+        drag["hl"] = fr
+        if fr is not None:
+            try:
+                fr._orig_hl = fr.cget("highlightbackground")
+                fr._orig_th = fr.cget("highlightthickness")
+                fr.configure(highlightbackground="#E8590C", highlightthickness=max(3, fr._orig_th))
+            except tk.TclError:
+                drag["hl"] = None
+
+    def drag_start(e, p):
+        drag.update(p=p, x=e.x_root, y=e.y_root, on=False)
+
+    def drag_motion(e):
+        p = drag["p"]
+        if p is None:
+            return
+        if not drag["on"]:
+            if abs(e.x_root - drag["x"]) + abs(e.y_root - drag["y"]) < 8:
+                return
+            drag["on"] = True
+            g = tk.Toplevel(root)
+            g.overrideredirect(True)
+            g.attributes("-topmost", True)
+            try:
+                g.attributes("-alpha", 0.85)
+            except tk.TclError:
+                pass
+            img = thumbs.get((p["path"], True)) or thumbs.get((p["path"], False))
+            tk.Label(g, image=img, text="" if img else p["name"], font=(FAM, 12, "bold"), bg="#E8590C", fg="white",
+                     bd=3, relief="solid").pack()
+            drag["ghost"] = g
+            root.configure(cursor="fleur")
+        drag["ghost"].geometry(f"+{e.x_root + 14}+{e.y_root + 10}")
+        w = root.winfo_containing(e.x_root, e.y_root)
+        hit = _find(w, tile_of) if w else None
+        if hit is None and w is not None:
+            hit = _find(w, zone_of)
+        _highlight(hit if (hit is None or tile_of.get(hit) is not p) else None)
+        # 拖到捲動區的上下邊緣 → 自動捲動
+        cy = canvas.winfo_rooty()
+        ch = canvas.winfo_height()
+        if e.y_root < cy + 50:
+            canvas.yview_scroll(-1, "units")
+        elif e.y_root > cy + ch - 50:
+            canvas.yview_scroll(1, "units")
+
+    def drag_end(e):
+        p, was_on = drag["p"], drag["on"]
+        drag.update(p=None, on=False)
+        if drag["ghost"] is not None:
+            drag["ghost"].destroy()
+            drag["ghost"] = None
+        root.configure(cursor="")
+        _highlight(None)
+        if p is None or not was_on:
+            return
+        w = root.winfo_containing(e.x_root, e.y_root)
+        if w is None:
+            return
+        t = _find(w, tile_of)
+        if t is not None:
+            drop_on_photo(p, tile_of[t])
+            return
+        z = _find(w, zone_of)
+        if z is not None:
+            drop_on_zone(p, zone_of[z])
+
+    def _group_cats(cat):
+        if cat == "封面":
+            return ("封面",)
+        for _t, cats, _c in PHOTO_PAGES:
+            if cat in cats:
+                return tuple(cats)
+        return (cat,)
+
+    def drop_on_photo(p, q):
+        if q is p:
+            return
+        if q["cat"] == "不使用":
+            set_cat(p, "不使用")
+            return
+        if q["cat"] == "封面":
+            set_cat(p, "封面")
+            return
+        cats = _group_cats(q["cat"])
+        items = ordered([o for o in photos if o["cat"] in cats])
+        same = p in items
+        before = same and items.index(p) < items.index(q)
+        if p["cat"] not in cats:                      # 跨頁：換成目標那頁(用目標照片的分類)
+            if p["cat"] == "封面":
+                p.pop("prev", None)
+            p["cat"] = q["cat"]
+        rest = [o for o in items if o is not p]
+        k = rest.index(q) + (1 if before else 0)       # 往後拖放在目標後面、往前拖放在目標前面
+        rest.insert(k, p)
+        for i, o in enumerate(rest):
+            o["order"] = i + 1
+        render()
+
+    def drop_on_zone(p, cats):
+        if cats == ("不使用",):
+            set_cat(p, "不使用")
+            return
+        if cats == ("封面",):
+            set_cat(p, "封面")
+            return
+        if p["cat"] in cats:                          # 同一頁 → 排到最後
+            p["order"] = next_order()
+            render()
+            return
+        if p["cat"] == "封面":
+            p.pop("prev", None)
+        p["cat"] = cats[0]
+        p["order"] = next_order()
+        render()
+
+    def draggable(widget, p):
+        widget.configure(cursor="fleur")
+        widget.bind("<ButtonPress-1>", lambda e, p=p: drag_start(e, p))
+        widget.bind("<B1-Motion>", drag_motion)
+        widget.bind("<ButtonRelease-1>", drag_end)
+
     def add_photos():
         paths = filedialog.askopenfilenames(parent=root, title="新增照片",
                                             filetypes=[("照片", "*.jpg *.jpeg *.png *.webp *.bmp"), ("全部", "*.*")])
@@ -527,7 +750,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
             render()
 
     def remove_added(p):
-        if messagebox.askyesno("移除照片", f"把「{p['name']}」從清單移除？\n（只是不放進簡報，原本的照片檔不會刪掉）", parent=root):
+        if ui.message(root, "移除照片", f"把「{p['name']}」從清單移除？\n（只是不放進簡報，原本的照片檔不會刪掉）", kind="ask", ok="移除"):
             photos.remove(p)
             render()
 
@@ -551,6 +774,8 @@ def _step_arrange(root, photos, facts, state, sc, W):
         lb = tk.Label(fr, image=img or blank_big, bg="#E2E8F0", bd=0)
         lb.pack()
         labels[(p["path"], False)] = lb
+        tile_of[fr] = p
+        draggable(lb, p)
         top = tk.Frame(fr, bg="white")
         top.pack(fill=tk.X, pady=(4, 0))
         tag = "封面" if p["cat"] == "封面" else f"{idx + 1}"
@@ -574,6 +799,8 @@ def _step_arrange(root, photos, facts, state, sc, W):
 
     def render():
         labels.clear()
+        tile_of.clear()
+        zone_of.clear()
         for w in body.winfo_children():
             w.destroy()
         cols = max(3, (W - 70) // (TW + 30))
@@ -581,7 +808,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
         sel = tk.Frame(body, bg=SEL_BG, padx=12, pady=10, highlightthickness=1, highlightbackground="#B9D4F5")
         sel.pack(fill=tk.X, pady=(0, 12))
         used = [p for p in photos if p["cat"] != "不使用"]
-        tk.Label(sel, text=f"✔ 已選用（{len(used)} 張）— 依簡報頁面順序", font=(FAM, 17, "bold"), fg=BLUE, bg=SEL_BG).pack(anchor="w")
+        tk.Label(sel, text=f"✔ 已選用（{len(used)} 張）— 依簡報頁面順序；可用滑鼠拖曳照片排序或換頁", font=(FAM, 17, "bold"), fg=BLUE, bg=SEL_BG).pack(anchor="w")
         groups = [("封面", ("封面",), 1)] + list(PHOTO_PAGES)
         for title, cats, cap in groups:
             items = ordered([p for p in photos if p["cat"] in cats])
@@ -592,24 +819,29 @@ def _step_arrange(root, photos, facts, state, sc, W):
             if title == "封面" and not items:
                 hint = "還沒指定 → 會自動用第一張陽台景觀或外觀照（按照片上的 ★封面 指定）"
             elif title != "封面" and len(items) > cap:
-                hint += f"（每頁 {cap} 張，會自動接成 {(len(items) + cap - 1) // cap} 頁）"
+                hint += f"（每頁最多 {cap} 張，會平均分成 {len(split_pages(len(items), cap))} 頁：{'＋'.join(map(str, split_pages(len(items), cap)))} 張）"
             tk.Label(gh, text=hint, font=(FAM, 13), fg=ORANGE if (title != "封面" and len(items) > cap) else INK2,
                      bg=SEL_BG).pack(side=tk.LEFT, padx=10)
+            gh.configure(highlightthickness=3, highlightbackground=SEL_BG)
+            zone_of[gh] = tuple(cats)
             if not items:
                 continue
-            g = tk.Frame(sel, bg=SEL_BG)
+            g = tk.Frame(sel, bg=SEL_BG, highlightthickness=3, highlightbackground=SEL_BG)
             g.pack(fill=tk.X)
+            zone_of[g] = tuple(cats)
             for c in range(cols):
                 g.grid_columnconfigure(c, uniform="sel", minsize=TW + 16)
+            page_of = [k for k, n in enumerate(split_pages(len(items), cap) if title != "封面" else [len(items)]) for _ in range(n)]
             for i, p in enumerate(items):
-                over = title != "封面" and (i // cap) % 2 == 1          # 接續頁的照片用橘框標出
+                over = title != "封面" and page_of[i] % 2 == 1          # 接續頁的照片用橘框標出
                 sel_tile(g, p, items if title != "封面" else None, i, over).grid(
                     row=i // cols, column=i % cols, padx=6, pady=6, sticky="nsew")
         # ===== 不使用 =====
         off = tk.Frame(body, bg=OFF_BG, padx=12, pady=10, highlightthickness=1, highlightbackground="#CBD5E1")
         off.pack(fill=tk.X)
+        zone_of[off] = ("不使用",)
         unused = [p for p in photos if p["cat"] == "不使用"]
-        tk.Label(off, text=f"不使用（{len(unused)} 張）— 選一頁就會移到上面", font=(FAM, 17, "bold"), fg=MUTED, bg=OFF_BG).pack(anchor="w")
+        tk.Label(off, text=f"不使用（{len(unused)} 張）— 選一頁、或直接拖到上面那一頁", font=(FAM, 17, "bold"), fg=MUTED, bg=OFF_BG).pack(anchor="w")
         g2 = tk.Frame(off, bg=OFF_BG)
         g2.pack(fill=tk.X, pady=(6, 0))
         c2 = max(4, (W - 70) // (SW_ + 22))
@@ -622,6 +854,8 @@ def _step_arrange(root, photos, facts, state, sc, W):
             lb = tk.Label(fr, image=img or blank_small, bg="#E2E8F0", bd=0)
             lb.pack()
             labels[(p["path"], True)] = lb
+            tile_of[fr] = p
+            draggable(lb, p)
             tk.Label(fr, text=(("⭐" if p["ad"] else "") + p["name"])[:14], font=(FAM, 10), fg=INK2, bg="white").pack(anchor="w")
             v = tk.StringVar(master=root, value="放到…")
             cb = ttk.Combobox(fr, textvariable=v, values=[c for c in CATS if c != "不使用"], state="readonly",
@@ -643,6 +877,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
     root.wait_variable(done)
     alive["on"] = False
     state["show_agents"] = ag_var.get()
+    state["back_cover"] = bc_var.get()
     r = done.get()
     try:
         stage.destroy()

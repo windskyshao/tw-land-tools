@@ -3322,10 +3322,13 @@ def enhanced_main():
         total_general = sum([int(str(r.get('tax_amounts', {}).get('一般稅額', 0)).replace(',', '') or 0) for r in results])
         total_once = sum([int(str(r.get('tax_amounts', {}).get('自用稅額', 0)).replace(',', '') or 0) for r in results])
         
-        if total_general or total_once:
-            flush_print(f"\n=== 稅額統計摘要 ===")
-            flush_print(f"自用稅額總計：{total_once:,} 元", "important")
-            flush_print(f"一般稅額總計：{total_general:,} 元", "important")
+        # 🔥 一定顯示總稅額(原本兩者都是 0 就不印 → 使用者以為沒算出來)；0 元附說明
+        if success_count > 0:
+            flush_print(f"\n=== 稅額統計摘要 ===", "important")
+            flush_print(f"\033[93m自用稅額總計：{total_once:,} 元\033[0m", "important")
+            flush_print(f"\033[93m一般稅額總計：{total_general:,} 元\033[0m", "important")
+            if not total_general and not total_once:
+                flush_print("（官方試算稅額為 0：目前公告現值沒有超過物價調整後的前次移轉現值，沒有漲價，不用繳土地增值稅）", "important")
         
         # 🔥 將稅額結果寫入 JSON 供 main.py 使用
         try:

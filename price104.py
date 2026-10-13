@@ -1088,7 +1088,21 @@ class Login104Woo:
                     print(f"正在自動儲存 PDF...", flush=True)
                     self.save_page_as_pdf(label=com)
                 else:
-                    print("這筆地號查不到社區名，只查土地", flush=True)
+                    # 🏠 沒有社區名(透天/店面)：data.json 有門牌 → 用「路名＋類別透天/店面」查周邊透天成交
+                    try:
+                        import landmap_api as _LM
+                        roads = _LM.roads_for(data_list, data)
+                    except Exception as _re:
+                        roads = []
+                        print(f"取門牌路名失敗: {_re}", flush=True)
+                    if roads:
+                        for rd in roads:
+                            print(f"\n>>> 這筆沒有社區名，門牌在「{rd}」→ 用路名查透天/店面成交", flush=True)
+                            self.search_land_info_auto(data, keyword=rd, category="透天")
+                            print(f"正在自動儲存 PDF...", flush=True)
+                            self.save_page_as_pdf(label=f"{rd}透天")
+                    else:
+                        print("這筆地號查不到社區名、data.json 也沒有門牌，只查土地", flush=True)
 
                 print(f"✓ [{i}/{len(unique_sections)}] 完成: {data['city']} {data['area']} {data['section']}", flush=True)
 
@@ -1218,8 +1232,15 @@ class Login104Woo:
                 if category_select:
                     try:
                         if category:
-                            Select(category_select).select_by_visible_text(category)
-                            print(f"已選擇類別: {category}", flush=True)
+                            # 選項全名可能是「透天/店面」→ 先找完全相同，找不到再找包含的
+                            _sel = Select(category_select)
+                            _opt = (next((o for o in _sel.options if o.text.strip() == category), None)
+                                    or next((o for o in _sel.options if category in o.text), None))
+                            if _opt is not None:
+                                _sel.select_by_visible_text(_opt.text)
+                                print(f"已選擇類別: {_opt.text.strip()}", flush=True)
+                            else:
+                                print(f"找不到類別「{category}」，選項: " + "、".join(o.text.strip() for o in _sel.options), flush=True)
                         else:   # 查社區:類別不限(選第一個選項)
                             _sel = Select(category_select)
                             print("類別選項: " + "、".join(o.text.strip() for o in _sel.options), flush=True)
@@ -1245,7 +1266,7 @@ class Login104Woo:
                 if keyword_input:
                     keyword_input.clear()
                     keyword_input.send_keys(keyword or data['section'])
-                    print(f"已輸入關鍵字({'社區' if keyword else '地段'}): {keyword or data['section']}", flush=True)
+                    print(f"已輸入關鍵字({('路名' if category == '透天' else '社區') if keyword else '地段'}): {keyword or data['section']}", flush=True)
             except Exception as e:
                 print(f"輸入關鍵字時發生錯誤: {str(e)}", flush=True)
 

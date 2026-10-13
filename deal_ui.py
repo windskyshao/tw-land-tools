@@ -58,6 +58,10 @@ def apply(root):
     st.configure("TCombobox", padding=4, arrowsize=16, fieldbackground="white", background="white",
                  bordercolor=BORDER, lightcolor=BORDER, darkcolor=BORDER)
     st.map("TCombobox", bordercolor=[("focus", PRIMARY)], fieldbackground=[("readonly", "white")])
+    # 下拉選單不吃滑鼠滾輪：原本游標剛好停在下拉選單上捲動頁面，會一格一格偷偷改掉選項
+    # (行銷簡報的照片分類被捲成「陽台景觀」)。改成什麼都不做 → 滾輪照樣交給頁面捲動
+    for ev in ("<MouseWheel>", "<Button-4>", "<Button-5>"):
+        root.bind_class("TCombobox", ev, lambda e: None)
     st.configure("Vertical.TScrollbar", gripcount=0, background="#C9D2DE", troughcolor=BG, bordercolor=BG,
                  arrowcolor=SUB, relief="flat")
 
@@ -239,6 +243,51 @@ class RoundButton(tk.Canvas):
 
 def button(parent, text, command, kind="primary", color=None, **kw):
     return RoundButton(parent, text, command, kind, color, **kw)
+
+
+def message(parent, title, text, kind="info", ok="確定", cancel="取消"):
+    """取代系統 messagebox(系統的字很小、跟這些大字視窗不成比例)。
+    kind="info"：只有確定，回 True；kind="ask"：確定/取消，回 True/False。字 16 起跳、置中於 parent。"""
+    top = tk.Toplevel(parent)
+    top.withdraw()
+    top.title(title)
+    top.configure(bg=CARD)
+    top.resizable(False, False)
+    top.transient(parent)
+    res = {"v": False}
+    sym, col = {"info": ("i", PRIMARY), "ask": ("?", ACCENT), "warn": ("!", BAD)}.get(kind, ("i", PRIMARY))
+    body = tk.Frame(top, bg=CARD, padx=30, pady=26)
+    body.pack(fill="both", expand=True)
+    ic = tk.Canvas(body, width=44, height=44, bg=CARD, highlightthickness=0)
+    ic.create_oval(2, 2, 42, 42, fill=col, outline="")
+    ic.create_text(22, 22, text=sym, font=(FAMILY, 20, "bold"), fill="white")
+    ic.pack(side="left", anchor="n", padx=(0, 18))
+    tk.Label(body, text=text, font=(FAMILY, 16), fg=TEXT, bg=CARD, justify="left", wraplength=760).pack(side="left", anchor="w")
+    bar = tk.Frame(top, bg=BG, padx=20, pady=14)
+    bar.pack(fill="x")
+
+    def done(v):
+        res["v"] = v
+        top.destroy()
+    button(bar, ok, lambda: done(True), kind="primary", font=(FAMILY, 15, "bold")).pack(side="right")
+    if kind == "ask":
+        button(bar, cancel, lambda: done(False), kind="ghost", font=(FAMILY, 15)).pack(side="right", padx=(0, 10))
+    top.bind("<Return>", lambda e: done(True))
+    top.bind("<Escape>", lambda e: done(False if kind == "ask" else True))
+    top.protocol("WM_DELETE_WINDOW", lambda: done(False if kind == "ask" else True))
+    top.update_idletasks()
+    try:   # 置中在父視窗上
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        w, h = top.winfo_reqwidth(), top.winfo_reqheight()
+        top.geometry(f"+{max(0, px + (pw - w) // 2)}+{max(0, py + (ph - h) // 3)}")
+    except Exception:
+        pass
+    top.deiconify()
+    top.grab_set()
+    top.focus_set()
+    parent.wait_window(top)
+    return res["v"]
 
 
 def segmented(parent, var, options, color=None):

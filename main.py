@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8w"
+VERSION = "1.1.8x"
 BUILD_DATE = "2026-10-13"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -7512,6 +7512,7 @@ def send_input(event=None):
             show_quick_intro(force=True)
         elif q and q != "請在此輸入...":
             input_field.delete(0, tk.END)
+            _close_quick_panel()    # 直接在輸入欄打了要查的資料 → 左邊萬用查詢面板與指向輸入欄的箭頭都用不到了，關掉
             open_quick_lookup(q)
         else:
             open_quick_panel()      # 空白按 Enter → 打開地籍/地址選單

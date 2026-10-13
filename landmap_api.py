@@ -202,6 +202,28 @@ def community_for(entry):
         return ""
 
 
+def roads_for(entries, entry=None):
+    """data.json 的門牌(door 與 builds[].door) → 路名清單(例 廟前路、建國路三段)，去重照順序。
+    entry 有給就只看同縣市+行政區+地段的那幾筆。沒有社區名的透天/店面用路名查周邊成交"""
+    out = []
+    for e in entries or []:
+        if not isinstance(e, dict):
+            continue
+        if entry and (e.get("city"), e.get("area"), e.get("section")) != (entry.get("city"), entry.get("area"), entry.get("section")):
+            continue
+        doors = [e.get("door", "")] + [b.get("door", "") for b in (e.get("builds") or []) if isinstance(b, dict)]
+        for d in doors:
+            d = str(d or "").replace(" ", "").translate(_FW)
+            for pre in (e.get("city", ""), e.get("area", "")):
+                if pre and d.startswith(pre):
+                    d = d[len(pre):]
+            d = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", d)
+            m = re.match(r"(.{1,8}?(?:路|街|大道)(?:[一二三四五六七八九十]段)?)", d)
+            if m and m.group(1) not in out:
+                out.append(m.group(1))
+    return out
+
+
 def _parcel_at(lat, lng):
     j = _get("/api/parcel", lat=lat, lng=lng)
     if j.get("status") != "OK":
