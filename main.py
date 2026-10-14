@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8x"
-BUILD_DATE = "2026-10-13"
+VERSION = "1.1.8y"
+BUILD_DATE = "2026-10-14"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1804,7 +1804,7 @@ def read_output(process):
                     update_message("")
 
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
-                    if current_running_button == start_land_button:
+                    if current_running_button in (start_land_button, land_manual_button):
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
                         root.after(700, lambda: _recheck_transcript_link(unlink=True))   # 換了新案件 → 舊謄本解除連結
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
@@ -1852,7 +1852,7 @@ def read_output(process):
                     is_running = False
 
                     # 🔥 如果是 land.py 完成，立即更新視窗標題
-                    if current_running_button == start_land_button:
+                    if current_running_button in (start_land_button, land_manual_button):
                         root.after(100, update_title_from_data_json)  # 延遲 100ms 確保 data.json 寫入完成
                         root.after(700, lambda: _recheck_transcript_link(unlink=True))   # 換了新案件 → 舊謄本解除連結
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
@@ -2544,8 +2544,17 @@ building_license_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=t
 building_license_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 building_license_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
 
+# 🔥 地籍便民系統分頁：手動建立(原本流程) / 自動截圖(讀 data.json，官方舊版、最新版)
+land_page = tk.Frame(frame_top)
+land_left_frame = tk.Frame(land_page)
+land_middle_frame = tk.Frame(land_page)
+land_right_frame = tk.Frame(land_page)
+land_left_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+land_middle_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+land_right_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
+
 # 🔥 為所有子頁面設定固定高度，與主頁面對齊
-for page in [transcript_page, real_estate_price_page, utility_page, land_use_page, building_license_page]:
+for page in [transcript_page, real_estate_price_page, utility_page, land_use_page, building_license_page, land_page]:
     page.config(height=200)  # 固定所有頁面高度
 M.paint_bg(frame_top)
 
@@ -2591,6 +2600,8 @@ def select_continuous_mode_scripts():
         # ===== 左排 =====
         # 1. 地籍便民系統
         ("地籍便民系統 (依地段地號建立目錄)", "land.py"),
+        ("【地籍便民】自動截圖・舊版", "land_auto.py:old"),
+        ("【地籍便民】自動截圖・新版", "land_auto.py:new"),
         # 2. 謄本與土增稅（分頁內容）
         ("【謄本與土增稅】全國地政電子謄本", "hinet.py"),
         ("【謄本與土增稅】電傳資訊系統(光特)", "qpt_hinet.py"),
@@ -3835,7 +3846,7 @@ def convert_transcript_to_final_data(transcript_json_path):
             "設定金額": "",
             "現況": "",
             "鑰匙": "",
-            "車位": {"有無": "", "型式": "", "編號": ""},
+            "車位": {"有無": "", "型式": "", "編號": "", "持分": "", "坪數": ""},
             "電梯": "",
             "管理費": "",
             "面臨道路": "",
@@ -4133,6 +4144,7 @@ def convert_transcript_to_final_data(transcript_json_path):
             共有部分明細 = {}
             公設總坪數 = 0.0
             parking_numbers = []
+            parking_items = []      # 車位明細(編號/持分/坪數)，parking_info 解析
 
             for building_data in building_transcripts:
                 building_id_full = building_data.get("基本資訊", {}).get("地號建號", "")
@@ -4230,19 +4242,16 @@ def convert_transcript_to_final_data(transcript_json_path):
                 # 🔥 相容兩種鍵名格式：電傳「含停車位編號」「含停車位編號1」；
                 #    電子謄本「含停車位編號」「含停車位編號_1_1」「含停車位編號_1_2」。
                 #    另車位編號常為全形數字（００２），需先轉半形才抓得到。
-                _fw2hw = str.maketrans('０１２３４５６７８９', '0123456789')
-                for key in list(標示部.keys()):
-                    if not key.startswith("含停車位編號"):
-                        continue
-                    parking_value = 標示部.get(key, "")
-                    if parking_value:
-                        pv = str(parking_value).translate(_fw2hw)
-                        match = _re_b.match(r'^\s*([A-Za-z0-9\-]+(?:號)?)', pv)
-                        if match:
-                            parking_num = match.group(1).strip().rstrip(',').strip()
-                            if parking_num and parking_num not in parking_numbers:
-                                parking_numbers.append(parking_num)
-                                update_message(f"  找到停車位編號: {parking_num}（建號 {bld_num}）")
+                #    電子謄本常寫「地下三層3A ,權利範圍：100000分之280」(中文開頭，舊寫法抓不到)
+                #    → 交給 parking_info：編號轉成 B3-3A、算車位坪數(共有部分面積×車位權利範圍)
+                import parking_info as _PK
+                for _p in _PK.parse_bld(標示部):
+                    if _p["編號"] not in parking_numbers:
+                        parking_numbers.append(_p["編號"])
+                        parking_items.append(_p)
+                        update_message(f"  找到停車位：{_p['編號']}"
+                                       + (f"，持分 {_p['持分']}" if _p["持分"] else "")
+                                       + (f"，約 {_p['坪數']:.2f} 坪" if _p["坪數"] else "") + f"（建號 {bld_num}）")
 
             # 元資料（取第一筆建物）：竣工日期、建築結構、地上層數
             primary_building = building_transcripts[0]
@@ -4307,10 +4316,13 @@ def convert_transcript_to_final_data(transcript_json_path):
                 data_final["產權建坪"] = f"{_total_bld_ping:.2f}"
 
             if parking_numbers:
-                data_final["車位"]["編號"] = "、".join(parking_numbers)
+                _nos, _shares, _ping = _PK.summary(parking_items)
+                data_final["車位"]["編號"] = _nos
+                data_final["車位"]["持分"] = _shares
+                data_final["車位"]["坪數"] = _ping
                 if not data_final["車位"]["有無"]:
                     data_final["車位"]["有無"] = "有，公設內"
-                update_message(f"  車位編號（共 {len(parking_numbers)} 筆）: {data_final['車位']['編號']}")
+                update_message(f"  車位（共 {len(parking_numbers)} 筆）: {_nos}" + (f"，車位坪數約 {_ping} 坪（含在公設內）" if _ping else ""))
 
             if multi_bld:
                 update_message(f"  [建物彙整] 共 {len(building_transcripts)} 筆建號，樓層/附屬已加上建號註記")
@@ -4683,6 +4695,10 @@ def start_subprocess_internal(script_name):
 
     # 🔥 解析 nlma_nbupic.py:城市 格式（連續模式專用識別碼，因同一支腳本對應屏東/臺南兩個按鈕）
     nbupic_city = None
+    land_ver = None
+    if script_name.startswith("land_auto.py:"):
+        land_ver = script_name.split(':', 1)[1]
+        script_name = "land_auto.py"
     if script_name.startswith("nlma_nbupic.py:"):
         nbupic_city = script_name.split(':', 1)[1]
         script_name = "nlma_nbupic.py"
@@ -4724,11 +4740,16 @@ def start_subprocess_internal(script_name):
         elif page == "building_license":
             show_building_license_page()
             update_message(f"→ 自動切換到【使用執照查詢】頁面")
+        elif page == "land":
+            show_land_page()
+            update_message(f"→ 自動切換到【地籍便民系統】頁面")
 
     # 🔥 找到對應的按鈕並更新狀態
     if nbupic_city:
         # NBUPIC 依城市決定按鈕（script_to_button_map 無法區分）
         button = building_license_pt_button if nbupic_city == "屏東縣" else building_license_tn_button
+    elif land_ver:
+        button = land_auto_new_button if land_ver == "new" else land_auto_old_button
     else:
         button = script_to_button_map.get(script_name)
     if button and continuous_mode_active:
@@ -4841,6 +4862,8 @@ def start_subprocess_internal(script_name):
                 cmd += ['--json-dir', json_dir or JSON_DIR_DEFAULT]
 
         # 🔥 nlma_nbupic.py：連續模式中依識別碼帶入 --city
+        if script_name == "land_auto.py" and land_ver:
+            cmd += ['--ver', land_ver]
         if script_name == "nlma_nbupic.py" and nbupic_city:
             cmd += ['--city', nbupic_city]
             update_message(f"[NBUPIC] 將查詢「{nbupic_city}」")
@@ -4909,6 +4932,7 @@ def show_real_estate_price_page():
     utility_page.pack_forget()
     land_use_page.pack_forget()
     building_license_page.pack_forget()
+    land_page.pack_forget()
     real_estate_price_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
     # 🔥 如果在連續模式中，禁用子頁面的所有按鈕（除了返回按鈕和正在執行的按鈕）
@@ -4927,6 +4951,7 @@ def show_transcript_page():
     utility_page.pack_forget()
     land_use_page.pack_forget()
     building_license_page.pack_forget()
+    land_page.pack_forget()
     transcript_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
     # 🔥 如果在連續模式中，禁用子頁面的所有按鈕（除了返回按鈕和正在執行的按鈕）
@@ -4946,6 +4971,7 @@ def show_utility_page():
     transcript_page.pack_forget()
     land_use_page.pack_forget()
     building_license_page.pack_forget()
+    land_page.pack_forget()
     utility_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
     # 🔥 如果在連續模式中，禁用子頁面的所有按鈕（除了返回按鈕）
@@ -4965,6 +4991,7 @@ def show_land_use_page():
     transcript_page.pack_forget()
     utility_page.pack_forget()
     building_license_page.pack_forget()
+    land_page.pack_forget()
     land_use_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
     # 🔥 如果在連續模式中，禁用子頁面的所有按鈕（除了返回按鈕和正在執行的按鈕）
@@ -4984,6 +5011,7 @@ def show_building_license_page():
     transcript_page.pack_forget()
     utility_page.pack_forget()
     land_use_page.pack_forget()
+    land_page.pack_forget()
     building_license_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
 
     # 🔥 連續模式中禁用子頁面非返回按鈕
@@ -4994,12 +5022,31 @@ def show_building_license_page():
             else:
                 button.config(state=tk.DISABLED)
 
+def show_land_page():
+    """地籍便民系統分頁：手動建立 / 自動截圖(舊版、最新版)"""
+    left_button_frame.pack_forget()
+    middle_button_frame.pack_forget()
+    right_button_frame.pack_forget()
+    real_estate_price_page.pack_forget()
+    transcript_page.pack_forget()
+    utility_page.pack_forget()
+    land_use_page.pack_forget()
+    building_license_page.pack_forget()
+    land_page.pack(side=tk.TOP, fill=tk.X, pady=(10, 0))
+    if continuous_mode_active:
+        for button in land_page_buttons:
+            if button == land_back_button or button == current_running_button:
+                button.config(state=tk.NORMAL)
+            else:
+                button.config(state=tk.DISABLED)
+
 def show_main_page():
     real_estate_price_page.pack_forget()
     transcript_page.pack_forget()
     utility_page.pack_forget()
     land_use_page.pack_forget()
     building_license_page.pack_forget()
+    land_page.pack_forget()
     left_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
     middle_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
     right_button_frame.pack(side=tk.LEFT, padx=M.px(5), expand=True, fill=tk.X, anchor="n")
@@ -5008,7 +5055,7 @@ def show_main_page():
     if continuous_mode_active:
         for button in main_page_buttons:
             # 允許：停止連續模式按鈕、頁面切換按鈕、正在執行的按鈕
-            if button not in [continuous_mode_button, real_estate_price_button, transcript_button, utility_button, land_use_zone_button, current_running_button]:
+            if button not in [continuous_mode_button, real_estate_price_button, transcript_button, utility_button, land_use_zone_button, start_land_button, current_running_button]:
                 button.config(state=tk.DISABLED)
             else:
                 button.config(state=tk.NORMAL)
@@ -5078,7 +5125,7 @@ def enable_all_buttons():
 # 🔥 主頁面按鈕（重新分配）
 # 左邊 4 個 - 🔥 地籍便民系統使用特殊樣式，謄本與土增稅在其下方
 start_land_button = M.ModernButton(left_button_frame, text="地籍便民系統",
-                             command=lambda: toggle_buttons(start_land_button, "地籍便民系統", "land.py"),
+                             command=lambda: show_land_page(),
                              **priority_button_style)  # 🔥 使用特殊樣式
 
 # 🔥 謄本與土增稅按鈕（紫色）- 移至左側，在地籍便民系統下方
@@ -5392,6 +5439,24 @@ building_license_page_buttons = [
     building_license_kh_button, building_license_pt_button,
     building_license_tn_button, building_license_back_button
 ]
+
+# 🔥 地籍便民系統分頁按鈕
+#    手動建立 → land.py(原本：自己選縣市地段地號、建立 data.json)
+#    自動截圖 → land_auto.py --ver old|new(讀 data.json 逐筆定位截圖，不改 data.json)
+LAND_AUTO_VER_FOR_BUTTON = {}  # id(button) → old / new
+land_manual_button = M.ModernButton(land_left_frame, text="手動建立",
+                                    command=lambda: toggle_buttons(land_manual_button, "手動建立", "land.py"),
+                                    **sub_page_button_style)
+land_auto_old_button = M.ModernButton(land_middle_frame, text="自動截圖・舊版",
+                                      command=lambda: toggle_buttons(land_auto_old_button, "自動截圖・舊版", "land_auto.py"),
+                                      **sub_page_button_style)
+land_auto_new_button = M.ModernButton(land_middle_frame, text="自動截圖・新版",
+                                      command=lambda: toggle_buttons(land_auto_new_button, "自動截圖・新版", "land_auto.py"),
+                                      **sub_page_button_style)
+land_back_button = M.ModernButton(land_right_frame, text="回主選單", command=show_main_page, **sub_page_button_style)
+LAND_AUTO_VER_FOR_BUTTON[id(land_auto_old_button)] = "old"
+LAND_AUTO_VER_FOR_BUTTON[id(land_auto_new_button)] = "new"
+land_page_buttons = [land_manual_button, land_auto_old_button, land_auto_new_button, land_back_button]
 
 # ── 謄本專區相關函數 ──
 def choose_json_file():
@@ -5808,8 +5873,8 @@ def _guard_structuring(display_name, script_name, button):
     elif choice == 'goto_land':
         # 🔥 記住待辦：地籍便民查完後，自動回來開啟原本要做的結構化（不必再手動點一次）
         _pending_structuring_after_land = (display_name, script_name, button)
-        show_main_page()  # 切回主頁，讓使用者看到地籍便民執行狀態
-        toggle_buttons(start_land_button, "地籍便民系統", "land.py")
+        show_land_page()  # 切到地籍便民分頁，讓使用者看到執行狀態
+        toggle_buttons(land_manual_button, "手動建立", "land.py")
     # cancel → 什麼都不做
 
 structured_transcript_button_style = {
@@ -5972,11 +6037,11 @@ transcript_page_buttons = [
     # config_manage_button,  # 🔥 已註釋
     cadastral_map_tool_button, transcript_back_button
 ]
-all_buttons = main_page_buttons + real_estate_page_buttons + transcript_page_buttons + land_use_page_buttons + building_license_page_buttons
+all_buttons = main_page_buttons + real_estate_page_buttons + transcript_page_buttons + land_use_page_buttons + building_license_page_buttons + land_page_buttons
 
 # 🔥 初始化腳本名稱到按鈕的映射 - 更新：nlscmaps.py, urbangis.py 改用分頁按鈕，新增 luz.py
 script_to_button_map = {
-    "land.py": start_land_button,
+    "land.py": land_manual_button,
     "nlma.py": building_license_kh_button,  # 🔥 改：nlma.py 對應到次頁面的「高雄市」按鈕
     "gbmap.py": start_important_facility_button,
     "V523.py": start_V523_button,
@@ -6017,6 +6082,9 @@ script_to_page_map = {
     # 🔥 使用執照查詢子頁面
     "nlma.py": "building_license",
     "nlma_nbupic.py": "building_license",
+    # 🔥 地籍便民系統子頁面
+    "land.py": "land",
+    "land_auto.py": "land",
 }
 
 # 🔥 主頁面排列（新順序）
@@ -6074,6 +6142,12 @@ building_license_tn_button.pack(fill=tk.X, pady=3)
 # 右欄：回主選單
 building_license_back_button.pack(fill=tk.X, pady=3)
 
+# 🔥 地籍便民系統分頁排列：左 手動建立／中 自動截圖舊版、新版／右 回主選單
+land_manual_button.pack(fill=tk.X, pady=3)
+land_auto_old_button.pack(fill=tk.X, pady=3)
+land_auto_new_button.pack(fill=tk.X, pady=3)
+land_back_button.pack(fill=tk.X, pady=3)
+
 # 謄本專區頁面排列（兩欄）
 # 兩欄後左右空間較大 → 把按鈕加寬（只針對此分頁，不動共用 style），並填滿欄寬使其等長
 _TRANSCRIPT_BTN_W = SUB_PAGE_BUTTON_WIDTH + 12
@@ -6098,7 +6172,8 @@ cadastral_map_tool_button.pack(fill=tk.X, pady=3)  # 🔥 地籍圖處理工具
 transcript_back_button.pack(fill=tk.X, pady=3)
 
 # 🎨 新外觀：會打開分頁的按鈕右側標「›」；同一頁的按鈕字級統一(字太長時整頁一起縮)
-for _b in (transcript_button, land_use_zone_button, real_estate_price_button, utility_button, start_land_use_button):
+for _b in (transcript_button, land_use_zone_button, real_estate_price_button, utility_button, start_land_use_button,
+           start_land_button):
     _b.page = True
 # 原本灰白的按鈕各給一個色系(整頁都有顏色才協調)；回主頁統一灰藍
 for _b, _c in ((start_land_use_button, M.INDIGO), (start_important_facility_button, M.TEAL),
@@ -6115,14 +6190,16 @@ for _b, _c in ((start_land_use_button, M.INDIGO), (start_important_facility_butt
                (land_use_nlscmaps_button, M.BLUE), (land_use_urbangis_button, M.GREEN),
                (land_use_luz_button, M.INDIGO),
                (building_license_kh_button, M.CYAN), (building_license_pt_button, M.TEAL),
-               (building_license_tn_button, M.AMBER)):
+               (building_license_tn_button, M.AMBER),
+               # 地籍便民分頁
+               (land_manual_button, "#E07000"), (land_auto_old_button, M.BLUE), (land_auto_new_button, M.GREEN)):
     _b.color = _c
 # 謄本頁：調閱(實心)＋對應的結構化(淡色)同一色系 —— 電子＝藍、電傳＝青綠
 for _b, _c, _solid in ((hinet_button, M.BLUE, True), (structured_transcript_button, M.BLUE, False),
                        (qpt_hinet_button, M.TEAL, True), (telereport_structured_button, M.TEAL, False)):
     _b.color, _b.filled = _c, _solid
 for _grp in (main_page_buttons, real_estate_page_buttons, transcript_page_buttons, utility_page_buttons,
-             land_use_page_buttons, building_license_page_buttons):
+             land_use_page_buttons, building_license_page_buttons, land_page_buttons):
     M.uniform_group(_grp)
 # 謄本頁分隔線改成細淡線
 for _w in transcript_left_frame.winfo_children():
@@ -6222,6 +6299,12 @@ def start_subprocess(button, script_name):
             if city_for_btn:
                 cmd += ['--city', city_for_btn]
                 update_message(f"[NBUPIC] 將查詢「{city_for_btn}」")
+
+        # 🔥 地籍便民自動截圖：依按鈕帶 --ver(舊版 / 最新版)
+        if script_name == "land_auto.py":
+            ver = LAND_AUTO_VER_FOR_BUTTON.get(id(button), "old")
+            cmd += ['--ver', ver]
+            update_message(f"[地籍便民] 自動截圖（{'舊版' if ver == 'old' else '最新版'}）：讀 data.json 逐筆定位後截圖存檔")
 
         # 🔥 全國土地使用分區 / V523：開多選對話框讓使用者勾選要執行哪幾筆
         if script_name in ("luz.py", "V523.py"):
@@ -6417,7 +6500,7 @@ def exit_subprocess(button):
         update_message("")
 
         # 🔥 如果是 land.py 手動關閉，也要更新視窗標題
-        if current_running_button == start_land_button:
+        if current_running_button in (start_land_button, land_manual_button):
             root.after(100, update_title_from_data_json)
             root.after(700, lambda: _recheck_transcript_link(unlink=True))
 

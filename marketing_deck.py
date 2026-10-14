@@ -206,6 +206,13 @@ def load_case(case_dir, base_dir):
     with open(path, "r", encoding="utf-8") as f:
         d = json.load(f)
     log(f"物件資料：{path}")
+    try:
+        import parking_info
+        if parking_info.fill_missing(d, case_dir) or (exp and parking_info.fill_missing(d, exp)):
+            pk = d.get("車位", {})
+            log(f"車位：從謄本結構化補上 {pk.get('編號', '')}" + (f"，約 {pk.get('坪數')} 坪" if pk.get("坪數") else ""))
+    except Exception as e:
+        log(f"（補車位資訊略過：{e}）")
     return d, exp
 
 
@@ -403,6 +410,7 @@ def _facts_dict(d, door, door_short, floor, total_fl, age, layout, park_txt, poi
         "public": d.get("公共設施坪數", ""), "land": d.get("總地坪", ""),
         "floor": f"{floor} 樓" + (f" / 共 {total_fl} 樓" if total_fl else "") if floor else (f"共 {total_fl} 樓" if total_fl else ""),
         "age": age, "built": d.get("竣工日期", ""), "layout": layout, "park": park_txt,
+        "park_ping": ((d.get("車位") or {}).get("坪數", "") if isinstance(d.get("車位"), dict) and park_txt else ""),
         "struct": d.get("建築結構", ""), "facing": d.get("座向", ""),
         "fee": f"{_fmt_money_wan(d.get('管理費'))} 元/月" if d.get("管理費") else "",
         "zone": d.get("都市土地使用分區", "") or d.get("非都市土地使用分區", ""),
@@ -1053,7 +1061,9 @@ def slide_basic(deck):
             r.text = f" {unit}"
             _font(r, 16, True, INK)
     rows = [("主建物", f"{f['main']} 坪"), ("附屬建物", f"{f['attach']} 坪" + (f"（{f['attach_txt']}）" if f["attach_txt"] else "")),
-            ("公共設施", f"{f['public']} 坪"), ("土地持分", f"{f['land']} 坪"), ("面寬／深度", f.get("dims_show", "")),
+            ("公共設施", f"{f['public']} 坪"),
+            ("車位坪數", f"約 {f['park_ping']} 坪（含在公設內）" if f.get("park_ping") else ""),
+            ("土地持分", f"{f['land']} 坪"), ("面寬／深度", f.get("dims_show", "")),
             ("建築結構", f["struct"]),
             ("座向", f["facing"]), ("管理費", f["fee"]), ("電梯", f["elev"]), ("使用分區", f["zone"]),
             ("竣工日期", f["built"]), ("鄰近學校", f["school"]), ("所在商圈", f["district"])]
@@ -1322,18 +1332,23 @@ def slide_floorplan(deck, src, cont=False):
     text(s, rx + Inches(1.2), Inches(1.2), rw - Inches(1.4), Inches(1.05), f"{f['price']} {f['price_unit']}", 30, True, WHITE,
          PP_ALIGN.RIGHT, MSO_ANCHOR.MIDDLE)
     text(s, rx, Inches(2.4), rw, Inches(0.45), "登記面積（坪）", 17, True, SKY_DK)
-    rows = [("主建物", f["main"]), ("附屬建物", f["attach"]), ("公共設施", f["public"]), ("權狀合計", f["area"])]
+    rows = [("主建物", f["main"]), ("附屬建物", f["attach"]), ("公共設施", f["public"])]
+    if f.get("park_ping"):
+        rows.append(("　其中車位", f["park_ping"]))      # 車位坪數含在公設內
+    rows.append(("權狀合計", f["area"]))
+    rh, step = (Inches(0.72), Inches(0.84)) if len(rows) <= 4 else (Inches(0.62), Inches(0.72))
     yy = Inches(2.9)
     for i, (k, v) in enumerate(rows):
         last = i == len(rows) - 1
         if last:
-            gold(s, rx, yy, rw, Inches(0.72))
+            gold(s, rx, yy, rw, rh)
         else:
-            box(s, rx, yy, rw, Inches(0.72), WHITE, LINE)
-        text(s, rx + Inches(0.25), yy, Inches(1.8), Inches(0.72), k, 17, True, WHITE if last else INK, anchor=MSO_ANCHOR.MIDDLE)
-        text(s, rx + Inches(1.9), yy, Inches(1.65), Inches(0.72), str(v), 22, True, WHITE if last else NUM, PP_ALIGN.RIGHT,
+            box(s, rx, yy, rw, rh, WHITE, LINE)
+        sub = k.startswith("　")
+        text(s, rx + Inches(0.25), yy, Inches(1.8), rh, k, 15 if sub else 17, True, WHITE if last else INK, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, rx + Inches(1.9), yy, Inches(1.65), rh, str(v), 18 if sub else 22, True, WHITE if last else NUM, PP_ALIGN.RIGHT,
              MSO_ANCHOR.MIDDLE)
-        yy += Inches(0.84)
+        yy += step
     text(s, rx, yy + Inches(0.05), rw, Inches(0.6), "資料來源：地政事務所建物測量成果圖", 12, False, INK)
 
 

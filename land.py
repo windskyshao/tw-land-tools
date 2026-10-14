@@ -563,34 +563,8 @@ def wait_for_enter():
     
     print("繼續執行後續操作...", flush=True)
 
-def get_land_info():
-    # 🔥 保險提醒：萬一 Chrome 仍跳出地理位置權限窗，告訴使用者怎麼點
-    print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
-    # 🔥 2026-08 地籍便民改版：舊網址 easymap.land.moi.gov.tw 已停用（進入會跳「請更新書籤」alert、
-    #    並將於 2026-11-19 後停止使用、自動導向新站）。新域名 easymap.moi.gov.tw/Index 是同一個
-    #    OpenLayers「舊版」app（select_city_id / land_button / mapTile_id / olControl 等 ID 全部保留），
-    #    故只換域名即可沿用原本流程；新的 Z10Web/Normal 是 Cesium 改寫版、選取器全不同，不要用。
-    driver.get('https://easymap.moi.gov.tw/Index')
-    # 🔥 保險：萬一仍被導到會跳 alert 的頁面，先關掉避免卡住自動化（正常新網址不會跳）
-    try:
-        WebDriverWait(driver, 1.5).until(EC.alert_is_present())
-        driver.switch_to.alert.accept()
-        print("已關閉網站提示視窗", flush=True)
-    except Exception:
-        pass
-    # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
-    try:
-        driver.set_window_size(base_width, base_height)
-        driver.set_window_position(chrome_x, chrome_y)
-    except:
-        pass
-
-    # 🔥 DPI 自動修正：用共用 helper 驗證 + 修正視窗大小與頁面縮放
-    # 只在偵測到 DPI 不同步時才動作，正常 PC 不受影響
-    verify_and_fix_chrome_window(driver)
-
-    os.system('cls')
-
+def apply_land_zoom():
+    """依 DPI 與螢幕寬度決定頁面縮放次數；使用者在「Chrome縮放設定」調過的值優先"""
     # 🔥 自動判斷是否需要縮放頁面（解決高 DPI 和小螢幕的排版問題）
     # 需要同時考慮 DPI 和螢幕解析度
     zoom_count = 0
@@ -652,6 +626,125 @@ def get_land_info():
     time.sleep(1)  # 等待頁面完全載入
     apply_page_zoom(driver, zoom_count, key='land', base_dir=BASE_DIR)  # 共用：拉前景→Ctrl+0→縮放→驗證
 
+
+def move_mouse_to_map():
+    """滑鼠移到地圖可視區正中央：要「把滑鼠移開」收選單/提示時用，不會碰到上方分頁列"""
+    try:
+        target = driver.find_element(By.CSS_SELECTOR, ".olMapViewport")
+    except Exception:
+        target = driver.find_element(By.TAG_NAME, "body")
+    ActionChains(driver).move_to_element(target).pause(1).perform()
+
+
+def center_marker():
+    """把地圖上的定位圖示拖到右側地圖可視區的中央"""
+    # 定位圖示處理
+    print("開始查找【定位圖示】...", flush=True)
+    try:
+        map_marker = WebDriverWait(driver, 10).until(
+            EC.presence_of_element_located((By.CSS_SELECTOR, 'image[id^="OpenLayers\\.Geometry\\.Point_"]'))
+        )
+
+        # 🔥 讀取縮放比例，調整錨點移動的偏移量
+        zoom_scale = 1.0  # 預設無縮放
+        try:
+            config_path = os.path.join(BASE_DIR, 'window_config.json')
+            if os.path.exists(config_path):
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = json.load(f)
+                current_dpi = config.get('dpi_scale', 1.0)
+                screen_width = config.get('screen_width', 1920)
+                logical_width = screen_width / current_dpi
+
+                # 🔥 根據 DPI 和螢幕解析度取得實際的縮放比例
+                if current_dpi >= 1.75:
+                    zoom_scale = 0.67  # 175%: 縮放到 67%
+                elif current_dpi >= 1.5:
+                    zoom_scale = 0.80  # 150%: 縮放到 80%
+                elif current_dpi >= 1.25 and logical_width < 1200:
+                    zoom_scale = 0.80  # 小螢幕 + 125%: 縮放到 80%
+        except:
+            pass
+
+        location = map_marker.location
+        size = map_marker.size
+
+        # 🔥 使用 JavaScript 獲取實際的 viewport 尺寸（網頁可視區域，不含瀏覽器標題列等）
+        viewport_width = driver.execute_script("return window.innerWidth;")
+        viewport_height = driver.execute_script("return window.innerHeight;")
+
+        # 🔥 嘗試直接測量左側資訊欄的實際寬度
+        try:
+            # 查詢結果區域通常有固定的 class 或 id
+            info_panel = driver.find_element(By.CSS_SELECTOR, '.queryResult, #queryResult, [class*="query"]')
+            info_panel_width = info_panel.size['width']
+        except:
+            # 如果找不到資訊欄元素，使用固定值並根據縮放調整
+            if zoom_scale <= 0.67:
+                info_panel_width = 433  # 175% 模式
+            elif zoom_scale <= 0.80:
+                info_panel_width = 362  # 150% 模式
+            else:
+                info_panel_width = 290  # 100%, 125% 模式
+
+        # 🔥 計算右側剩餘空間的中心點
+        remaining_width = viewport_width - info_panel_width
+        center_x = info_panel_width + (remaining_width / 2)
+        center_y = viewport_height / 2
+
+        start_x = location['x'] + (size['width'] / 2)
+        start_y = location['y'] + (size['height'] / 2)
+        end_x = center_x
+        end_y = center_y
+
+        # 🔥 微調偏移量（因為已經計算右側空間中心，這裡只需小幅調整）
+        offset_x_correction = 0  # 不需要額外偏移
+        offset_y_correction = 0  # 不需要額外偏移
+
+        actions = ActionChains(driver)
+        actions.move_to_element(map_marker)
+        actions.move_by_offset(0, -10)
+        actions.click_and_hold()
+        actions.move_to_element_with_offset(map_marker, end_x - (start_x - offset_x_correction), end_y - (start_y + offset_y_correction))
+        actions.release().perform()
+
+        print(f"【定位圖示】已成功拖曳到視窗中心（縮放比例: {zoom_scale*100:.0f}%）。", flush=True)
+        print("\033[93m現在您可以手動調整地圖位置和顯示範圍...\033[0m", flush=True)
+
+    except Exception as e:
+        print(f"發生錯誤，未能找到【定位圖示】: {e}", flush=True)
+
+
+def get_land_info():
+    # 🔥 保險提醒：萬一 Chrome 仍跳出地理位置權限窗，告訴使用者怎麼點
+    print("\033[38;5;208m※ 若瀏覽器左上角跳出『存取您的位置資訊』，請點最上面的【造訪這個網站時允許】即可繼續。\033[0m", flush=True)
+    # 🔥 2026-08 地籍便民改版：舊網址 easymap.land.moi.gov.tw 已停用（進入會跳「請更新書籤」alert、
+    #    並將於 2026-11-19 後停止使用、自動導向新站）。新域名 easymap.moi.gov.tw/Index 是同一個
+    #    OpenLayers「舊版」app（select_city_id / land_button / mapTile_id / olControl 等 ID 全部保留），
+    #    故只換域名即可沿用原本流程；新的 Z10Web/Normal 是 Cesium 改寫版、選取器全不同，不要用。
+    driver.get('https://easymap.moi.gov.tw/Index')
+    # 🔥 保險：萬一仍被導到會跳 alert 的頁面，先關掉避免卡住自動化（正常新網址不會跳）
+    try:
+        WebDriverWait(driver, 1.5).until(EC.alert_is_present())
+        driver.switch_to.alert.accept()
+        print("已關閉網站提示視窗", flush=True)
+    except Exception:
+        pass
+    # 🔥 網頁載入後重新設定視窗大小（避免被網站重置）
+    try:
+        driver.set_window_size(base_width, base_height)
+        driver.set_window_position(chrome_x, chrome_y)
+    except:
+        pass
+
+    # 🔥 DPI 自動修正：用共用 helper 驗證 + 修正視窗大小與頁面縮放
+    # 只在偵測到 DPI 不同步時才動作，正常 PC 不受影響
+    verify_and_fix_chrome_window(driver)
+
+    os.system('cls')
+
+    apply_land_zoom()  # 依 DPI/螢幕/使用者設定縮放頁面(自動截圖 land_auto.py 共用)
+
     # 等待下拉選單出現
     select_element = WebDriverWait(driver, 10).until(
         EC.presence_of_element_located((By.ID, "mapTile_id"))
@@ -682,10 +775,9 @@ def get_land_info():
     time.sleep(0.5)  # 確保滑鼠保持在圖示上
 
     print("移開滑鼠，關閉額外圖層選單", flush=True)
-    # 🔥 改用移動到 body 元素的中心，避免在小視窗/高DPI時超出邊界
+    # 🔥 移到地圖正中央(不是 body 中央：body 只有頁首那條高，中央剛好是「地籍/門牌/村里/坐標」分頁列)
     try:
-        body = driver.find_element(By.TAG_NAME, "body")
-        actions.move_to_element(body).pause(1).perform()
+        move_mouse_to_map()
     except Exception:
         # fallback: 嘗試較小的偏移量
         try:
@@ -824,81 +916,7 @@ def get_land_info():
                 except Exception as e:
                     print(f"嘗試固定【查詢結果視窗】位置時發生錯誤: {e}", flush=True)
 
-                # 定位圖示處理
-                print("開始查找【定位圖示】...", flush=True)
-                try:
-                    map_marker = WebDriverWait(driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, 'image[id^="OpenLayers\\.Geometry\\.Point_"]'))
-                    )
-
-                    # 🔥 讀取縮放比例，調整錨點移動的偏移量
-                    zoom_scale = 1.0  # 預設無縮放
-                    try:
-                        config_path = os.path.join(BASE_DIR, 'window_config.json')
-                        if os.path.exists(config_path):
-                            with open(config_path, 'r', encoding='utf-8') as f:
-                                config = json.load(f)
-                            current_dpi = config.get('dpi_scale', 1.0)
-                            screen_width = config.get('screen_width', 1920)
-                            logical_width = screen_width / current_dpi
-
-                            # 🔥 根據 DPI 和螢幕解析度取得實際的縮放比例
-                            if current_dpi >= 1.75:
-                                zoom_scale = 0.67  # 175%: 縮放到 67%
-                            elif current_dpi >= 1.5:
-                                zoom_scale = 0.80  # 150%: 縮放到 80%
-                            elif current_dpi >= 1.25 and logical_width < 1200:
-                                zoom_scale = 0.80  # 小螢幕 + 125%: 縮放到 80%
-                    except:
-                        pass
-
-                    location = map_marker.location
-                    size = map_marker.size
-
-                    # 🔥 使用 JavaScript 獲取實際的 viewport 尺寸（網頁可視區域，不含瀏覽器標題列等）
-                    viewport_width = driver.execute_script("return window.innerWidth;")
-                    viewport_height = driver.execute_script("return window.innerHeight;")
-
-                    # 🔥 嘗試直接測量左側資訊欄的實際寬度
-                    try:
-                        # 查詢結果區域通常有固定的 class 或 id
-                        info_panel = driver.find_element(By.CSS_SELECTOR, '.queryResult, #queryResult, [class*="query"]')
-                        info_panel_width = info_panel.size['width']
-                    except:
-                        # 如果找不到資訊欄元素，使用固定值並根據縮放調整
-                        if zoom_scale <= 0.67:
-                            info_panel_width = 433  # 175% 模式
-                        elif zoom_scale <= 0.80:
-                            info_panel_width = 362  # 150% 模式
-                        else:
-                            info_panel_width = 290  # 100%, 125% 模式
-
-                    # 🔥 計算右側剩餘空間的中心點
-                    remaining_width = viewport_width - info_panel_width
-                    center_x = info_panel_width + (remaining_width / 2)
-                    center_y = viewport_height / 2
-
-                    start_x = location['x'] + (size['width'] / 2)
-                    start_y = location['y'] + (size['height'] / 2)
-                    end_x = center_x
-                    end_y = center_y
-
-                    # 🔥 微調偏移量（因為已經計算右側空間中心，這裡只需小幅調整）
-                    offset_x_correction = 0  # 不需要額外偏移
-                    offset_y_correction = 0  # 不需要額外偏移
-
-                    actions = ActionChains(driver)
-                    actions.move_to_element(map_marker)
-                    actions.move_by_offset(0, -10)
-                    actions.click_and_hold()
-                    actions.move_to_element_with_offset(map_marker, end_x - (start_x - offset_x_correction), end_y - (start_y + offset_y_correction))
-                    actions.release().perform()
-
-                    print(f"【定位圖示】已成功拖曳到視窗中心（縮放比例: {zoom_scale*100:.0f}%）。", flush=True)
-                    print("\033[93m現在您可以手動調整地圖位置和顯示範圍...\033[0m", flush=True)
-                    
-                except Exception as e:
-                    print(f"發生錯誤，未能找到【定位圖示】: {e}", flush=True)
+                center_marker()  # 把定位圖示拖到地圖可視區中央(自動截圖 land_auto.py 共用)
 
                 # 進階訊息圖示處理
                 try:
@@ -909,8 +927,8 @@ def get_land_info():
                     actions.move_to_element(info_icon).perform()
                     print("滑鼠已移到【進階訊息圖示】上，等待1秒...", flush=True)
                     time.sleep(0.5)
-                    # 移動到視窗左上角（安全位置）
-                    actions.move_to_element_with_offset(driver.find_element(By.TAG_NAME, "body"), 10, 10).perform()
+                    # 移到地圖正中央（安全位置；原本的 body+10,10 在 Selenium 4 是從中心算，會落在分頁列）
+                    move_mouse_to_map()
                     print("滑鼠已從【進階訊息圖示】移開，提示訊息應該消失。", flush=True)
                 except Exception as e:
                     print(f"發生錯誤，未能找到【進階訊息圖示】: {e}", flush=True)

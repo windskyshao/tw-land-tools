@@ -2347,7 +2347,8 @@ def generate_word_report_buy(output_path, data, report_date):
                         型式選項['機械'] = '■'
                 型式文字 = ''.join([f"{v}{k}" for k, v in 型式選項.items()])
 
-                車位文字 = f"車位：{車位有無}\n型式：{型式文字}\n編號：{車位編號}"
+                車位坪數 = 車位.get('坪數', '') if isinstance(車位, dict) else ''
+                車位文字 = f"車位：{車位有無}\n型式：{型式文字}\n編號：{車位編號}" + (f"（{車位坪數}坪）" if 車位坪數 else "")
                 # 車位（7欄，cells[21-27]）
                 table.rows[row_idx].cells[21].merge(table.rows[row_idx].cells[27]).text = 車位文字
 
@@ -3278,7 +3279,8 @@ def generate_word_report_rent(output_path, data, report_date):
         租約公證 = data.get('租約公證', '')
         租約公證文字 = "租約公證：" + "  ".join([f"{'■' if opt == 租約公證 else '□'}{opt}" for opt in ["需要", "不需要"]])
 
-        table.rows[10].cells[0].merge(table.rows[10].cells[4]).text = f"車位：{車位有無}，樓層及編號：{車位編號}" if 車位有無 else "車位：無，樓層及編號："
+        車位坪數 = 車位資料.get('坪數', '') if isinstance(車位資料, dict) else ''
+        table.rows[10].cells[0].merge(table.rows[10].cells[4]).text = (f"車位：{車位有無}，樓層及編號：{車位編號}" + (f"（約{車位坪數}坪）" if 車位坪數 else "")) if 車位有無 else "車位：無，樓層及編號："
         table.rows[10].cells[5].merge(table.rows[10].cells[9]).text = 車位型態文字
         table.rows[10].cells[10].merge(table.rows[10].cells[13]).text = 租約公證文字
 
@@ -4155,6 +4157,17 @@ def open_data_editor():
         update_message(f"  建物門牌：{data.get('建物門牌', '無')}")
         update_message(f"  總地坪：{data.get('總地坪', '無')}")
         update_message(f"  總建坪：{data.get('總建坪', '無')}")
+
+        # 🔥 車位持分/坪數：舊案件的物調表沒有 → 從案件的謄本結構化 JSON 補(不蓋掉使用者填的)
+        try:
+            import parking_info as _PK
+            if _PK.fill_missing(data, os.path.dirname(os.path.dirname(data_final_path))):
+                _pk = data.get("車位", {})
+                update_message(f"  車位：從謄本結構化補上 {_pk.get('編號', '')}"
+                               + (f"，持分 {_pk.get('持分')}" if _pk.get("持分") else "")
+                               + (f"，約 {_pk.get('坪數')} 坪" if _pk.get("坪數") else "") + "（按儲存才會寫入）")
+        except Exception as _pe:
+            print(f"補車位資訊略過：{_pe}")
 
     except Exception as e:
         print(f"讀取失敗：{e}")
@@ -5071,10 +5084,15 @@ def open_data_editor():
                                     # 🔥 從總價扣除車位價
                                     price_for_building = total_price - parking_price
 
-                                    # 🔥 檢查是否有車位坪數（從公共設施中找停車位相關）
-                                    # 如果公共設施中有車位資料，也要扣除車位坪數
-                                    # 這部分較複雜，暫時不處理坪數扣除
-                                    # TODO: 未來可以加入車位坪數的判斷邏輯
+                                    # 🔥 車位坪數也要扣(業界算法：(總價−車位價)÷(權狀坪−車位坪))；
+                                    #    車位坪數由謄本結構化帶入(共有部分面積×車位權利範圍)
+                                    _pp = entries.get("車位_坪數")
+                                    try:
+                                        _ping = float(_pp.get().strip()) if _pp and _pp.get().strip() else 0
+                                    except ValueError:
+                                        _ping = 0
+                                    if 0 < _ping < building_area:
+                                        area_for_building = building_area - _ping
 
                                 except ValueError:
                                     pass
@@ -5864,6 +5882,22 @@ def open_data_editor():
     park_num_entry.pack(side=tk.LEFT, padx=5)
     entries["車位_編號"] = park_num_entry
 
+    # 車位持分、坪數(謄本結構化自動帶入：坪數＝共有部分面積×車位權利範圍；含在公設內)
+    park_row4 = tk.Frame(parking_frame)
+    park_row4.pack(fill=tk.X, pady=3)
+    tk.Label(park_row4, text="車位持分：", font=label_font, width=30, anchor="e").pack(side=tk.LEFT, padx=5)
+    park_share_entry = tk.Entry(park_row4, font=entry_font, width=18)
+    park_share_entry.insert(0, parking_data.get("持分", ""))
+    park_share_entry.pack(side=tk.LEFT, padx=5)
+    entries["車位_持分"] = park_share_entry
+    tk.Label(park_row4, text="車位坪數：", font=label_font).pack(side=tk.LEFT, padx=(15, 5))
+    park_ping_entry = tk.Entry(park_row4, font=entry_font, width=8)
+    park_ping_entry.insert(0, parking_data.get("坪數", ""))
+    park_ping_entry.pack(side=tk.LEFT, padx=5)
+    entries["車位_坪數"] = park_ping_entry
+    tk.Label(park_row4, text="坪（含在公設內）", font=entry_font).pack(side=tk.LEFT)
+    park_ping_entry.bind('<KeyRelease>', calculate_from_total_price)   # 有含車位價時，建物單價要扣車位坪數
+
     # 🔥 當車位選「無」時，禁用型式和編號
     def on_parking_change(*args):
         current_value = park_var.get()
@@ -5873,10 +5907,14 @@ def open_data_editor():
             平面_check.config(state='disabled')
             機械_check.config(state='disabled')
             park_num_entry.config(state='disabled')
+            park_share_entry.config(state='disabled')
+            park_ping_entry.config(state='disabled')
         else:
             平面_check.config(state='normal')
             機械_check.config(state='normal')
             park_num_entry.config(state='normal')
+            park_share_entry.config(state='normal')
+            park_ping_entry.config(state='normal')
 
     park_var.trace('w', on_parking_change)
     on_parking_change()  # 初始化狀態

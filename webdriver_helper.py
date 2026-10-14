@@ -645,8 +645,10 @@ def apply_page_zoom(driver, zoom_count, key=None, base_dir=None):
     _prev_fg = None
     try:
         _prev_fg = bring_chrome_foreground(driver)
+        # 🔥 不再「點網頁中央」：有些網站 body 很矮(地籍便民只有頁首 130px)，中央剛好是分頁列/按鈕 →
+        #    會誤點把分頁切走。Ctrl+0 / Ctrl+- 是瀏覽器快捷鍵，視窗在前景就有效，只要讓網頁取得焦點即可
         try:
-            driver.find_element(By.TAG_NAME, 'body').click()
+            driver.execute_script("window.focus(); if (document.activeElement && document.activeElement.blur) document.activeElement.blur();")
         except Exception:
             pass
         time.sleep(0.4)
