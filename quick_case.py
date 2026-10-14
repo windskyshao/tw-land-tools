@@ -226,7 +226,7 @@ class QuickCaseWindow:
             X, Y = (sw - W) // 2, max(10, (sh - H) // 2 - 30)
         top.geometry(f"{W}x{H}+{X}+{Y}")
         top.minsize(600, 480)
-        self.W = min(W, 1100)                     # 文字換行寬度上限(太寬一行讀起來累)
+        self.W = min(W, int(1100 * _dpi_k(root)))  # 文字換行寬度上限(太寬一行讀起來累；跟著顯示比例放大)
         ui.header(top, "快速建立案件", f"查詢：{text}")
         self.foot = ui.footer(top)
         self.body, self.canvas = ui.scroll_body(top)
@@ -1653,15 +1653,18 @@ class QuickIntro:
             self.on_query(text)
 
     def _fit_width(self):
-        """依主介面旁的空間決定寬度(越寬越矮)：620~920"""
+        """依主介面旁的空間決定寬度(越寬越矮)：620~920(以 125% 顯示比例設計)。
+        字型是點數會跟著 Windows 顯示比例放大，寬度也要跟著乘(200% 的筆電原本右邊被切掉)；不超出螢幕"""
+        k = _dpi_k(self.root)
         try:
             self.root.update_idletasks()
             fx = self.root.winfo_x()
             fw = self.root.winfo_width() + (self.root.winfo_rootx() - fx) * 2
             space = max(fx, self.root.winfo_screenwidth() - (fx + fw)) - 96 - 16
-            return int(max(620, min(920, space)))
+            w = max(620 * k, min(920 * k, space))
+            return int(min(w, self.root.winfo_screenwidth() - 40))
         except Exception:
-            return 700
+            return int(700 * k)
 
     def _reveal(self):
         try:
@@ -1683,7 +1686,8 @@ class QuickIntro:
                 self._st_shrink(st, avail)
         H = max(top.winfo_reqheight(), getattr(self, "_maxH", 0))   # 固定用三頁中最高的高度
         self._maxH = H
-        W = self.W
+        # 內容實際需要的寬度比預估寬 → 照內容(高 DPI 時欄位、說明文字才不會被切掉)，最多到螢幕寬
+        W = int(min(max(self.W, top.winfo_reqwidth()), top.winfo_screenwidth() - 40))
         try:
             root.update_idletasks()
             iy = self.inp.winfo_rooty() + self.inp.winfo_height() // 2      # 輸入欄中線(螢幕座標)
@@ -1826,6 +1830,14 @@ class QuickIntro:
 
 
 _PANEL = {"w": None}
+
+
+def _dpi_k(root):
+    """目前顯示比例相對於設計時 125%(120 dpi)的倍數；100%、125% 都當 1(不縮小)"""
+    try:
+        return max(1.0, root.winfo_fpixels("1i") / 120.0)
+    except Exception:
+        return 1.0
 
 
 def show_intro(root, input_widget, flag_dir, force=False, placeholder="", on_query=None, tab=None, guide=True,

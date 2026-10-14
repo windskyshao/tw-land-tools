@@ -81,7 +81,12 @@ def _round_rect(cv, x0, y0, x1, y1, r, **kw):
 
 def header(root, title, subtitle=""):
     """漸層標題列(深藍→青綠)＋橘色標記"""
-    h = 88 if subtitle else 60
+    # 高度與文字位置依字型實際行高算(跟著 Windows 顯示比例放大)；原本寫死 88px，高 DPI 筆電上兩行字會疊在一起
+    lh_t = tkfont.Font(root=root, font=FH).metrics("linespace")
+    lh_s = tkfont.Font(root=root, font=FS).metrics("linespace") if subtitle else 0
+    pad = max(12, lh_t // 3)
+    h = pad * 2 + lh_t + (lh_s + 4 if subtitle else 0)
+    x0 = max(40, int(lh_t * 1.3))
     cv = tk.Canvas(root, height=h, highlightthickness=0, bg=PRIMARY_DK)
     cv.pack(fill=tk.X)
 
@@ -92,10 +97,10 @@ def header(root, title, subtitle=""):
         for i in range(steps):
             cv.create_rectangle(w * i / steps, 0, w * (i + 1) / steps + 1, h, width=0,
                                 fill=_mix("#0D47A1", "#00796B", i / (steps - 1)))
-        _round_rect(cv, 20, 16, 26, h - 16, 3, fill=ACCENT, outline="")
-        cv.create_text(40, 31 if subtitle else h / 2, text=title, anchor="w", font=FH, fill="white")
+        _round_rect(cv, x0 - 20, pad, x0 - 14, h - pad, 3, fill=ACCENT, outline="")
+        cv.create_text(x0, pad + lh_t / 2 if subtitle else h / 2, text=title, anchor="w", font=FH, fill="white")
         if subtitle:
-            cv.create_text(40, 64, text=subtitle, anchor="w", font=FS, fill="#E3F2FD")
+            cv.create_text(x0, pad + lh_t + 4 + lh_s / 2, text=subtitle, anchor="w", font=FS, fill="#E3F2FD")
     cv.bind("<Configure>", draw)
     return cv
 
@@ -156,6 +161,11 @@ def card(parent, title, hint="", theme="blue", radius=14):
     content.theme = (main, tint, edge)
 
     def fit(e=None):
+        # Canvas 不會把裡面內容的寬度往外回報 → 自己把「內容需要的寬度」設成 Canvas 的最小寬，
+        # 視窗才知道要多寬(高 DPI 字變大時，萬用查詢面板原本右邊被切掉)
+        need = inner.winfo_reqwidth() + 2 * pad + 8
+        if abs(int(float(cv.cget("width"))) - need) > 2:
+            cv.configure(width=need)
         w = cv.winfo_width()
         if w < 50:
             return
