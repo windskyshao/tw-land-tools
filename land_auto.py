@@ -76,6 +76,12 @@ def load_entries():
     return out
 
 
+def wait_adjust(sec=10):
+    """跟手動版一樣：截圖前留 10 秒讓使用者調整地圖位置與顯示範圍(地圖圖磚也趁這時載完)"""
+    log("\033[93m請調整地圖位置和顯示範圍，10 秒後自動截圖...\033[0m")
+    L.countdown(sec)
+
+
 def save_shot(d, e, tag):
     """截圖存到案件資料夾 1.基本資料(PDF) 與 1.基本資料\\png(PNG)；檔名跟手動版同一套"""
     base_dir = L.get_first_record_directory()
@@ -205,7 +211,8 @@ def run_old(d, entries):
             L.center_marker()
             close_layer_menu(d)           # 拖曳時滑鼠經過左下角可能又叫出選單 → 再收一次
             hide_tips(d)
-            time.sleep(3)                 # 等地圖圖磚載完
+            wait_adjust()
+            hide_tips(d)
             save_shot(d, e, "")
             ok += 1
         except Exception as ex:
@@ -267,7 +274,7 @@ def run_new(d, entries):
             if not found:
                 log("  查無資料或網站沒有回應，略過")
                 continue
-            time.sleep(3)                 # 等地圖圖磚與地號框線載完
+            wait_adjust()
             save_shot(d, e, "新版")
             ok += 1
         except Exception as ex:

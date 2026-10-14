@@ -44,7 +44,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.8y"
+VERSION = "1.1.8z"
 BUILD_DATE = "2026-10-14"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -2600,8 +2600,8 @@ def select_continuous_mode_scripts():
         # ===== 左排 =====
         # 1. 地籍便民系統
         ("地籍便民系統 (依地段地號建立目錄)", "land.py"),
-        ("【地籍便民】自動截圖・舊版", "land_auto.py:old"),
-        ("【地籍便民】自動截圖・新版", "land_auto.py:new"),
+        ("【地籍便民】地籍便民-舊版（自動截圖）", "land_auto.py:old"),
+        ("【地籍便民】地籍便民-新版（自動截圖）", "land_auto.py:new"),
         # 2. 謄本與土增稅（分頁內容）
         ("【謄本與土增稅】全國地政電子謄本", "hinet.py"),
         ("【謄本與土增稅】電傳資訊系統(光特)", "qpt_hinet.py"),
@@ -5444,14 +5444,14 @@ building_license_page_buttons = [
 #    手動建立 → land.py(原本：自己選縣市地段地號、建立 data.json)
 #    自動截圖 → land_auto.py --ver old|new(讀 data.json 逐筆定位截圖，不改 data.json)
 LAND_AUTO_VER_FOR_BUTTON = {}  # id(button) → old / new
-land_manual_button = M.ModernButton(land_left_frame, text="手動建立",
-                                    command=lambda: toggle_buttons(land_manual_button, "手動建立", "land.py"),
+land_manual_button = M.ModernButton(land_left_frame, text="地籍便民系統-手動",
+                                    command=lambda: toggle_buttons(land_manual_button, "地籍便民系統-手動", "land.py"),
                                     **sub_page_button_style)
-land_auto_old_button = M.ModernButton(land_middle_frame, text="自動截圖・舊版",
-                                      command=lambda: toggle_buttons(land_auto_old_button, "自動截圖・舊版", "land_auto.py"),
+land_auto_old_button = M.ModernButton(land_middle_frame, text="地籍便民-舊版",
+                                      command=lambda: toggle_buttons(land_auto_old_button, "地籍便民-舊版", "land_auto.py"),
                                       **sub_page_button_style)
-land_auto_new_button = M.ModernButton(land_middle_frame, text="自動截圖・新版",
-                                      command=lambda: toggle_buttons(land_auto_new_button, "自動截圖・新版", "land_auto.py"),
+land_auto_new_button = M.ModernButton(land_middle_frame, text="地籍便民-新版",
+                                      command=lambda: toggle_buttons(land_auto_new_button, "地籍便民-新版", "land_auto.py"),
                                       **sub_page_button_style)
 land_back_button = M.ModernButton(land_right_frame, text="回主選單", command=show_main_page, **sub_page_button_style)
 LAND_AUTO_VER_FOR_BUTTON[id(land_auto_old_button)] = "old"
@@ -5874,7 +5874,7 @@ def _guard_structuring(display_name, script_name, button):
         # 🔥 記住待辦：地籍便民查完後，自動回來開啟原本要做的結構化（不必再手動點一次）
         _pending_structuring_after_land = (display_name, script_name, button)
         show_land_page()  # 切到地籍便民分頁，讓使用者看到執行狀態
-        toggle_buttons(land_manual_button, "手動建立", "land.py")
+        toggle_buttons(land_manual_button, "地籍便民系統-手動", "land.py")
     # cancel → 什麼都不做
 
 structured_transcript_button_style = {
@@ -6142,7 +6142,7 @@ building_license_tn_button.pack(fill=tk.X, pady=3)
 # 右欄：回主選單
 building_license_back_button.pack(fill=tk.X, pady=3)
 
-# 🔥 地籍便民系統分頁排列：左 手動建立／中 自動截圖舊版、新版／右 回主選單
+# 🔥 地籍便民系統分頁排列：左 地籍便民系統-手動／中 地籍便民-舊版、新版／右 回主選單
 land_manual_button.pack(fill=tk.X, pady=3)
 land_auto_old_button.pack(fill=tk.X, pady=3)
 land_auto_new_button.pack(fill=tk.X, pady=3)
