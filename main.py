@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9a"
-BUILD_DATE = "2026-10-19"
+VERSION = "1.1.9b"
+BUILD_DATE = "2026-10-21"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1810,6 +1810,10 @@ def read_output(process):
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
                         if _pending_structuring_after_land:
                             root.after(1500, _resume_structuring_after_land)
+                    # 🔥 謄本調閱(電子/電傳)結束 → 沒結構化就問要不要接著做(做完才能算土增稅)
+                    if current_running_button in (hinet_button, qpt_hinet_button):
+                        _kind = "電子" if current_running_button is hinet_button else "電傳"
+                        root.after(1200, lambda k=_kind: _after_transcript_download(k))
 
                     # 🔥 恢復按鈕狀態
                     if continuous_mode_active:
@@ -1858,6 +1862,10 @@ def read_output(process):
                         # 🔥 若使用者是從謄本結構化選「先用地籍便民查詢」，查完自動回來開啟結構化
                         if _pending_structuring_after_land:
                             root.after(1500, _resume_structuring_after_land)
+                    # 🔥 謄本調閱(電子/電傳)結束 → 沒結構化就問要不要接著做(做完才能算土增稅)
+                    if current_running_button in (hinet_button, qpt_hinet_button):
+                        _kind = "電子" if current_running_button is hinet_button else "電傳"
+                        root.after(1200, lambda k=_kind: _after_transcript_download(k))
 
                     # 🔥 恢復按鈕狀態
                     if continuous_mode_active:
@@ -5074,6 +5082,26 @@ def _has_internet(timeout=3):
             continue
     return False
 
+def _lvr_case_deal():
+    """目前案件(data.json 第一筆)的物件編輯器「交易類型」→ "租賃"/"買賣"；還沒填/讀不到回 None"""
+    try:
+        with open(get_data_json_path(), 'r', encoding='utf-8') as f:
+            dl = json.load(f)
+        d0 = dl[0]
+        folder = get_work_folder(f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}")
+        with open(os.path.join(folder, "4.其他相關", "data_final.json"), 'r', encoding='utf-8') as f:
+            df = json.load(f)
+        df = df[0] if isinstance(df, list) and df else df
+        t = str(df.get("交易類型", "") or "")
+        if "租" in t:
+            return "租賃"
+        if "售" in t or "賣" in t:
+            return "買賣"
+    except Exception:
+        pass
+    return None
+
+
 def toggle_buttons(button, original_text, script_name):
     global is_running
     if is_running:
@@ -5099,6 +5127,16 @@ def toggle_buttons(button, original_text, script_name):
                 ):
                     update_message("已取消（請檢查網路後再試）")
                     return  # 使用者取消 → 不啟動（按鈕尚未變更，無需還原）
+        # 🔥 土增稅(財政部/高雄)前先確認謄本結構化：常忘了做結構化就直接算 → 問要不要先做
+        if script_name in ("finance_tax.py", "kaohsiung_tax.py"):
+            reason = _structured_problem()
+            if reason:
+                update_message(f"[提醒] {reason}")
+                r = _offer_structuring(reason, allow_continue_text=f"直接開{original_text}")
+                if r != "go":
+                    if r == "cancel":
+                        update_message(f"已取消（未開啟{original_text}）")
+                    return
         button.config(text=f"關閉 {original_text}")
         # 🔥 立即禁用其他按鈕（讓使用者看到「正在執行」的狀態，包含對話框期間）
         disable_other_buttons(button)
@@ -5702,6 +5740,73 @@ def _resume_structuring_after_land():
         return
     toggle_buttons(button, display_name, script_name)
 
+def _case_transcript_pdfs():
+    """目前案件(data.json 第一筆)0.謄本 裡的登記謄本 PDF(不含地籍圖、成果圖、標註檔)"""
+    try:
+        with open(get_data_json_path(), 'r', encoding='utf-8') as f:
+            d0 = json.load(f)[0]
+        folder = os.path.join(get_work_folder(f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}"), "0.謄本")
+        return [os.path.join(folder, n) for n in os.listdir(folder)
+                if n.lower().endswith(".pdf") and "謄本" in n and not any(k in n for k in ("地籍圖", "成果圖", "_標註"))]
+    except Exception:
+        return []
+
+
+def _structured_problem():
+    """目前案件的謄本結構化狀態：沒問題回 ""；否則回原因(給提示用)"""
+    if not selected_json_path or not os.path.exists(selected_json_path):
+        return "這個案件還沒做「謄本結構化」"
+    try:
+        ok, _w, d, t, order = check_data_consistency(selected_json_path)
+        if d and t and not ok and not order:
+            return f"目前選用的謄本結構化資料是【{t.get('area', '')}{t.get('section', '')}{_short_lot(t.get('lot_number', ''))}】，不是這個案件"
+    except Exception:
+        pass
+    try:
+        jt = os.path.getmtime(selected_json_path)
+        newer = [p for p in _case_transcript_pdfs() if os.path.getmtime(p) > jt + 60]
+        if newer:
+            return f"0.謄本 有 {len(newer)} 份比結構化資料還新的謄本（重新調閱過），還沒結構化"
+    except Exception:
+        pass
+    return ""
+
+
+def _offer_structuring(reason, kind_hint=None, allow_continue_text=None):
+    """問要不要先做謄本結構化。回傳 'go'(使用者選直接繼續) / 'struct'(已幫他開結構化) / 'cancel'"""
+    opts = [("電子謄本結構化", "#1565C0"), ("電傳謄本結構化", "#00838F")]
+    if kind_hint == "電傳":
+        opts.reverse()
+    if allow_continue_text:
+        opts.append((allow_continue_text, "#757575"))
+    opts.append(("取消" if allow_continue_text else "先不要", "#9E9E9E"))
+    msg = (f"⚠ {reason}\n\n"
+           "土地增值稅(財政部、高雄)要用「謄本結構化」的資料才算得出來。\n"
+           "全國地政電子謄本 → 選「電子謄本結構化」；電傳資訊(光特)→ 選「電傳謄本結構化」。")
+    ans = show_large_choice("要先做謄本結構化嗎？", msg, opts)
+    if ans is None:
+        return "cancel"
+    label = opts[ans][0]
+    if label == allow_continue_text:
+        return "go"
+    if label == "電子謄本結構化":
+        _guard_structuring("電子謄本結構化", "GUI_transcript_pdf 1141021-01.py", structured_transcript_button)
+    else:
+        _guard_structuring("電傳謄本結構化", "GUI_telereport.py", telereport_structured_button)
+    return "struct"
+
+
+def _after_transcript_download(kind):
+    """謄本調閱(電子/電傳)結束 → 還沒結構化(或有新謄本)就問要不要接著做結構化"""
+    if is_running:
+        return
+    reason = _structured_problem()
+    if not reason or not _case_transcript_pdfs():
+        return
+    update_message(f"[提醒] {kind}謄本調閱完成，{reason}")
+    _offer_structuring(f"{kind}謄本調閱完成。{reason}", kind_hint=kind)
+
+
 _transcript_source_dir = None  # 本次結構化要讓工具預設開啟的「0.謄本」路徑（供 toggle_buttons 組指令用）
 
 def _ask_yesno_cancel_big(title, message):
@@ -5962,8 +6067,27 @@ def launch_cadastral_map_tool():
         exe_files.sort(key=extract_version, reverse=True)
         latest_exe = exe_files[0]
 
-        update_message(f"啟動地籍圖處理工具：{os.path.basename(latest_exe)}")
-        _p = subprocess.Popen([latest_exe])
+        # 有目前案件 → 直接開該案的「0.謄本」(沒有就開案件資料夾)
+        args = [latest_exe]
+        try:
+            import json as _json
+            jp = get_data_json_path()
+            if os.path.exists(jp):
+                with open(jp, 'r', encoding='utf-8') as f:
+                    dl = _json.load(f)
+                if dl:
+                    d0 = dl[0]
+                    fn = f"{d0.get('area','')}{d0.get('section','')}-{d0.get('lot_number','')}"
+                    if fn.strip('-'):
+                        case_dir = get_work_folder(fn)
+                        for d in (os.path.join(case_dir, "0.謄本"), case_dir):
+                            if os.path.isdir(d):
+                                args.append(d)
+                                break
+        except Exception:
+            pass
+        update_message(f"啟動地籍圖處理工具：{os.path.basename(latest_exe)}" + (f"（開啟 {args[1]}）" if len(args) > 1 else ""))
+        _p = subprocess.Popen(args)
         _show_launch_popup(os.path.splitext(os.path.basename(latest_exe))[0], _p)
 
     except Exception as e:
@@ -6305,6 +6429,30 @@ def start_subprocess(button, script_name):
             ver = LAND_AUTO_VER_FOR_BUTTON.get(id(button), "old")
             cmd += ['--ver', ver]
             update_message(f"[地籍便民] 自動截圖（{'舊版' if ver == 'old' else '最新版'}）：讀 data.json 逐筆定位後截圖存檔")
+
+        # 🔥 實價登錄(內政部/104)：查「買賣」還是「租賃」— 物件編輯器有填交易類型就照它；
+        #    沒填(常見：實價先做、物調表後做)就問使用者，結果用 --deal 交給子程式(檔名也會標 -買賣/-租賃)
+        if script_name in ("interior_price.py", "price104.py"):
+            deal = _lvr_case_deal()
+            if deal:
+                update_message(f"[實價登錄] 物件編輯器的交易類型 → 查「{deal}」實價")
+            else:
+                ans = show_large_choice(
+                    "實價登錄：查買賣還是租賃？",
+                    "這個案件在物件編輯器還沒填「交易類型」。\n\n要查哪一種實價？\n"
+                    "（填好交易類型後，下次就不會再問）",
+                    [("買賣（售件）", "#4CAF50"), ("租賃（租件）", "#F44336"), ("兩種都查", "#1E63B5"), ("取消", "#9E9E9E")])
+                if ans is None:
+                    update_message("[已取消] 未啟動實價登錄")
+                    is_running = False
+                    original_text = button.cget("text").replace("關閉 ", "")
+                    button.config(text=original_text)
+                    enable_all_buttons()
+                    return
+                deal = ("買賣", "租賃", "兩者")[ans]
+                update_message("[實價登錄] 買賣、租賃兩種都查（檔名各自標 -買賣／-租賃）" if deal == "兩者"
+                               else f"[實價登錄] 查「{deal}」實價")
+            cmd += ['--deal', deal]
 
         # 🔥 全國土地使用分區 / V523：開多選對話框讓使用者勾選要執行哪幾筆
         if script_name in ("luz.py", "V523.py"):
@@ -7305,6 +7453,39 @@ def show_large_yesnocancel(title, message, yes_text="是(Y)", no_text="否(N)", 
     dialog.wait_window()
 
     return result[0]
+
+def show_large_choice(title, message, options):
+    """大字體多按鈕對話框。options＝[(按鈕文字, 底色), …]，最後一個當「取消」。
+    回傳按下的按鈕索引；按取消、Esc、關視窗回 None"""
+    result = [None]
+    dialog = tk.Toplevel(root)
+    dialog.title(title)
+    msg_lines = message.count('\n') + 1
+    dialog_height = min(150 + msg_lines * 30 + 100, 600)
+    width = max(780, 190 * len(options) + 60)
+    x = (dialog.winfo_screenwidth() - width) // 2
+    y = (dialog.winfo_screenheight() - dialog_height) // 2
+    dialog.geometry(f"{width}x{dialog_height}+{x}+{y}")
+    dialog.transient(root)
+    dialog.grab_set()
+    tk.Label(dialog, text=message, font=("Microsoft JhengHei", 16), wraplength=width - 30,
+             justify=tk.LEFT, padx=20, pady=20).pack(fill=tk.X)
+    btn_frame = tk.Frame(dialog)
+    btn_frame.pack(side=tk.BOTTOM, pady=20)
+    bw = max(8, max(len(t) for t, _ in options) + 2)
+
+    def pick(i):
+        result[0] = None if i == len(options) - 1 else i
+        dialog.destroy()
+    for i, (text, color) in enumerate(options):
+        tk.Button(btn_frame, text=text, font=("Microsoft JhengHei", 14), command=lambda i=i: pick(i),
+                  width=bw, height=2, bg=color, fg='white').pack(side=tk.LEFT, padx=8)
+    dialog.bind('<Escape>', lambda e: pick(len(options) - 1))
+    dialog.protocol("WM_DELETE_WINDOW", lambda: pick(len(options) - 1))
+    dialog.focus_set()
+    dialog.wait_window()
+    return result[0]
+
 
 def show_lot_selection_dialog(title, intro, entries):
     """多選對話框：讓使用者勾選要執行的地號筆次。

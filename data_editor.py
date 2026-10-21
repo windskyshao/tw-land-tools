@@ -376,7 +376,7 @@ def open_perf_report():
 
 
 def open_marketing_deck():
-    """行銷簡報(大樓版)：挑照片 → 產生 16:9 不動產行銷報告 PPTX(存到匯出資料夾或案件資料夾)"""
+    """行銷簡報(大樓・華廈、透天・店面版)：挑照片 → 產生不動產行銷報告 PPTX(存到匯出資料夾或案件資料夾)"""
     case_dir, data_final_path = _case_dir_from_editor()
     if not case_dir:
         return
@@ -385,8 +385,9 @@ def open_marketing_deck():
             型式 = json.load(f).get("型式", "")
     except Exception:
         型式 = ""
-    if 型式 and not any(k in 型式 for k in ("大樓", "華廈", "公寓", "套房", "辦公", "商辦")):
-        if not show_large_yesno("目前只有大樓版", f"這個物件的型式是「{型式}」，\n行銷簡報目前只做了大樓版，仍要繼續嗎？"):
+    # 已有版型：大樓・華廈、透天・店面；其餘(廠房、土地、農地…)還沒做，先提醒
+    if 型式 and not any(k in 型式 for k in ("大樓", "華廈", "公寓", "套房", "辦公", "商辦", "透天", "別墅", "店面", "店")):
+        if not show_large_yesno("還沒有這種版型", f"這個物件的型式是「{型式}」，\n行銷簡報目前有「大樓・華廈」和「透天・店面」兩種版型，\n仍要繼續嗎？"):
             return
     if update_message:
         update_message("[行銷簡報] 開啟挑照片視窗…（照片多時縮圖要幾秒才會全部出現）")

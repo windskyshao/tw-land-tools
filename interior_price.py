@@ -209,6 +209,21 @@ def display_lot_numbers(items: List[Dict]):
     print("")  # 空行
 
 
+DEAL = "買賣"          # 這次查買賣或租賃(主程式 --deal 傳來；檔名結尾標 -買賣/-租賃)
+
+
+def case_deal(case_dir: str):
+    """案件是租件還是售件(看物件編輯器存的 4.其他相關/data_final.json「交易類型」)→ ("租賃"/"買賣", 型式+用途)"""
+    try:
+        with open(os.path.join(case_dir, "4.其他相關", "data_final.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        d = d[0] if isinstance(d, list) and d else d
+        kind = f"{d.get('型式', '')}{d.get('用途', '')}"
+        return ("租賃" if "租" in str(d.get("交易類型", "")) else "買賣"), kind
+    except Exception:
+        return "買賣", ""
+
+
 def _sanitize(name: str) -> str:
     """移除檔名中非法字元"""
     return re.sub(r"[\\/:*?\"<>|]", "", name)
@@ -545,7 +560,7 @@ class InteriorPriceSearch:
 
         # 確保輸出目錄存在
         os.makedirs(self.base_dir, exist_ok=True)
-        base_name = f"內政部實價登錄-{postfix}"
+        base_name = f"內政部實價登錄-{postfix}-{DEAL}"            # 檔名區分售/租
         png_path = _unique_path(os.path.join(self.base_dir, f"{base_name}.png"))
         pdf_path = png_path.replace(".png", ".pdf")
 
@@ -628,7 +643,9 @@ class InteriorPriceSearch:
         if should_exit:
             return False
         keyword = (item.get("community", "") if mode == "community"
-                   else item.get("road", "") if mode == "road" else item.get("section", ""))
+                   else item.get("road", "") if mode in ("road", "rent") else item.get("section", ""))
+        if mode == "rent":
+            keyword = item.get("rent_kw") or keyword
 
         cprint(f"\n【填寫表單】使用以下數據:")
         cprint(f"  城市: {item.get('city', 'N/A')}")
@@ -637,6 +654,8 @@ class InteriorPriceSearch:
             cprint(f"  社區: {keyword}")
         elif mode == "road":
             cprint(f"  路名(透天): {keyword}")
+        elif mode == "rent":
+            cprint(f"  租賃查詢(門牌路名/社區): {keyword}" + ("　建物型態：店面＋透天厝" if item.get("_th") else ""))
         else:
             cprint(f"  地段: {keyword}")
 
@@ -644,6 +663,14 @@ class InteriorPriceSearch:
             yprint("無法切換到內部框架")
             return False
         try:
+            # 租賃：先切到「租賃查詢」分頁(網站的 changeType('rent'))；租賃只能用門牌/社區名查，不能用地段
+            if mode == "rent":
+                self.driver.execute_script(
+                    "if(typeof changeType==='function'){changeType('rent');}"
+                    "var a=[...document.querySelectorAll('a')].find(x=>(x.getAttribute('onclick')||'').indexOf(\"changeType('rent')\")>=0);"
+                    "if(a){a.click();}")
+                time.sleep(1)
+                yprint("已切換到「租賃查詢」")
             # 選擇城市
             city_element = self.wait.until(EC.element_to_be_clickable((By.ID, "p_city")))
             yprint(f"選擇城市: {item['city']}")
@@ -661,22 +688,35 @@ class InteriorPriceSearch:
 
             # 交易類別「土地」(customCheck2)：用地段查要勾、用社區名查不勾。
             # 依目前狀態決定要不要點(舊寫法每次都點一下，多筆時第二次會把它取消掉)
-            want_land = "true" if mode == "section" else "false"
-            yprint("勾選「土地」交易類別" if mode == "section" else "只查「房地」(不勾土地)")
-            self.driver.execute_script(
-                "var c=document.getElementById('customCheck2');"
-                f"if(c && c.checked!=={want_land}){{document.querySelector(\"label[for='customCheck2']\").click();}}")
+            if mode != "rent":
+                want_land = "true" if mode == "section" else "false"
+                yprint("勾選「土地」交易類別" if mode == "section" else "只查「房地」(不勾土地)")
+                self.driver.execute_script(
+                    "var c=document.getElementById('customCheck2');"
+                    f"if(c && c.checked!=={want_land}){{document.querySelector(\"label[for='customCheck2']\").click();}}")
+            else:
+                # 透天/店面出租 → 建物型態勾「店面(店鋪)」「透天厝」；訂約日期從民國 101 年(租賃實價登錄開辦)起
+                # ★租賃的「類型」是下拉複選(rent_f_type)，一定要選(空的話網站搜尋程式會出錯、按了沒反應)
+                #   透天/店面 → 透天厝＋店面；其他 → 公寓/住宅大樓/華廈/套房/商辦
+                want = ["02", "03"] if item.get("_th") else ["01", "04", "05", "06", "07"]
+                self.driver.execute_script(
+                    "var want=arguments[0], sel=document.getElementById('rent_f_type'); if(sel){"
+                    "[...sel.options].forEach(function(o){o.selected=want.indexOf(o.value)>=0;});"
+                    "if(window.jQuery){jQuery(sel).trigger('change');try{jQuery(sel).multiselect('refresh');}catch(e){}}}", want)
+                self.driver.execute_script(
+                    "var s=document.getElementById('p_startY'); if(s){s.value='101';s.dispatchEvent(new Event('change',{bubbles:true}));}")
             # 進階條件「建物型態：透天厝」只給路名查詢用，其它查詢要取消(否則會沿用上一次的篩選)
-            if mode != "road":
+            if mode not in ("road", "rent"):
                 self.driver.execute_script(
                     "var t=document.getElementById('customCheck02');"
                     "if(t && t.checked){t.checked=false;t.dispatchEvent(new Event('change',{bubbles:true}));}")
 
             # 輸入社區名或地段(網頁同一個欄位：門牌/地段/社區名稱)
-            yprint(f"輸入{'社區' if mode == 'community' else '路名' if mode == 'road' else '地段'}: {keyword}")
+            yprint(f"輸入{'社區' if mode == 'community' else '路名' if mode in ('road', 'rent') else '地段'}: {keyword}")
             build_inp = self.driver.find_element(By.ID, "p_build")
             build_inp.clear()
-            build_inp.send_keys(keyword)
+            if keyword:                         # 租賃「整個行政區」那份不打關鍵字
+                build_inp.send_keys(keyword)
 
             # 點擊搜索按鈕
             yprint("點擊搜索按鈕")
@@ -820,7 +860,7 @@ class InteriorPriceSearch:
         if should_exit:
             return False
 
-        if mode == "road":
+        if mode in ("road", "rent"):
             # 路名查詢排在地段/社區之後，網頁停在結果頁會填不進去(要等 20 秒逾時)→ 先回首頁
             try:
                 self.driver.switch_to.default_content()
@@ -852,6 +892,11 @@ class InteriorPriceSearch:
                 time.sleep(1)  # 稍等一下讓結果完全顯示
                 if mode == "road":
                     self._apply_townhouse_filter()   # 路名 → 只看透天厝、從 101 年起
+                elif mode == "rent":
+                    self.wait_for_results_load()
+                    n = self._wait_count()
+                    cprint(f"租賃筆數: {n if n is not None else '讀不到'}")
+                    item["_n"] = n
                 else:
                     self._widen_years_until_data()   # 近 1 年 0 筆 → 一年一年往前推直到有資料
             else:
@@ -862,6 +907,8 @@ class InteriorPriceSearch:
         # 截圖前重新讀取當前的區域和地段
         if mode == "road":
             self.capture_page(postfix=_sanitize(f"{item.get('area', '')}{item.get('road', '')}透天"))
+        elif mode == "rent":
+            self.capture_page(postfix=_sanitize(f"{item.get('area', '')}{item.get('rent_kw', '')}") or "租賃")
         else:
             self.capture_page()
         return True
@@ -1029,6 +1076,32 @@ if __name__ == "__main__":
                     items.append(ri)
                     cprint(f"  {it.get('area', '')} 門牌在「{rd}」→ 另外用路名查透天厝成交")
 
+        # 🏷 租件(物件編輯器「交易類型」是租件)→ 改查「租賃」實價(買賣行情對租件沒有參考價值)
+        #    租賃只能用門牌路名或社區名查(網站不支援地段)；透天/店面加勾建物型態「店面、透天厝」
+        _f0 = raw_items[0] if raw_items else {}
+        _deal, _kind = case_deal(get_work_folder(f"{_f0.get('area', '')}{_f0.get('section', '')}-{_f0.get('lot_number', '')}"))
+        if "--deal" in sys.argv[:-1] and sys.argv[sys.argv.index("--deal") + 1] in ("買賣", "租賃", "兩者"):
+            _deal = sys.argv[sys.argv.index("--deal") + 1]          # 主程式決定的(物件編輯器或使用者選的)為準
+        DEAL = _deal
+        cprint(f"查詢類別：{DEAL}")
+        for it in items:
+            it["_deal"] = "買賣"
+        if _deal in ("租賃", "兩者"):
+            bprint(f"====== {'這是租件' if _deal == '租賃' else '買賣、租賃都查'}（{_kind or '型式未填'}）→ 查「租賃」實價 ======")
+            rent_items, rk_seen = [], set()
+            for it in [x for x in items if x["_mode"] in ("community", "road")]:
+                kw = it["community"] if it["_mode"] == "community" else it.get("road", "")
+                key = (it.get("city", ""), it.get("area", ""), kw)
+                if kw and key not in rk_seen:
+                    rk_seen.add(key)
+                    th = it["_mode"] == "road" or any(k in _kind for k in ("透天", "店面", "別墅"))
+                    rent_items.append(dict(it, rent_kw=kw, _mode="rent", _th=th, _deal="租賃"))
+                    cprint(f"  {it.get('area', '')}「{kw}」→ 查租賃成交" + ("（店面＋透天厝）" if th else ""))
+            if rent_items:
+                items = (items + rent_items) if _deal == "兩者" else rent_items
+            else:
+                yprint("  ⚠ 這個案件沒有門牌也沒有社區名，租賃無法用地段查 → 照原本查買賣")
+
         cprint(f"去重後剩餘 {len(items)} 組搜尋參數\n")
 
         # 獲取第一項數據，用於輸出目錄
@@ -1122,10 +1195,18 @@ if __name__ == "__main__":
                     yprint("主循環檢測到退出標志，準備退出...")
                     break
 
-                kw = itm["community"] if itm["_mode"] == "community" else itm.get("road") if itm["_mode"] == "road" else itm.get("section", "")
+                DEAL = itm.get("_deal", "買賣")                  # 檔名結尾 -買賣/-租賃 跟著這一筆
+                kw = (itm["community"] if itm["_mode"] == "community" else itm.get("road") if itm["_mode"] == "road"
+                      else itm.get("rent_kw") if itm["_mode"] == "rent" else itm.get("section", ""))
                 cprint(f"\n[{idx}/{len(items)}] 處理: {itm.get('city', '')} {itm.get('area', '')} {kw}")
                 if not app.search_one(itm, auto_capture=True, mode=itm["_mode"]):
                     break
+                # 租賃：這條路成交太少(<3 筆) → 再查整個行政區同類型的租賃，另存一份
+                if itm["_mode"] == "rent" and itm.get("road") and (itm.get("_n") or 0) < 3 and not should_exit:
+                    wide = dict(itm, rent_kw="", road="")
+                    cprint(f"  「{itm.get('rent_kw')}」租賃只有 {itm.get('_n') or 0} 筆 → 再查整個{itm.get('area', '')}的租賃")
+                    if not app.search_one(wide, auto_capture=True, mode="rent"):
+                        break
             else:
                 # 🔥 無頭(網頁版案件附件)沒人能按 L:用社區名查完,再自動用地段(含土地交易)查一份,兩份都留
                 if has_com and os.environ.get("LAND_HEADLESS") == "1" and not should_exit:

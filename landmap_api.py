@@ -269,7 +269,8 @@ def _builds_from(m):
     for b in m.get("matches") or []:
         out.append({"build_no": b.get("disp", ""), "door": (b.get("door") or "").translate(_FW),
                     "floor": b.get("floor", ""), "area_m2": b.get("area", ""),
-                    "use": b.get("mainuse", ""), "attached": b.get("attached") or []})
+                    "use": b.get("mainuse", ""), "attached": b.get("attached") or [],
+                    "main_floors": b.get("main_floors_free") or []})     # 便民系統分層明細[{floor,m2}]
     return out
 
 

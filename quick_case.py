@@ -569,21 +569,95 @@ class QuickCaseWindow:
         rows = tk.Frame(self.build_box, bg=bg)
         rows.pack(fill=tk.X, pady=(2, 0))
         for i, b in enumerate(builds[:40]):
-            att = "、".join(f"{a.get('use', '')}{a.get('m2', '')}㎡" for a in b.get("attached") or [])
             row = tk.Frame(rows, bg="white", highlightthickness=1, highlightbackground=edge, padx=10, pady=6)
             row.pack(fill=tk.X, pady=3)
-            ui.big_radio(row, self.sel_build, i, teal).grid(row=0, column=0, rowspan=2, sticky="n", padx=(0, 10), pady=(2, 0))
-            tk.Label(row, text=f"建號 {b['build_no']}", font=ui.FB, fg=teal, bg="white", anchor="w").grid(row=0, column=1, sticky="w")
-            tk.Label(row, text=b["door"], font=ui.F, fg=INK, bg="white", anchor="w").grid(row=0, column=2, sticky="w", padx=(14, 0))
-            info = "　·　".join(x for x in (b.get("floor", ""), f"主建物 {b['area_m2']}㎡" if b.get("area_m2") else "",
-                                            f"附屬：{att}" if att else "") if x)
-            tk.Label(row, text=info, font=ui.FS, fg=INK2, bg="white", anchor="w", justify="left",
-                     wraplength=self.W - 200).grid(row=1, column=1, columnspan=2, sticky="w", pady=(2, 0))
-            for w in (row,) + tuple(row.winfo_children()):
+            ui.big_radio(row, self.sel_build, i, teal).grid(row=0, column=0, rowspan=3, sticky="n", padx=(0, 10), pady=(2, 0))
+            hd = tk.Frame(row, bg="white")
+            hd.grid(row=0, column=1, sticky="w")
+            tk.Label(hd, text=f"建號 {b['build_no']}", font=ui.FB, fg=teal, bg="white").pack(side=tk.LEFT)
+            tk.Label(hd, text=b["door"], font=ui.F, fg=INK, bg="white").pack(side=tk.LEFT, padx=(24, 0))
+            self._build_detail(row, b).grid(row=1, column=1, sticky="w", pady=(4, 0))
+            todo = [row]                       # 整列(含明細裡的字)點哪裡都能選
+            while todo:
+                w = todo.pop()
+                todo.extend(w.winfo_children())
                 w.bind("<Button-1>", lambda e, i=i: self.sel_build.set(i))
         if note:
             tk.Label(self.build_box, text="ⓘ " + note, font=ui.FS, fg=INK2, bg=bg, justify="left",
                      wraplength=self.W - 120).pack(anchor="w", pady=(4, 0))
+
+    @staticmethod
+    def _num(v):
+        try:
+            return f"{float(str(v).replace(',', '')):g}"
+        except Exception:
+            return str(v or "")
+
+    @staticmethod
+    def _floor_key(name):
+        """層次排序：地下層 → 一層、二層… → 夾層等其他 → 屋頂突出物"""
+        cn = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9}
+        m = re.match(r"(地下)?(?:第)?([一二三四五六七八九十]+|\d+)層$", name)
+        if m:
+            t = m.group(2)
+            if t.isdigit():
+                n = int(t)
+            else:
+                tens, _, ones = t.partition("十")
+                n = (cn.get(tens, 1) * 10 + cn.get(ones, 0)) if "十" in t else cn.get(t, 0)
+            return (0, -n) if m.group(1) else (1, n)
+        if name.startswith("地下"):
+            return (0, 0)
+        if "屋頂" in name or "突出" in name:
+            return (3, 0)
+        return (2, 0)
+
+    @staticmethod
+    def _ping(m2):
+        """平方公尺 → 坪(小數 2 位)；不是數字回空字串"""
+        try:
+            return f"{float(str(m2).replace(',', '')) / 3.30579:.2f}"
+        except Exception:
+            return ""
+
+    def _build_detail(self, parent, b):
+        """建物明細：左邊類別＋合計，右邊每層一格(上層名、下面積)整齊排；主建物綠、附屬橘。沒有分層資料就列層次名稱"""
+        f = tk.Frame(parent, bg="white")
+        floors = sorted((x for x in b.get("main_floors") or [] if x.get("floor")), key=lambda x: self._floor_key(x["floor"]))
+        att = [a for a in b.get("attached") or [] if a.get("use")]
+        groups = [("主建物", b.get("area_m2") or "", b.get("use", ""),
+                   [(x["floor"], x.get("m2")) for x in floors], ("#EAF6EE", "#9FD3B0", ui.THEMES["green_strong"][0]))]
+        if att:
+            sub = sum(float(a.get("m2") or 0) for a in att)
+            groups.append(("附屬建物", round(sub, 2), "", [(a["use"], a.get("m2")) for a in att],
+                           ("#FFF4E5", "#F2C88A", "#B26A00")))
+        per_row = 7
+        for r, (name, total, use, cells, (tint, edge, accent)) in enumerate(groups):
+            hd = tk.Frame(f, bg="white")
+            hd.grid(row=r, column=0, sticky="nw", padx=(0, 14), pady=(0 if r == 0 else 8, 0))
+            tk.Label(hd, text=name, font=ui.FB, fg=accent, bg="white", anchor="w").pack(anchor="w")
+            if total:                # 合計：㎡ 跟 坪 都列
+                tk.Label(hd, text=f"{self._num(total)}㎡", font=ui.FB, fg=INK, bg="white", anchor="w").pack(anchor="w")
+                if self._ping(total):
+                    tk.Label(hd, text=f"{self._ping(total)} 坪", font=ui.FB, fg=accent, bg="white", anchor="w").pack(anchor="w")
+            if use:
+                tk.Label(hd, text=use, font=ui.FS, fg=INK2, bg="white", anchor="w").pack(anchor="w")
+            box = tk.Frame(f, bg="white")
+            box.grid(row=r, column=1, sticky="nw", pady=(0 if r == 0 else 8, 0))
+            if not cells:            # 沒有分層面積(便民系統查不到)→只列層次名稱
+                tk.Label(box, text=b.get("floor", "") or "—", font=ui.F, fg=INK2, bg="white", justify="left",
+                         wraplength=max(300, self.W - 420)).pack(anchor="w", pady=(2, 0))
+                continue
+            for k, (lbl, m2) in enumerate(cells):
+                c = tk.Frame(box, bg=tint, highlightthickness=1, highlightbackground=edge, padx=8, pady=3)
+                c.grid(row=k // per_row, column=k % per_row, sticky="nsew", padx=(0, 6), pady=(0, 6))
+                tk.Label(c, text=lbl, font=ui.FS, fg=INK2, bg=tint).pack()
+                tk.Label(c, text=f"{self._num(m2)}㎡", font=ui.FB, fg=INK, bg=tint).pack()
+                if self._ping(m2):
+                    tk.Label(c, text=f"{self._ping(m2)} 坪", font=ui.FS, fg=accent, bg=tint).pack()
+            for k in range(min(per_row, len(cells))):
+                box.grid_columnconfigure(k, uniform=f"c{r}")
+        return f
 
     def _lookup_door(self):
         door = self.door_var.get().strip()

@@ -1,5 +1,5 @@
-"""行銷簡報視窗(兩步)：① 選版型與版面 → ② 挑照片(縮圖＋分類＋說明)。
-pick() 回傳 (選用的照片清單, 輸出路徑, 版面, 版型) 或 None(取消)"""
+"""行銷簡報視窗：① 版型與版面 → ② 頁面內容(要哪些頁、用哪份資料，可預覽) → ③ 挑照片 → ④ 整理與確認。
+pick() 回傳 (選用的照片清單, 輸出路徑, 版面, 版型, 專案人員, 封底, 色系, 頁面內容選擇) 或 None(取消)"""
 import os
 import sys
 import queue
@@ -21,6 +21,20 @@ BLUE_BG = "#EAF3FF"
 USED = "#3E83B6"       # 有選用的框色(天空藍)
 COVER = "#B88E3E"      # 封面(金)
 UNUSED = "#CBD5E1"
+LAYOUT = "#7C3AED"      # 格局平面圖(紫)，跟照片分類區隔
+
+
+def _guard_sep(cb, v, p):
+    """下拉選到分隔線 → 退回原本的分類"""
+    from marketing_deck import CAT_SEP
+    last = {"v": v.get()}
+
+    def on_sel(e=None):
+        if v.get() == CAT_SEP:
+            v.set(last["v"])
+        else:
+            last["v"] = v.get()
+    cb.bind("<<ComboboxSelected>>", on_sel, add="+")
 GREEN = "#1B7F3B"
 GOLD_FG = "#8A6416"
 ORANGE = "#B35400"
@@ -29,7 +43,7 @@ EMOJI = "Segoe UI Emoji"
 
 
 def pick(photos, facts, default_out, page="a4l", on_save=None, template="building", suggest="building", show_agents=True,
-         back_cover=False, theme="fzt"):
+         back_cover=False, theme="fzt", get_sections=None):
     from marketing_deck import TEMPLATES
     try:
         import ctypes
@@ -46,11 +60,15 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
     if not TEMPLATES.get(template, (0, 0, 0, 0, False))[4]:
         template = "building"
     state = {"page": page, "template": template, "out": default_out, "show_agents": show_agents, "back_cover": back_cover,
-             "theme": theme}
+             "theme": theme, "sections": None, "sections_tp": None}
+
+    def sel():
+        from marketing_deck import sections_to_sel
+        return sections_to_sel(state["sections"]) if state["sections"] else None
 
     def save():
         if on_save:
-            on_save(state["page"], state["template"], state["show_agents"], state["back_cover"], state["theme"])
+            on_save(state["page"], state["template"], state["show_agents"], state["back_cover"], state["theme"], sel() or {})
 
     step = 1
     while True:
@@ -58,12 +76,25 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
             r = _step_template(root, facts, state, suggest, sc, W)
             step = 2 if r == "next" else 0
         elif step == 2:
-            r = _step_photos(root, photos, facts, state, sc, W)
+            if get_sections and state["sections_tp"] != state["template"]:     # 換了版型 → 單元不同，重新收集
+                try:
+                    state["sections"] = get_sections(state["template"])
+                except Exception as e:
+                    print(f"（收集頁面內容失敗：{e}）", flush=True)
+                    state["sections"] = []
+                state["sections_tp"] = state["template"]
+            if not state["sections"]:
+                step = 3
+                continue
+            r = _step_sections(root, state, facts, sc, W)
             step = {"back": 1, "next": 3}.get(r, 0)
         elif step == 3:
+            r = _step_photos(root, photos, facts, state, sc, W)
+            step = {"back": 2 if state["sections"] else 1, "next": 4}.get(r, 0)
+        elif step == 4:
             r = _step_arrange(root, photos, facts, state, sc, W)
             if r == "back":
-                step = 2
+                step = 3
                 continue
             save()
             _close(root)
@@ -71,7 +102,7 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
                 return None
             chosen = [p for p in photos if p["cat"] != "不使用"]
             return (chosen, state["out"], state["page"], state["template"], state["show_agents"], state["back_cover"],
-                    state["theme"])
+                    state["theme"], sel())
         if step == 0:
             save()
             _close(root)
@@ -86,10 +117,10 @@ def _close(root):
 
 
 def _steps_bar(parent, active):
-    """步驟條：① 版型與版面 → ② 挑照片"""
+    """步驟條：① 版型與版面 → ② 頁面內容 → ③ 挑照片 → ④ 整理與確認"""
     bar = tk.Frame(parent, bg=ui.BG, padx=18, pady=10)
     bar.pack(fill=tk.X)
-    names = ("版型與版面", "挑照片", "整理與確認")
+    names = ("版型與版面", "頁面內容", "挑照片", "整理與確認")
     for i, name in enumerate(names):
         on = i + 1 == active
         done = i + 1 < active
@@ -108,7 +139,7 @@ def _step_template(root, facts, state, suggest, sc, W):
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
     root.protocol("WM_DELETE_WINDOW", lambda: done.set("close"))
-    ui.header(stage, "🎞 行銷簡報", f"{facts.get('short') or facts.get('title', '')}　先選版型與版面，下一步再挑照片")
+    ui.header(stage, "🎞 行銷簡報", f"{facts.get('short') or facts.get('title', '')}　先選版型與版面，下一步選要放哪些頁")
     foot = ui.footer(stage)
     _steps_bar(stage, 1)
     body, _cv = ui.scroll_body(stage)
@@ -312,9 +343,9 @@ def _step_template(root, facts, state, suggest, sc, W):
     paint_themes()
 
     # ---- 頁尾 ----
-    tk.Label(foot, text="選好按「下一步」挑照片；挑照片時也可以按「‹ 上一步」回來改", font=(FAM, 13), fg=INK2,
+    tk.Label(foot, text="選好按「下一步」選頁面內容；之後也可以按「‹ 上一步」回來改", font=(FAM, 13), fg=INK2,
              bg=foot.cget("bg")).pack(side=tk.LEFT)
-    ui.button(foot, "下一步：挑照片  ›", lambda: done.set("next"), "primary").pack(side=tk.RIGHT)
+    ui.button(foot, "下一步：頁面內容  ›", lambda: done.set("next"), "primary").pack(side=tk.RIGHT)
     ui.button(foot, "取消", lambda: done.set("close"), "ghost").pack(side=tk.RIGHT, padx=10)
     root.bind("<Return>", lambda e: done.set("next"))
     root.wait_variable(done)
@@ -329,7 +360,7 @@ def _step_template(root, facts, state, suggest, sc, W):
 
 # ---------------------------------------------------------------- ② 挑照片
 def _step_photos(root, photos, facts, state, sc, W):
-    from marketing_deck import CATS, PAGES, TEMPLATES, caption_of
+    from marketing_deck import CATS, CAT_MENU, CAT_SEP, LAYOUT_CAT, PAGES, TEMPLATES, caption_of
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
@@ -338,7 +369,7 @@ def _step_photos(root, photos, facts, state, sc, W):
     ui.header(stage, f"🎞 行銷簡報（{tname}・{PAGES.get(state['page'], PAGES['a4l'])[0]}）",
               f"{facts.get('short') or facts.get('title', '')}　替照片選分類、照片下方可改說明（會記住，下次自動帶回）")
     foot = ui.footer(stage)
-    _steps_bar(stage, 2)
+    _steps_bar(stage, 3)
 
     # 上方：分類統計
     top = tk.Frame(stage, bg=ui.BG, padx=16, pady=2)
@@ -358,7 +389,7 @@ def _step_photos(root, photos, facts, state, sc, W):
             c = v.get()
             p["cat"] = c
             cnt[c] = cnt.get(c, 0) + 1
-            fr.configure(highlightbackground=COVER if c == "封面" else (USED if c != "不使用" else UNUSED),
+            fr.configure(highlightbackground=COVER if c == "封面" else LAYOUT if c == LAYOUT_CAT else (USED if c != "不使用" else UNUSED),
                          highlightthickness=3 if c != "不使用" else 1)
         used = [f"{c} {cnt[c]}" for c in CATS if c != "不使用" and cnt.get(c)]
         stat.configure(text=("已選：" + "・".join(used)) if used else "還沒選任何照片（把分類從「不使用」改成要放的頁面）")
@@ -373,7 +404,9 @@ def _step_photos(root, photos, facts, state, sc, W):
         name = ("⭐ " if p["ad"] else "") + p["name"]
         tk.Label(fr, text=name, font=(FAM, 12), fg=INK, bg="white", wraplength=TW, justify="left").pack(anchor="w", pady=(4, 2))
         v = tk.StringVar(master=root, value=p["cat"])
-        ttk.Combobox(fr, textvariable=v, values=CATS, state="readonly", font=(FAM, 13), width=10).pack(anchor="w")
+        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", font=(FAM, 13), width=10)
+        cb.pack(anchor="w")
+        _guard_sep(cb, v, p)
         v.trace_add("write", refresh)
         # 說明(照片上的小字條)：預設用檔名描述，可以改；清空＝不顯示說明
         cap = tk.StringVar(master=root, value=p["cap"] if "cap" in p else caption_of(p))
@@ -477,13 +510,191 @@ def _step_photos(root, photos, facts, state, sc, W):
     return r if r in ("back", "next") else None
 
 
+# ---------------------------------------------------------------- ② 頁面內容
+def _thumb(path, w, h, zoom_w=None):
+    """縮圖(PDF 取第一頁)→ PIL Image；讀不到回 None"""
+    try:
+        if path.lower().endswith(".pdf"):
+            import fitz
+            doc = fitz.open(path)
+            pg = doc[0]
+            z = (zoom_w or w * 2) / max(pg.rect.width, 1)
+            pix = pg.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
+            im = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            doc.close()
+        else:
+            im = Image.open(path)
+            im.draft("RGB", (w * 2, h * 2))
+            im = ImageOps.exif_transpose(im).convert("RGB")
+        im.thumbnail((w, h))
+        return im
+    except Exception:
+        return None
+
+
+def _preview(root, path, title):
+    """點縮圖 → 大圖預覽(佔螢幕 85%)；可用預設程式開原檔"""
+    top = tk.Toplevel(root)
+    top.title(f"預覽：{title}")
+    top.configure(bg="#1E293B")
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    W, H = int(sw * 0.85), int(sh * 0.85)
+    top.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
+    bar = tk.Frame(top, bg="#1E293B", padx=12, pady=8)
+    bar.pack(fill=tk.X, side=tk.BOTTOM)
+    tk.Label(bar, text=os.path.basename(path), font=(FAM, 13, "bold"), fg="white", bg="#1E293B").pack(side=tk.LEFT)
+    ui.button(bar, "關閉", top.destroy, "ghost").pack(side=tk.RIGHT)
+    ui.button(bar, "用預設程式開啟原檔", lambda: os.startfile(path), "ghost").pack(side=tk.RIGHT, padx=(0, 8))
+    lab = tk.Label(top, text="載入中…", font=(FAM, 16), fg="white", bg="#1E293B")
+    lab.pack(fill=tk.BOTH, expand=True)
+    im = _thumb(path, W - 40, H - 90, zoom_w=(W - 40) * 1.5)
+    if im is None:
+        lab.configure(text="這個檔案無法預覽，請用「用預設程式開啟原檔」")
+        return
+    ph = ImageTk.PhotoImage(im)
+    lab.configure(image=ph, text="")
+    lab.image = ph
+    top.bind("<Escape>", lambda e: top.destroy())
+    top.transient(root)
+    top.focus_set()
+
+
+def _step_sections(root, state, facts, sc, W):
+    """每個單元一張卡：大勾選＝要不要這頁；有好幾份資料的列出縮圖(點縮圖放大預覽)，勾選要用哪幾份"""
+    from marketing_deck import PAGES, TEMPLATES
+    stage = tk.Frame(root, bg=ui.BG)
+    stage.pack(fill=tk.BOTH, expand=True)
+    done = tk.StringVar(master=root)
+    tname = TEMPLATES.get(state["template"], TEMPLATES["building"])[1]
+    ui.header(stage, f"🎞 行銷簡報（{tname}・{PAGES.get(state['page'], PAGES['a4l'])[0]}）",
+              f"{facts.get('short') or facts.get('title', '')}　勾選要放哪些頁、用哪份資料（點縮圖可放大預覽；會記住）")
+    foot = ui.footer(stage)
+    _steps_bar(stage, 2)
+    tk.Label(stage, text="封面、基本資料、照片頁一定會有；照片在下一步挑。", font=(FAM, 13), fg=MUTED, bg=ui.BG,
+             anchor="w").pack(fill=tk.X, padx=20)
+    body, canvas = ui.scroll_body(stage)
+    TW, TH = int(150 * sc), int(112 * sc)
+    cols = max(3, (W - 120) // (TW + 30))
+    jobs = []                 # (縮圖 Label, 路徑) → 背景載入
+    keep = []
+    q = queue.Queue()
+    alive = {"on": True}
+    blank = tk.PhotoImage(master=root, width=TW, height=TH)      # 縮圖還沒載好前的空白(要留著參照，否則被回收)
+    keep.append(blank)
+
+    for sec in state["sections"]:
+        card = tk.Frame(body, bg="white", highlightthickness=1, highlightbackground=UNUSED, padx=14, pady=10)
+        card.pack(fill=tk.X, pady=6)
+        head = tk.Frame(card, bg="white")
+        head.pack(fill=tk.X)
+        on = tk.BooleanVar(master=root, value=sec["on"])
+        ui.big_check(head, on, enabled=not sec["empty"]).pack(side=tk.LEFT)
+        tl = tk.Label(head, text=sec["title"], font=(FAM, 17, "bold"), fg=INK if not sec["empty"] else MUTED, bg="white",
+                      cursor="hand2")
+        tl.pack(side=tk.LEFT, padx=(10, 0))
+        tk.Label(head, text=sec["empty"] or sec["desc"], font=(FAM, 13), fg=ORANGE if sec["empty"] else INK2, bg="white",
+                 wraplength=W - 420, justify="left").pack(side=tk.LEFT, padx=(14, 0))
+
+        def paint(*_, card=card, on=on):
+            card.configure(highlightbackground=USED if on.get() else UNUSED, highlightthickness=2 if on.get() else 1)
+        if not sec["empty"]:
+            tl.bind("<Button-1>", lambda e, on=on: on.set(not on.get()))
+
+        def on_toggle(*_, sec=sec, on=on):
+            sec["on"] = on.get()
+            paint()
+        on.trace_add("write", on_toggle)
+        paint()
+        if not sec["cands"]:
+            continue
+        grid = tk.Frame(card, bg="white")
+        grid.pack(fill=tk.X, pady=(8, 0), padx=(40, 0))
+        for i, (path, label) in enumerate(sec["cands"]):
+            cell = tk.Frame(grid, bg="white", padx=4, pady=4)
+            cell.grid(row=i // cols, column=i % cols, sticky="n", padx=4, pady=4)
+            th = tk.Label(cell, bg="#E2E8F0", cursor="hand2", bd=0, image=blank)
+            th.pack()
+            th.bind("<Button-1>", lambda e, p=path, t=label: _preview(root, p, t))
+            jobs.append((th, path))
+            v = tk.BooleanVar(master=root, value=path in sec["pick"])
+            row = tk.Frame(cell, bg="white")
+            row.pack(fill=tk.X, pady=(4, 0))
+            ui.big_check(row, v).pack(side=tk.LEFT)
+            tk.Label(row, text=label, font=(FAM, 11, "bold"), fg=INK, bg="white", wraplength=TW - 30, justify="left",
+                     anchor="w").pack(side=tk.LEFT, padx=(4, 0))
+
+            def on_pick(*_, sec=sec, path=path, v=v, on=on):
+                if v.get():
+                    if path not in sec["pick"]:
+                        sec["pick"].append(path)
+                    if not sec["multi"]:              # 單選：勾這個就取消別的
+                        for o_path, o_var in sec["_vars"]:
+                            if o_path != path and o_var.get():
+                                o_var.set(False)
+                    if not on.get():
+                        on.set(True)
+                else:
+                    if path in sec["pick"]:
+                        sec["pick"].remove(path)
+            v.trace_add("write", on_pick)
+            sec.setdefault("_vars", []).append((path, v))
+        tk.Label(card, text="（點縮圖放大預覽）" + ("　可勾選多份，每份一頁" if sec["multi"] else "　只能選一份"),
+                 font=(FAM, 11), fg=MUTED, bg="white").pack(anchor="w", padx=(44, 0))
+
+    def loader():
+        for th, path in jobs:
+            if not alive["on"]:
+                return
+            q.put((th, _thumb(path, TW, TH)))
+
+    def pump():
+        if not alive["on"]:
+            return
+        try:
+            while True:
+                th, im = q.get_nowait()
+                if im is not None:
+                    ph = ImageTk.PhotoImage(im)
+                    keep.append(ph)
+                    try:
+                        th.configure(image=ph)
+                    except tk.TclError:
+                        pass
+        except queue.Empty:
+            pass
+        root.after(80, pump)
+    threading.Thread(target=loader, daemon=True).start()
+    root.after(80, pump)
+
+    root.protocol("WM_DELETE_WINDOW", lambda: done.set("close"))
+    btns = tk.Frame(foot, bg=foot.cget("bg"))
+    btns.pack(side=tk.RIGHT)
+    ui.button(btns, "‹ 上一步", lambda: done.set("back"), "ghost").pack(side=tk.LEFT, padx=(0, 8))
+    ui.button(btns, "取消", lambda: done.set("close"), "ghost").pack(side=tk.LEFT, padx=(0, 8))
+    ui.button(btns, "下一步：挑照片  ›", lambda: done.set("next"), "primary").pack(side=tk.LEFT)
+    root.wait_variable(done)
+    alive["on"] = False
+    for sec in state["sections"]:
+        sec.pop("_vars", None)
+        if sec["cands"] and sec["on"] and not sec["pick"]:      # 勾了單元卻一份都沒選 → 當作不要這頁
+            sec["on"] = False
+    r = done.get()
+    try:
+        stage.destroy()
+    except tk.TclError:
+        pass
+    return r if r in ("back", "next") else None
+
+
 # ---------------------------------------------------------------- ③ 整理與確認
 SEL_BG = "#EAF3FF"      # 已選用區(淡藍)
 OFF_BG = "#EEF1F5"      # 不使用區(淡灰)
 
 
 def _step_arrange(root, photos, facts, state, sc, W):
-    from marketing_deck import CATS, PAGES, TEMPLATES, PHOTO_PAGES, caption_of, guess_cat, ordered, split_pages
+    from marketing_deck import CATS, CAT_MENU, CAT_SEP, LAYOUT_CAT, PAGES, TEMPLATES, PHOTO_PAGES, STREET_PHOTO_PAGES, caption_of, guess_cat, ordered, split_pages
+    if state.get("template") == "villa":                # 透天・店面版的照片頁分法不同(外觀街景在前)
+        PHOTO_PAGES = STREET_PHOTO_PAGES
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
@@ -493,7 +704,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
     ui.header(stage, f"🎞 行銷簡報（{tname}・{PAGES.get(state['page'], PAGES['a4l'])[0]}）",
               f"{facts.get('short') or facts.get('title', '')}　確認每頁放哪些照片、順序、封面與說明，好了就產生")
     foot = ui.footer(stage)
-    _steps_bar(stage, 3)
+    _steps_bar(stage, 4)
 
     # 上方工具列：封面顯示專案人員
     tool = tk.Frame(stage, bg=ui.BG, padx=16, pady=4)
@@ -768,7 +979,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
         return b
 
     def sel_tile(parent, p, items, idx, over):
-        color = COVER if p["cat"] == "封面" else (ORANGE if over else USED)
+        color = COVER if p["cat"] == "封面" else LAYOUT if p["cat"] == LAYOUT_CAT else (ORANGE if over else USED)
         fr = tk.Frame(parent, bg="white", highlightthickness=2, highlightbackground=color, padx=6, pady=6)
         img = want_thumb(p["path"], False)
         lb = tk.Label(fr, image=img or blank_big, bg="#E2E8F0", bd=0)
@@ -784,9 +995,9 @@ def _step_arrange(root, photos, facts, state, sc, W):
         tk.Label(top, text=nm if len(nm) <= 13 else nm[:12] + "…", font=(FAM, 11), fg=INK2, bg="white").pack(side=tk.LEFT, padx=4)
         caption_entry(fr, p)
         v = tk.StringVar(master=root, value=p["cat"])
-        cb = ttk.Combobox(fr, textvariable=v, values=CATS, state="readonly", font=(FAM, 12), width=10)
+        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", font=(FAM, 12), width=10)
         cb.pack(fill=tk.X, pady=(4, 0))
-        cb.bind("<<ComboboxSelected>>", lambda e: set_cat(p, v.get()))
+        cb.bind("<<ComboboxSelected>>", lambda e: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set(p["cat"]))
         row = tk.Frame(fr, bg="white")
         row.pack(fill=tk.X, pady=(4, 0))
         if items is not None:
@@ -809,7 +1020,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
         sel.pack(fill=tk.X, pady=(0, 12))
         used = [p for p in photos if p["cat"] != "不使用"]
         tk.Label(sel, text=f"✔ 已選用（{len(used)} 張）— 依簡報頁面順序；可用滑鼠拖曳照片排序或換頁", font=(FAM, 17, "bold"), fg=BLUE, bg=SEL_BG).pack(anchor="w")
-        groups = [("封面", ("封面",), 1)] + list(PHOTO_PAGES)
+        groups = [("封面", ("封面",), 1), (LAYOUT_CAT, (LAYOUT_CAT,), 99)] + list(PHOTO_PAGES)
         for title, cats, cap in groups:
             items = ordered([p for p in photos if p["cat"] in cats])
             gh = tk.Frame(sel, bg=SEL_BG)
@@ -818,6 +1029,9 @@ def _step_arrange(root, photos, facts, state, sc, W):
             hint = f"{len(items)} 張"
             if title == "封面" and not items:
                 hint = "還沒指定 → 會自動用第一張陽台景觀或外觀照（按照片上的 ★封面 指定）"
+            elif title == LAYOUT_CAT:
+                hint = (f"{len(items)} 張，每張自己一頁（左圖、右邊格局重點），放在照片頁前面" if items else
+                        "沒有選 → 會自動找 0.謄本／4.其他相關 裡檔名有「平面圖、格局」的圖")
             elif title != "封面" and len(items) > cap:
                 hint += f"（每頁最多 {cap} 張，會平均分成 {len(split_pages(len(items), cap))} 頁：{'＋'.join(map(str, split_pages(len(items), cap)))} 張）"
             tk.Label(gh, text=hint, font=(FAM, 13), fg=ORANGE if (title != "封面" and len(items) > cap) else INK2,
@@ -858,10 +1072,10 @@ def _step_arrange(root, photos, facts, state, sc, W):
             draggable(lb, p)
             tk.Label(fr, text=(("⭐" if p["ad"] else "") + p["name"])[:14], font=(FAM, 10), fg=INK2, bg="white").pack(anchor="w")
             v = tk.StringVar(master=root, value="放到…")
-            cb = ttk.Combobox(fr, textvariable=v, values=[c for c in CATS if c != "不使用"], state="readonly",
+            cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU[:-2], state="readonly",
                               font=(FAM, 11), width=8)
             cb.pack(fill=tk.X)
-            cb.bind("<<ComboboxSelected>>", lambda e, p=p, v=v: set_cat(p, v.get()))
+            cb.bind("<<ComboboxSelected>>", lambda e, p=p, v=v: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set("放到…"))
         canvas.update_idletasks()
         canvas.configure(scrollregion=canvas.bbox("all"))
     render()

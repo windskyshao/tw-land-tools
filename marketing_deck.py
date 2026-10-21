@@ -59,7 +59,7 @@ PAGE_CHOICES = [("a4l", "A4 橫式", "印成 A4 滿版（建議）", 297, 210, T
 # 版型(依物件型式)：key → (圖示, 名稱, 適用, 包含頁面, 可用)
 TEMPLATES = {
     "building": ("🏢", "大樓・華廈", "公寓、華廈、大樓、套房", "封面・基本資料・總覽・成果圖・室內・景觀・公設・行情", True),
-    "villa": ("🏡", "透天・豪墅", "透天厝、別墅、豪墅", "大字版・樓層分布・頂樓露台・庭院・生活圈", False),
+    "villa": ("🏪", "透天・店面", "透天厝、透天店面、別墅", "滿版封面・物件亮點・樓層配置・周邊機能・街景（不用公司外框）", True),
     "office": ("🏬", "辦公・店面", "辦公室、商辦、店面", "樓層・面寬・管理・適合行業・商圈", False),
     "factory": ("🏭", "廠房・倉庫", "廠房、廠辦、倉庫", "坪數・挑高・電力・天車・卸貨・工廠登記", False),
     "land": ("🗺", "土地・建地", "建地、重劃區土地", "地籍圖・使用分區・面寬深度・臨路・開發試算", False),
@@ -100,6 +100,8 @@ THEMES = {
     "slate": dict(name="都會灰藍", desc="簡約俐落・廠辦店面", head=("37474F", "8FA4AF"), foot=("263238", "607D8B"),
                   sky="546E7A", sky_dk="263238", num="455A64", bg="F6F8F9", panel="ECEFF1", line="CFD8DC"),
 }
+THEMES["street"] = dict(name="炭灰琥珀", desc="店面街邊・透天專用(不用公司外框)", head=None, foot=None,
+                        sky="B45309", sky_dk="1F2933", num="B45309", bg="FAF7F2", panel="F1ECE4", line="E2DACD")
 THEME = "fzt"
 
 
@@ -120,8 +122,15 @@ def _Y(v):
 IMG_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 
 # 照片分類(挑照片視窗的下拉選單)；依檔名關鍵字猜
-CATS = ["封面", "大樓外觀", "大廳公設", "客廳", "餐廳廚房", "臥室", "衛浴", "其他空間", "陽台景觀", "前後陽台", "車位", "不使用"]
+LAYOUT_CAT = "格局平面圖"      # 不是照片頁：每張自己一頁「格局平面圖」(左圖右重點)，放在照片頁前面
+STREET_CAT = "周邊街景"
+CATS = ["封面", "大樓外觀", STREET_CAT, "大廳公設", "客廳", "餐廳廚房", "臥室", "衛浴", "其他空間", "陽台景觀", "前後陽台", "車位",
+        LAYOUT_CAT, "不使用"]
+CAT_SEP = "──────────"       # 下拉選單裡的分隔線(選到會自動退回)，把「格局平面圖」跟照片分類隔開
+CAT_MENU = CATS[:-2] + [CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
 _GUESS = [
+    (LAYOUT_CAT, ("平面圖", "格局", "配置圖", "floorplan", "floor_plan", "layout")),
+    (STREET_CAT, ("街景", "周邊", "週邊", "街道", "路口", "巷口", "商圈", "street")),
     ("車位", ("停車", "車位", "車道", "parking")),
     ("前後陽台", ("洗衣", "工作陽台", "前陽台", "後陽台", "生活陽台")),
     ("其他空間", ("儲藏", "更衣", "玄關", "走道")),
@@ -157,7 +166,7 @@ def _fmt_money_wan(v):
     n = _num(v)
     if n is None:
         return str(v or "")
-    return f"{n:,.0f}" if n == int(n) else f"{n:,.1f}"
+    return f"{n:,.0f}" if n == int(n) else f"{n:,.2f}".rstrip("0").rstrip(".")      # 6.25 萬不要變 6.2
 
 
 _CN = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
@@ -258,10 +267,12 @@ def load_settings(case_dir, photos):
             photos.append({"path": path, "name": os.path.basename(path), "ad": False, "cat": guess_cat(path), "added": True})
             have.add(os.path.basename(path).lower())
     n = 0
+    old = (st.get("version") or 1) < 2          # 舊設定還沒有「格局平面圖」分類 → 當時存的「不使用」不算數
     for p in photos:
         v = saved.get(p["name"].lower())
         if v:
-            p["cat"] = v.get("cat", p["cat"])
+            if not (old and v.get("cat") == "不使用" and p["cat"] == LAYOUT_CAT):
+                p["cat"] = v.get("cat", p["cat"])
             if "cap" in v:
                 p["cap"] = v["cap"]
             for k in ("order", "prev"):
@@ -272,15 +283,16 @@ def load_settings(case_dir, photos):
     return st
 
 
-def save_settings(case_dir, photos, page, template="building", show_agents=True, back_cover=False, theme="fzt"):
+def save_settings(case_dir, photos, page, template="building", show_agents=True, back_cover=False, theme="fzt", sections=None):
     """記住這次挑的照片分類/說明/版面(存在案件資料夾 4.其他相關)"""
-    st = {"version": 1, "saved": datetime.now().strftime("%Y-%m-%d %H:%M"), "page": page, "template": template,
+    st = {"version": 2, "saved": datetime.now().strftime("%Y-%m-%d %H:%M"), "page": page, "template": template,
           "photos": {p["name"].lower(): dict({"cat": p["cat"]}, **({"cap": p["cap"]} if "cap" in p else {}),
                                              **({"order": p["order"]} if "order" in p else {}),
                                              **({"prev": p["prev"]} if "prev" in p else {}))
                      for p in photos},      # 說明只記「使用者改過的」，沒改過的下次依分類/檔名自動帶
           "extra": [p["path"] for p in photos if p.get("added")],
-          "show_agents": show_agents, "back_cover": back_cover, "theme": theme}
+          "show_agents": show_agents, "back_cover": back_cover, "theme": theme,
+          "sections": sections or {}}
     try:
         os.makedirs(os.path.dirname(settings_path(case_dir)), exist_ok=True)
         with open(settings_path(case_dir), "w", encoding="utf-8") as f:
@@ -293,7 +305,12 @@ def save_settings(case_dir, photos, page, template="building", show_agents=True,
 PHOTO_PAGES = [("室內精選｜客餐廳", ("客廳", "餐廳廚房"), 4),
                ("室內精選｜臥室・衛浴", ("臥室", "衛浴", "其他空間"), 4),
                ("景觀・陽台", ("陽台景觀", "前後陽台"), 3),
-               ("大樓外觀・公設", ("大樓外觀", "大廳公設", "車位"), 4)]
+               ("大樓外觀・公設", ("大樓外觀", "大廳公設", "車位"), 4),
+               ("周邊環境・街景", (STREET_CAT,), 4)]
+# 透天・店面版的照片頁：店面先看外觀、街景
+STREET_PHOTO_PAGES = [("外觀・周邊街景", ("大樓外觀", STREET_CAT, "車位"), 4),
+                      ("室內空間", ("客廳", "餐廳廚房", "臥室", "衛浴", "其他空間"), 4),
+                      ("景觀・陽台", ("陽台景觀", "前後陽台", "大廳公設"), 3)]
 
 
 def split_pages(n, cap):
@@ -312,6 +329,8 @@ def ordered(items):
 
 def guess_cat(name):
     n = name.lower()
+    if "成果圖" in n:                      # 建物測量成果圖另有專頁，不當照片
+        return "不使用"
     for cat, keys in _GUESS:
         if any(k in n for k in keys):
             return cat
@@ -388,9 +407,45 @@ def facts(d):
     attach = d.get("附屬建物") or {}
     attach_txt = "、".join(f"{k}{v}" for k, v in attach.items()) if isinstance(attach, dict) else ""
     out = _facts_dict(d, door, door_short, floor, total_fl, age, layout, park_txt, points, elev, attach_txt)
+    # 透天/店面：各層面積、樓層範圍、面臨道路、適合行業
+    fl = []
+    for k, v in (d.get("主建物") or {}).items():
+        n = _num(v)
+        if n:
+            fl.append((k, n))
+    fl.sort(key=lambda x: _floor_order(x[0]))
+    out["floors"] = fl
+    nums = [_cn_int(k) for k, _ in fl if "地下" not in k and _cn_int(k)]
+    if len(nums) >= 2 and total_fl:
+        out["floor"] = f"{min(nums)}~{max(nums)} 樓 / 共 {total_fl} 樓"
+    out["road_w"] = f"{_fmt_money_wan(d.get('面臨道路'))} 米" if _num(d.get("面臨道路")) else ""
+    tr = d.get("適合行業別") or {}
+    trades = [k for k, v in tr.items() if v is True and not k.startswith("其他")] if isinstance(tr, dict) else []
+    if isinstance(tr, dict) and tr.get("其他_checked") and str(tr.get("其他_text", "")).strip():
+        trades.append(str(tr["其他_text"]).strip())
+    out["trades"] = trades
+    out["above"] = total_fl
+    out["below"] = _cn_int(d.get("地下層數", "")) if d.get("地下層數") else None
+    out["use"] = d.get("用途", "")
     if not str(out["price"]).strip():            # 沒填價格 → 顯示「洽詢」(不要只剩一個「萬」字)
         out["price"], out["price_unit"] = "洽詢", ""
     return out
+
+
+def _floor_order(name):
+    """樓層排序：地下 → 一層、二層… → 夾層等 → 屋頂突出物"""
+    n = _cn_int(name) or 0
+    if "地下" in name:
+        return (0, -n)
+    if "屋頂" in name or "突出" in name:
+        return (3, 0)
+    return (1, n) if n else (2, 0)
+
+
+def _zero(v):
+    """「0」「0.00」「0.00 坪」這種沒有數值的欄位(透天沒有公設)→ 不顯示"""
+    n = _num(re.sub(r"[^\d.,-]", "", str(v or "")) or None)
+    return n is not None and n == 0
 
 
 def _facts_dict(d, door, door_short, floor, total_fl, age, layout, park_txt, points, elev, attach_txt):
@@ -738,6 +793,81 @@ def parcel_dims(pdf):
             "edges": sorted([round(math.dist(a, b) * k, 1) for a, b, _ in edges], reverse=True)}
 
 
+def plan_dims(pdf, floor_m2=None):
+    """建物測量成果圖(向量檔)→ 平面圖外框 (短邊, 長邊) 公尺；掃描檔、量不出來、或面積跟登記差太多 → None。
+    做法：平面圖標籤旁的比例尺 → 平面圖區內的線段依端點相連分群(相碰的再併)→ 最大那群的最小外接矩形。
+    floor_m2(該層登記面積 ㎡)有給就驗證：量出來的面積要在 0.7～1.4 倍之間才算數(寧可不給，不給錯的)"""
+    import fitz
+    from shapely.geometry import MultiPoint
+    doc = fitz.open(pdf)
+    pg = doc[0]
+    words = pg.get_text("words")
+    labs = [w for w in words if w[4].strip() in ("平面圖", "平面圖比例尺")]
+    if not labs:
+        return None
+    lab = min(labs, key=lambda w: w[1])
+    scs = [(abs(w[0] - lab[2]), w) for w in words
+           if re.fullmatch(r"1[/:]\d{2,4}", w[4]) and abs(w[1] - lab[1]) < 6 and w[0] > lab[0]]
+    if not scs:
+        return None
+    scale = int(re.split(r"[/:]", min(scs)[1][4])[1])
+    pos = next((w for w in words if "位置圖" in w[4] and abs(w[1] - lab[1]) < 6), None)
+    x0 = (pos[2] + lab[0]) / 2 + 40 if pos and pos[0] < lab[0] else pg.rect.x0
+    note = next((w for w in words if "本建物係" in w[4] or w[4].startswith("二、") or w[4].startswith("一、本建物")), None)
+    region = fitz.Rect(x0, lab[3] + 2, pg.rect.x1 - 150, note[1] - 2 if note else pg.rect.y1)
+    segs = []
+    for dr in pg.get_drawings():
+        for it in dr["items"]:
+            if it[0] == "l" and region.contains(it[1]) and region.contains(it[2]) and it[1].distance_to(it[2]) > 0.5:
+                segs.append(((it[1].x, it[1].y), (it[2].x, it[2].y)))
+    if len(segs) < 4:
+        return None
+    par = {}
+
+    def find(x):
+        while par.setdefault(x, x) != x:
+            par[x] = par[par[x]]
+            x = par[x]
+        return x
+
+    def key(p):
+        return round(p[0] * 2), round(p[1] * 2)
+    for a, b in segs:
+        par[find(key(a))] = find(key(b))
+    groups = {}
+    for a, b in segs:
+        groups.setdefault(find(key(a)), []).extend([a, b])
+    boxes = []
+    for g in groups.values():
+        xs, ys = [q[0] for q in g], [q[1] for q in g]
+        boxes.append([min(xs) - 3, min(ys) - 3, max(xs) + 3, max(ys) + 3, list(g)])
+    merged = True
+    while merged:
+        merged = False
+        for i in range(len(boxes)):
+            for j in range(i + 1, len(boxes)):
+                A, B = boxes[i], boxes[j]
+                if A[0] <= B[2] and B[0] <= A[2] and A[1] <= B[3] and B[1] <= A[3]:
+                    A[:4] = [min(A[0], B[0]), min(A[1], B[1]), max(A[2], B[2]), max(A[3], B[3])]
+                    A[4] += B[4]
+                    del boxes[j]
+                    merged = True
+                    break
+            if merged:
+                break
+    pts = max((b[4] for b in boxes), key=lambda g: MultiPoint(g).convex_hull.area)
+    if len(pts) < 3:
+        return None
+    c = list(MultiPoint(pts).minimum_rotated_rectangle.exterior.coords)
+    k = 25.4 / 72 * scale / 1000
+    a, b = sorted((math.dist(c[0], c[1]) * k, math.dist(c[1], c[2]) * k))
+    if a < 2 or b > 80:
+        return None
+    if floor_m2 and not (0.7 <= a * b / floor_m2 <= 1.4):
+        return None
+    return round(a, 2), round(b, 2)
+
+
 def cadastral_scale(pdf):
     """地籍圖比例尺文字(例：1/500)"""
     try:
@@ -1067,7 +1197,15 @@ def slide_basic(deck):
             ("建築結構", f["struct"]),
             ("座向", f["facing"]), ("管理費", f["fee"]), ("電梯", f["elev"]), ("使用分區", f["zone"]),
             ("竣工日期", f["built"]), ("鄰近學校", f["school"]), ("所在商圈", f["district"])]
-    rows = [(k, v) for k, v in rows if str(v).strip() and not str(v).strip().startswith(" 坪") and str(v).strip() != "坪"]
+    rows = [(k, v) for k, v in rows if str(v).strip() and not str(v).strip().startswith(" 坪") and str(v).strip() != "坪"
+            and not _zero(v)]
+    extra = []                                   # 各層面積在成果圖頁已逐層列出，這裡不重複(字太多會被縮得很小)
+    if f.get("road_w"):
+        extra.append(("面臨道路", f["road_w"]))
+    if f.get("trades"):
+        extra.append(("適合行業", "、".join(f["trades"])))
+    rows = rows[:1] + extra + rows[1:]
+    rows = rows[:14]
     ty = y0 + (chh + gy) * 2 + Inches(0.02)
     th = FOOTER_Y - Inches(0.12) - ty
     box(s, x0, ty, SW - Inches(1.0), th, PANEL)
@@ -1230,7 +1368,7 @@ def slide_location(deck, lat, lng):
     return True
 
 
-def find_layouts(roots):
+def find_layouts(roots, limit=2):
     """使用者自己放的格局平面圖(0.謄本、4.其他相關、案件資料夾裡，檔名含「平面圖/格局/配置圖」，不含建物測量成果圖)，最多 2 張"""
     out = []
     for r in roots:
@@ -1240,7 +1378,7 @@ def find_layouts(roots):
                 if (h.lower().endswith((".png", ".jpg", ".jpeg", ".webp", ".pdf")) and re.search(r"平面圖|格局|配置圖", b)
                         and "成果圖" not in b and b.lower() not in {os.path.basename(x).lower() for x in out}):
                     out.append(h)
-    return out[:2]
+    return out[:limit] if limit else out
 
 
 def layout_features(f):
@@ -1329,12 +1467,16 @@ def slide_floorplan(deck, src, cont=False):
     # 總價再秀一次(提醒)
     gold(s, rx, Inches(1.2), rw, Inches(1.05))
     text(s, rx + Inches(0.25), Inches(1.2), Inches(1.4), Inches(1.05), f["price_label"], 18, True, WHITE, anchor=MSO_ANCHOR.MIDDLE)
-    text(s, rx + Inches(1.2), Inches(1.2), rw - Inches(1.4), Inches(1.05), f"{f['price']} {f['price_unit']}", 30, True, WHITE,
+    pt = f"{f['price']} {f['price_unit']}"
+    text(s, rx + Inches(1.2), Inches(1.2), rw - Inches(1.4), Inches(1.05), pt, 30 if len(pt) <= 7 else 24, True, WHITE,
          PP_ALIGN.RIGHT, MSO_ANCHOR.MIDDLE)
     text(s, rx, Inches(2.4), rw, Inches(0.45), "登記面積（坪）", 17, True, SKY_DK)
     rows = [("主建物", f["main"]), ("附屬建物", f["attach"]), ("公共設施", f["public"])]
+    rows = [(k, v) for k, v in rows if str(v).strip() and not _zero(v)]
     if f.get("park_ping"):
         rows.append(("　其中車位", f["park_ping"]))      # 車位坪數含在公設內
+    if f.get("floors") and len(f["floors"]) > 1 and len(rows) <= 2:     # 透天：沒有公設 → 改列各層面積(較有用)
+        rows += [("　" + k, f"{v:g}") for k, v in f["floors"][:4]]
     rows.append(("權狀合計", f["area"]))
     rh, step = (Inches(0.72), Inches(0.84)) if len(rows) <= 4 else (Inches(0.62), Inches(0.72))
     yy = Inches(2.9)
@@ -1463,12 +1605,13 @@ def slide_market(deck, market_img, source, units=None):
     if bottom - note_top > Inches(0.4):
         box(s, lx, note_top, lw, bottom - note_top, PANEL, LINE)
         text(s, lx + Inches(0.2), note_top + Inches(0.06), lw - Inches(0.4), bottom - note_top - Inches(0.12),
+             "行情說明：（請依實價登錄補充周邊近期租金行情與比較）" if f["deal"] == "租" else
              "行情說明：（請依實價登錄補充同社區、周邊近期成交與比較）", 15, False, INK, anchor=MSO_ANCHOR.MIDDLE)
     rx, rw = Inches(10.45), Inches(2.4)
     gold(s, rx, Inches(1.2), rw, Inches(1.9))
     text(s, rx + Inches(0.22), Inches(1.3), rw, Inches(0.45), "本案租金" if f["deal"] == "租" else "本案開價", 16, True, WHITE)
     text(s, rx + Inches(0.22), Inches(1.72), rw - Inches(0.35), Inches(0.75), f"{f['price']} {f['price_unit']}", 32, True, WHITE)
-    if f["unit"]:
+    if f["unit"] and f["deal"] != "租":
         text(s, rx + Inches(0.22), Inches(2.38), rw - Inches(0.35), Inches(0.68), f"建物單價約\n{f['unit']} 萬/坪", 15, True, WHITE,
              spacing=1.0)
     y = Inches(3.3)
@@ -1510,8 +1653,13 @@ def slide_back(deck, phones):
 
 
 # ---------------------------------------------------------------- 主流程
-def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_cover=False):
+def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_cover=False, template="building", sel=None):
+    """sel＝「頁面內容」步驟的選擇 {單元: {on, pick}}；None＝照預設自動帶"""
     f = facts(d)
+    if template == "villa":
+        import marketing_deck_street
+        return marketing_deck_street.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
+                                           show_agents=show_agents, sel=sel)
     tmp = tempfile.mkdtemp(prefix="deck_")
     deck = Deck(f, tmp)
     by = {c: ordered([p for p in chosen if p["cat"] == c]) for c in CATS}
@@ -1539,27 +1687,28 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
             if hits:
                 plans = hits[:3]
                 break
+    plans = sel_paths(sel, "plan", plans)
     cad_pdf = first(os.path.join("0.謄本", "地籍圖謄本*標註*.pdf")) or first(os.path.join("0.謄本", "地籍圖謄本*.pdf"))
-    # 行情：104 實價網(字大)優先，社區那份優先於地段那份；沒有才用內政部截圖
-    market_img, source = None, "內政部實價登錄"
-    p104 = [p for r in roots for p in sorted(glob.glob(os.path.join(r, "3.行情", "104實價登錄-*.pdf")))]
-    p104.sort(key=lambda p: ("段" in os.path.basename(p), os.path.basename(p)))
-    units = None
-    for p in p104:
-        try:
-            r = crop_104(p, tmp, max_ratio=market_ratio())
-            if r:
-                market_img, units = r
-        except Exception as e:
-            log(f"（104 實價截取失敗：{e}）")
-        if market_img:
-            source = "104 行情通實價網"
-            break
-    if not market_img:
-        market_img = first(os.path.join("3.行情", "內政部實價登錄*.png")) or first(os.path.join("3.行情", "*.png"))
+    cad_pages = sel_paths(sel, "cadastral", [cad_pdf] if cad_pdf else [])
+    if cad_pages:
+        cad_pdf = cad_pages[0]
+    # 行情：使用者選的(可多份/不放)；沒選過 → 104(社區優先)、沒有才內政部；租件只用「租賃」那份
+    rent = f["deal"] == "租"
+    market_picks = sel_paths(sel, "market", market_default(roots, rent))
 
-    # 面寬／深度：物件編輯器有填就用；沒填就依地籍圖比例尺量測(標註版有路名可判斷臨路邊)，標明「參考」
+    # 面寬／深度：物件編輯器有填就用；沒填 → 有建物先量建物測量成果圖(向量檔、面積對得上才用)，
+    #   再不行才依地籍圖比例尺量土地(標註版有路名可判斷臨路邊)，都標明「參考」
     f["dims_show"], f["roads_show"] = f["dims"], ""
+    if not f["dims"] and plans and plans[0].lower().endswith(".pdf"):
+        try:
+            big = max([v for _, v in f.get("floors") or []] or [_num(f.get("main")) or 0])
+            pd_ = plan_dims(plans[0], big * 3.30579 if big else None)
+        except Exception as e:
+            pd_ = None
+            log(f"（成果圖量測失敗：{e}）")
+        if pd_:
+            f["dims"] = f["dims_show"] = f"約 {pd_[0]:g}／{pd_[1]:g} 米（依建物測量成果圖，參考）"
+            log(f"面寬／深度：物件編輯器沒填，依建物測量成果圖量測 {f['dims_show']}")
     if cad_pdf:
         try:
             dm = parcel_dims(cad_pdf)
@@ -1575,18 +1724,23 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
     phones = lookup_phones(f["agents"], base_dir)
     log("製作：封面"); slide_cover(deck, cover, phones, show_agents)
     log("製作：基本資料"); slide_basic(deck)
-    log("製作：物件總覽"); slide_overview(deck, map_png)
-    ll = case_coords(case_dir, base_dir, d)
+    if sel_on(sel, "overview"):
+        log("製作：物件總覽"); slide_overview(deck, map_png)
+    ll = case_coords(case_dir, base_dir, d) if sel_on(sel, "location") else None
     if ll:
         log("製作：地理位置（下載國土測繪地圖）")
         slide_location(deck, *ll)
     else:
         log("（data.json 沒有這個案件的座標，略過地理位置頁）")
-    if cad_pdf:
-        log("製作：地籍圖"); slide_cadastral(deck, cad_pdf)
+    for src in cad_pages:
+        log("製作：地籍圖"); slide_cadastral(deck, src)
     for i, src in enumerate(plans):
         log("製作：建物測量成果圖" + (f"（{i + 1}）" if len(plans) > 1 else "")); slide_floorplan(deck, src, cont=i > 0)
-    for i, src in enumerate(find_layouts(roots)):
+    # 格局平面圖：照片裡選了「格局平面圖」的(2.照片)優先，再加 0.謄本/4.其他相關 裡檔名有平面圖/格局的；同檔名只放一次
+    layouts = [p["path"] for p in by[LAYOUT_CAT]]
+    names = {os.path.basename(x).lower() for x in layouts}
+    layouts += [x for x in sel_paths(sel, "layout", find_layouts(roots)) if os.path.basename(x).lower() not in names]
+    for i, src in enumerate(layouts[:6]):
         log(f"製作：格局平面圖（{os.path.basename(src)}）"); slide_layout(deck, src, cont=i > 0)
     log("製作：照片頁")
     for title, cats, cap in PHOTO_PAGES:
@@ -1606,7 +1760,7 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
         for k, size in enumerate(split_pages(len(items), cap)):   # 一頁放不下 → 平均分成幾頁(5 張=3+2，不會剩 1 張孤零零)
             slide_photos(deck, title + ("（續）" if k else ""), items[start:start + size], note)
             start += size
-    log("製作：市場行情"); slide_market(deck, market_img, source, units)
+    market_slides(deck, f, market_picks, tmp)
     if back_cover:
         log("製作：封底"); slide_back(deck, phones)
     unique_shape_ids(deck.prs)
@@ -1617,6 +1771,161 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
     except Exception:
         pass
     return deck.n
+
+
+# ---------------------------------------------------------------- 頁面內容(使用者選要不要、用哪份資料)
+def _globs(roots, *pats):
+    out, seen = [], set()
+    for r in roots:
+        for pat in pats:
+            for h in sorted(glob.glob(os.path.join(r, pat))):
+                k = os.path.basename(h).lower()
+                if k not in seen:
+                    seen.add(k)
+                    out.append(h)
+    return out
+
+
+def _no_data(path):
+    """104 查詢結果 PDF 寫「無成交資料」→ True(這份放進簡報只會是空表)"""
+    if not path.lower().endswith(".pdf"):
+        return False
+    try:
+        import fitz
+        doc = fitz.open(path)
+        t = doc[0].get_text()
+        doc.close()
+        return "無成交資料" in t
+    except Exception:
+        return False
+
+
+def market_default(roots, rent):
+    """沒選過時的行情預設：104(社區那份優先於地段那份，查無資料的不算)；沒有才用內政部截圖。租件只用檔名有「租賃」的"""
+    p104 = [p for p in _globs(roots, os.path.join("3.行情", "104實價登錄-*.pdf"))
+            if ("租賃" in os.path.basename(p)) == rent and not _no_data(p)]
+    p104.sort(key=lambda p: ("段" in os.path.basename(p), os.path.basename(p)))
+    if p104:
+        return [p104[0]]
+    pngs = [p for p in _globs(roots, os.path.join("3.行情", "*.png")) if ("租賃" in os.path.basename(p)) == rent]
+    pick = [p for p in pngs if "內政部實價登錄" in os.path.basename(p)] or pngs
+    return pick[:1]
+
+
+def collect_sections(case_dir, exp, template, d):
+    """「頁面內容」步驟要列的單元(依簡報順序)＋每個單元找得到的資料。
+    回傳 [{key, title, desc, multi, cands:[(路徑, 顯示名)], pick:[預設路徑], on, empty}]
+    empty＝沒資料時的說明(這種單元不能勾)"""
+    f = facts(d)
+    roots = [r for r in (case_dir, exp) if r]
+    rent = f["deal"] == "租"
+    villa = template == "villa"
+    out = []
+
+    def add(key, title, desc, cands=None, pick=None, multi=False, on=True, empty=""):
+        cands = cands if cands is not None else []
+        out.append({"key": key, "title": title, "desc": desc, "multi": multi,
+                    "cands": [(p, _cand_label(p)) for p in cands], "pick": list(pick or []),
+                    "on": bool(on) and (not empty or bool(cands)) and (not cands or bool(pick)),   # 有資料但預設一份都沒選(例：租件沒有租賃行情)→ 先不勾
+                    "empty": empty if not cands else "", "needs": cands is not None})
+
+    if villa:
+        add("overview", "物件亮點", "面寬、臨路、坪數、樓層等數字＋物件特色", None)
+        if f.get("floors"):
+            add("floors", "樓層配置", "各樓層面積長條圖(透天專用)", None)
+    else:
+        add("overview", "物件總覽", "訴求重點＋地圖截圖", None)
+    add("location", "地理位置", "國土測繪中心電子地圖＋航照(需要案件座標)", None)
+    if villa:
+        fac = _globs(roots, os.path.join("1.基本資料", "*重要設施*.pdf"))
+        add("facility", "周邊機能", "重要設施地圖＋距離表", fac, fac[:1], empty="1.基本資料 沒有「重要設施」查詢結果")
+        zon = _globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
+                     os.path.join("1.基本資料", "png", "*都市計畫使用分區*.png"))
+        add("zoning", "使用分區", "都市計畫圖(只取地圖區)＋分區、建蔽容積", zon, zon[:1], empty="1.基本資料 沒有都市計畫截圖")
+    cads = _globs(roots, os.path.join("0.謄本", "地籍圖謄本*標註*.pdf"), os.path.join("0.謄本", "地籍圖謄本*.pdf"))
+    add("cadastral", "地籍圖", "地籍圖謄本(標註版優先)", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
+    plans = _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*.pdf"))
+    imgs = [h for h in _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*")) if h.lower().endswith((".png", ".jpg", ".jpeg"))]
+    add("plan", "建物測量成果圖", "可選多張，每張一頁", plans + imgs, plans[:1] or imgs[:3], multi=True,
+        empty="0.謄本 沒有建物測量成果圖")
+    lays = find_layouts(roots, limit=None)
+    add("layout", "格局平面圖", "0.謄本／4.其他相關 裡檔名有平面圖、格局的圖(2.照片裡的在「挑照片」選分類)", lays, lays[:4],
+        multi=True, on=bool(lays), empty="沒有找到平面圖檔(可在挑照片時把照片分類成「格局平面圖」)")
+    mk = _globs(roots, os.path.join("3.行情", "104實價登錄-*.pdf"), os.path.join("3.行情", "*.png"))
+    mk.sort(key=lambda p: (("租賃" in os.path.basename(p)) != rent, not os.path.basename(p).startswith("104"),
+                           os.path.basename(p)))
+    add("market", "市場行情", "可選 104 實價網、內政部實價，或都不放；選幾份就幾頁" +
+        ("（租件：請選檔名有「租賃」的）" if rent else ""), mk, market_default(roots, rent), multi=True,
+        empty="3.行情 沒有實價資料，請先跑「實價登錄」「104 實價網」")
+    return out
+
+
+def _cand_label(path):
+    b = os.path.splitext(os.path.basename(path))[0]
+    for pre, tag in (("104實價登錄-", "104｜"), ("內政部實價登錄-", "內政部｜"), ("地籍圖謄本-", ""), ("建物測量成果圖-", "")):
+        if b.startswith(pre):
+            b = tag + b[len(pre):]
+            break
+    return b + ("（無成交資料）" if b.startswith("104｜") and _no_data(path) else "")
+
+
+def apply_saved_sections(sections, saved):
+    """上次存的選擇(on、pick)套回去；存的檔案已不存在就用預設"""
+    for sec in sections:
+        sv = (saved or {}).get(sec["key"])
+        if not sv:
+            continue
+        if not sec["empty"]:
+            sec["on"] = bool(sv.get("on", True))
+        if sec["cands"] and "pick" in sv:
+            have = {p for p, _ in sec["cands"]}
+            pk = [p for p in sv["pick"] if p in have]
+            if pk or not sv["pick"]:
+                sec["pick"] = pk
+    return sections
+
+
+def sections_to_sel(sections):
+    return {s["key"]: {"on": s["on"], "pick": list(s["pick"])} for s in sections}
+
+
+def sel_on(sel, key):
+    return not sel or key not in sel or bool(sel[key].get("on", True))
+
+
+def sel_paths(sel, key, default):
+    """這個單元要用的檔案：沒選過 → default；關掉 → []；選過 → 使用者選的(檔案還在的)"""
+    if not sel or key not in sel:
+        return list(default)
+    if not sel[key].get("on", True):
+        return []
+    pk = [p for p in sel[key].get("pick") or [] if os.path.exists(p)]
+    return pk if pk or not sel[key].get("pick") else list(default)
+
+
+def market_slides(deck, f, picks, tmp):
+    """依選的行情檔各做一頁：104 PDF 截表格(字大)、內政部 PNG 直接放"""
+    rent = f["deal"] == "租"
+    n = 0
+    for p in picks:
+        if p.lower().endswith(".pdf"):
+            try:
+                r = crop_104(p, tmp, max_ratio=market_ratio())
+            except Exception as e:
+                r = None
+                log(f"（104 實價截取失敗：{e}）")
+            if not r:
+                log(f"（{os.path.basename(p)} 截不到成交表格，略過）")
+                continue
+            img, units, src = r[0], r[1], "104 行情通實價網"
+        else:
+            img, units, src = p, None, "內政部實價登錄"
+        log(f"製作：市場行情（{_cand_label(p)}）")
+        slide_market(deck, img, src, None if rent else units)
+        n += 1
+    if not picks and rent:
+        log("（行情頁沒有選資料；租件請先重跑「實價登錄」「104 實價網」，會自動查租賃）")
+    return n
 
 
 def unique_shape_ids(prs):
@@ -1646,20 +1955,29 @@ def _pdf_restore_images(pptx_path, pdf_path):
                     im = Image.open(io.BytesIO(shp.image.blob))
                     if im.mode in ("RGBA", "LA", "P"):    # 有透明的(LOGO)換了會失去透明，保留 PowerPoint 版
                         continue
-                    pics.append([shp.image.blob, im.size[0], im.size[1], False])
+                    pics.append([shp.image.blob, im.size[0], im.size[1], False,
+                                 fitz.Rect(shp.left / 12700, shp.top / 12700, (shp.left + shp.width) / 12700,
+                                           (shp.top + shp.height) / 12700)])
                 except Exception:
                     pass
         for info in page.get_images(full=True):
-            xref, w, h = info[0], info[2], info[3]
-            if xref in done or not h:
+            xref, smask, w, h = info[0], info[1], info[2], info[3]
+            if xref in done or not h or smask:            # 有透明遮罩的(外框、LOGO)不換
                 continue
+            try:
+                rects = page.get_image_rects(xref)
+            except Exception:
+                rects = []
             best = None
             for p in pics:
-                if p[3] or p[1] <= w * 1.05:
+                if p[3] or p[1] <= w * 1.05 or abs(p[1] / p[2] - w / h) >= 0.01 * (w / h):
                     continue
-                if abs(p[1] / p[2] - w / h) < 0.01 * (w / h):
-                    best = p
-                    break
+                # ★還要「位置對得上」：只比長寬比會配錯(A4 平面圖跟整頁外框比例幾乎一樣 → 平面圖被貼成整頁背景)
+                if rects and not any(abs(r.x0 - p[4].x0) < 6 and abs(r.y0 - p[4].y0) < 6 and
+                                     abs(r.width - p[4].width) < 8 for r in rects):
+                    continue
+                best = p
+                break
             if best:
                 page.replace_image(xref, stream=best[0])
                 best[3] = True
@@ -1719,6 +2037,7 @@ def main():
     ap.add_argument("--out", default=None, help="輸出檔(測試用)")
     ap.add_argument("--page", default="a4l", choices=list(PAGES), help="a4l=A4 橫式(預設)、169=螢幕 16:9")
     ap.add_argument("--no-open", action="store_true", help="完成後不自動開啟(測試用)")
+    ap.add_argument("--template", default="building", help="--auto 時用的版型(測試用)")
     a = ap.parse_args()
     set_page(a.page)
     d, exp = load_case(a.case_dir, a.base_dir)
@@ -1732,19 +2051,21 @@ def main():
         last = load_settings(a.case_dir, photos)
         sug = suggest_template(d.get("型式", ""))
         res = marketing_deck_ui.pick(photos, facts(d), default_out_path(a.case_dir, exp, d), last.get("page") or a.page,
-                                     on_save=lambda pg, tp, ag, bc, th: save_settings(a.case_dir, photos, pg, tp, ag, bc, th),
+                                     on_save=lambda pg, tp, ag, bc, th, sec: save_settings(a.case_dir, photos, pg, tp, ag, bc, th, sec),
+                                     get_sections=lambda tp: apply_saved_sections(collect_sections(a.case_dir, exp, tp, d),
+                                                                                  last.get("sections")),
                                      template=last.get("template") or "building", suggest=sug,
                                      show_agents=last.get("show_agents", True), back_cover=last.get("back_cover", False),
                                      theme=last.get("theme") or "fzt")
         if not res:
             log("已取消（版型、照片分類與說明已記住，下次打開會帶回）")
             return
-        chosen, out, page, template, show_agents, back_cover, theme = res
+        chosen, out, page, template, show_agents, back_cover, theme, sel = res
         set_page(page)
         set_theme(theme)
         log(f"版型：{TEMPLATES.get(template, TEMPLATES['building'])[1]}　版面：{PAGES[page][0]}　色系：{THEMES[THEME]['name']}")
     n = build(a.case_dir, a.base_dir, d, exp, chosen, out, show_agents if not a.auto else True,
-              back_cover if not a.auto else False)
+              back_cover if not a.auto else False, template if not a.auto else a.template, None if a.auto else sel)
     log(f"✓ 行銷簡報完成（{n} 頁）：{out}")
     log("正在另存一份 PDF（傳 LINE、手機看用 PDF 最不會跑版）…")
     pdf = export_pdf(out)

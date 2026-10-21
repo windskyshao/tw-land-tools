@@ -100,9 +100,19 @@ def apply_memory(case_dir, v, notes):
     case_p, last_p = _mem_paths(case_dir)
     cm = rr._load_json(case_p)
     if isinstance(cm, dict) and cm:
+        editor_agents = [list(a) for a in v.get("經紀人") or []]
         for k in _MEM_KEYS:
             if k in cm:
                 v[k] = cm[k]
+        # 賣方經紀人以物件編輯器「現在的承辦人」為準：承辦人改過(加人/換人) → 用新名單，% 重新平均；
+        #   名單一樣才沿用上次填的 %(否則上次只有 1 人的記憶會蓋掉後來補的承辦人)
+        new_names = [a[0] for a in editor_agents]
+        old_names = [a[0] for a in cm.get("經紀人") or []]
+        if new_names and new_names != old_names:
+            v["經紀人"] = editor_agents
+            _split_even(v)
+            notes.insert(0, ("warn", f"物件編輯器的承辦人已更新（{'、'.join(old_names) or '無'} → {'、'.join(new_names)}），"
+                                     f"賣方經紀人改用新名單、% 已重新平均，請確認"))
         notes.insert(0, ("info", f"已帶入這個案件上次的輸入（{cm.get('_saved', '')}）"))
         return
     lm = rr._load_json(last_p)

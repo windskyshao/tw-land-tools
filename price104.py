@@ -124,6 +124,17 @@ except Exception as e:
     pass
 
 # 通知主程式子程式已完成執行的函數
+def case_deal(case_dir):
+    """案件是租件還是售件(物件編輯器存的 4.其他相關/data_final.json「交易類型」)→ ("租賃"/"買賣", 型式+用途)"""
+    try:
+        with open(os.path.join(case_dir, "4.其他相關", "data_final.json"), encoding="utf-8") as f:
+            d = json.load(f)
+        d = d[0] if isinstance(d, list) and d else d
+        return ("租賃" if "租" in str(d.get("交易類型", "")) else "買賣"), f"{d.get('型式', '')}{d.get('用途', '')}"
+    except Exception:
+        return "買賣", ""
+
+
 def notify_main_program():
     print("104實價網已完成執行", flush=True)
 
@@ -908,7 +919,7 @@ class Login104Woo:
             os.makedirs(save_path, exist_ok=True)
             
             # 準備檔案名稱的基本部分
-            filename_base = f"104實價登錄-{data['area']}{label or data['section']}"  # 例如：104實價登錄-鳳山區鳳甲段(社區那份用社區名)
+            filename_base = f"104實價登錄-{data['area']}{label or data['section']}-{getattr(self, 'deal', '買賣')}"  # 例：104實價登錄-鳳山區鳳甲段-買賣(社區那份用社區名；結尾區分售/租)
             
             # 檢查現有檔案，決定使用哪個字母
             existing_files = [f for f in os.listdir(save_path) if f.startswith(filename_base) and f.endswith('.pdf')]
@@ -1028,6 +1039,23 @@ class Login104Woo:
             print(f"\n========== 開始自動批次查詢 ==========", flush=True)
             print(f"共有 {len(unique_sections)} 個唯一地段需要查詢", flush=True)
 
+            # 🏷 租件(物件編輯器「交易類型」是租件)→ 改查「租賃」行情(社區名 → 門牌路名 → 地段)
+            f0 = data_list[0]
+            deal, kind = case_deal(get_work_folder(f"{f0['area']}{f0['section']}-{f0['lot_number']}"))
+            if "--deal" in sys.argv[:-1] and sys.argv[sys.argv.index("--deal") + 1] in ("買賣", "租賃", "兩者"):
+                deal = sys.argv[sys.argv.index("--deal") + 1]          # 主程式決定的(物件編輯器或使用者選的)為準
+            print(f"查詢類別：{deal}", flush=True)
+            if deal in ("租賃", "兩者"):
+                self.deal = "租賃"
+                print(f"\n========== {'這是租件' if deal == '租賃' else '買賣、租賃都查'}（{kind or '型式未填'}）→ 先查「租賃」行情 ==========",
+                      flush=True)
+                self._rent_batch(data_list, unique_sections, kind)
+                if deal == "租賃":
+                    unique_sections = []
+                else:
+                    print("\n========== 接著查「買賣」行情 ==========", flush=True)
+            self.deal = "買賣" if deal == "兩者" else deal
+
             # 自動逐一查詢每個唯一地段
             for i, data in enumerate(unique_sections, 1):
                 print(f"\n>>> [{i}/{len(unique_sections)}] 正在處理: {data['city']} {data['area']} {data['section']}", flush=True)
@@ -1139,6 +1167,40 @@ class Login104Woo:
             print(f"批次模式發生錯誤: {str(e)}", flush=True)
             self.normal_mode()
 
+    def _rent_batch(self, data_list, unique_sections, kind):
+        """租件：社區名(大樓) → 門牌路名(透天/店面類別「透天」) → 都沒有才用地段，交易類型只勾「租賃」"""
+        th = any(k in (kind or "") for k in ("透天", "店面", "別墅"))
+        for data in unique_sections:
+            try:
+                import landmap_api as _LM
+            except Exception:
+                _LM = None
+            com = data.get("community") or ""
+            if not com and _LM is not None and not th:
+                try:
+                    com = _LM.community_for(data) or ""
+                except Exception:
+                    com = ""
+            if com:
+                print(f"\n>>> 租賃：用社區名查「{com}」", flush=True)
+                self.search_land_info_auto(data, keyword=com, category=None, deal="租賃")
+                self.save_page_as_pdf(label=com)
+                continue
+            roads = []
+            if _LM is not None:
+                try:
+                    roads = _LM.roads_for(data_list, data)
+                except Exception as e:
+                    print(f"取門牌路名失敗: {e}", flush=True)
+            for rd in roads:
+                print(f"\n>>> 租賃：用門牌路名查「{rd}」" + ("（類別：透天）" if th else ""), flush=True)
+                self.search_land_info_auto(data, keyword=rd, category="透天" if th else None, deal="租賃")
+                self.save_page_as_pdf(label=rd)
+            if not roads:
+                print(f"\n>>> 租賃：沒有門牌/社區名，用地段「{data['section']}」查", flush=True)
+                self.search_land_info_auto(data, category=None, deal="租賃")
+                self.save_page_as_pdf()
+
     def _community_door_keywords(self, data, com):
         """社區名 → 阿生地圖實價資料裡這個社區成交的門牌 → 最常見的「路名+號」(例 和平二路236),最多 2 個。"""
         import re
@@ -1159,8 +1221,8 @@ class Login104Woo:
             print(f"取社區門牌失敗: {e}", flush=True)
             return []
 
-    def search_land_info_auto(self, data, keyword=None, category="土地"):
-        """自動查詢地段資訊（無需使用者互動）。keyword=社區名時 category=None(類別不限)"""
+    def search_land_info_auto(self, data, keyword=None, category="土地", deal="買賣"):
+        """自動查詢地段資訊（無需使用者互動）。keyword=社區名時 category=None(類別不限)；deal=買賣/租賃"""
         try:
             # 檢查當前URL並保持在相同的搜尋頁面類型
             current_url = self.driver.current_url
@@ -1270,15 +1332,30 @@ class Login104Woo:
             except Exception as e:
                 print(f"輸入關鍵字時發生錯誤: {str(e)}", flush=True)
 
-            # 5. 勾選「買賣」
+            # 5. 交易類型：只勾 deal(買賣 或 租賃)，其他(法拍/預售/…)取消
+            #    依勾選框旁邊的字判斷(法拍、買賣、預售、租賃)；讀不到字才用名稱 case2=買賣
             try:
-                checkboxes = [inp for inp in inputs if inp.get_attribute("type") == "checkbox"]
-                for checkbox in checkboxes:
-                    if checkbox.get_attribute("name") == "case2":
-                        if not checkbox.is_selected():
-                            checkbox.click()
-                        print("已勾選交易類型: 買賣", flush=True)
-                        break
+                res = self.driver.execute_script(
+                    "var want=arguments[0], out=[];"
+                    "document.querySelectorAll('input[type=checkbox]').forEach(function(c){"
+                    "  var t='', n=c.nextSibling;"
+                    "  for(var k=0;k<3&&n;k++){t+=(n.textContent||'');n=n.nextSibling;}"
+                    "  t=t.replace(/\\s/g,'');"
+                    "  if(!t && c.parentElement){t=(c.parentElement.textContent||'').replace(/\\s/g,'');}"
+                    "  var lab=['法拍','買賣','預售','租賃'].find(function(x){return t.indexOf(x)===0;});"
+                    "  if(!lab){return;}"
+                    "  var on=(lab===want); if(c.checked!==on){c.click();}"
+                    "  out.push(lab+(c.checked?'✔':'✘')+'('+(c.name||'')+')');"
+                    "});"
+                    "return out.join(' ');", deal) or ""
+                if res:
+                    print(f"交易類型: {res}", flush=True)
+                else:
+                    for checkbox in [inp for inp in inputs if inp.get_attribute("type") == "checkbox"]:
+                        if checkbox.get_attribute("name") == "case2":
+                            if checkbox.is_selected() != (deal == "買賣"):
+                                checkbox.click()
+                    print(f"讀不到交易類型的字，用預設欄位(case2=買賣)；要查「{deal}」", flush=True)
             except Exception as e:
                 print(f"設定交易類型時發生錯誤: {str(e)}", flush=True)
 
