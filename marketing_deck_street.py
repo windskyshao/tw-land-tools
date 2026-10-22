@@ -28,7 +28,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     deck.frame = None
     _street_chrome(M, deck, C, f)
     by = {c: M.ordered([p for p in chosen if p["cat"] == c]) for c in M.CATS}
-    cover = (by["封面"] or by["大樓外觀"] or by[M.STREET_CAT] or by["陽台景觀"] or by["客廳"] or [None])[0]
+    cover = (by["封面"] or by[M.EXT_CAT] or by[M.STREET_CAT] or by["陽台景觀"] or by["客廳"] or [None])[0]
     roots = [r for r in (case_dir, exp) if r]
 
     def first(pattern):
@@ -52,7 +52,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
                 plans = hits[:3]
                 break
     plans = M.sel_paths(sel, "plan", plans)
-    cad_pdf = first(os.path.join("0.謄本", "地籍圖謄本*標註*.pdf")) or first(os.path.join("0.謄本", "地籍圖謄本*.pdf"))
+    cad_pdf = first(os.path.join("0.謄本", "*地籍圖*標註*.pdf")) or first(os.path.join("0.謄本", "*地籍圖*.pdf"))
     cad_pages = M.sel_paths(sel, "cadastral", [cad_pdf] if cad_pdf else [])
     if cad_pages:
         cad_pdf = cad_pages[0]

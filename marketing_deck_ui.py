@@ -213,7 +213,7 @@ def _step_template(root, facts, state, suggest, sc, W):
     hd2 = tk.Frame(body, bg=ui.BG)
     hd2.pack(fill=tk.X, pady=(16, 6))
     tk.Label(hd2, text="選擇版面", font=(FAM, 20, "bold"), fg=INK, bg=ui.BG).pack(side=tk.LEFT)
-    tk.Label(hd2, text="要列印選 A4，印出來四邊滿版；在電視或投影機播放選 16:9", font=(FAM, 14), fg=INK2,
+    tk.Label(hd2, text="要列印選 A4（直式照片多選 A4 直式）；在電視或投影機播放選 16:9", font=(FAM, 14), fg=INK2,
              bg=ui.BG).pack(side=tk.LEFT, padx=16)
     prow = tk.Frame(body, bg=ui.BG)
     prow.pack(fill=tk.X)
@@ -404,7 +404,7 @@ def _step_photos(root, photos, facts, state, sc, W):
         name = ("⭐ " if p["ad"] else "") + p["name"]
         tk.Label(fr, text=name, font=(FAM, 12), fg=INK, bg="white", wraplength=TW, justify="left").pack(anchor="w", pady=(4, 2))
         v = tk.StringVar(master=root, value=p["cat"])
-        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", font=(FAM, 13), width=10)
+        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", height=26, font=(FAM, 13), width=10)
         cb.pack(anchor="w")
         _guard_sep(cb, v, p)
         v.trace_add("write", refresh)
@@ -533,30 +533,133 @@ def _thumb(path, w, h, zoom_w=None):
 
 
 def _preview(root, path, title):
-    """點縮圖 → 大圖預覽(佔螢幕 85%)；可用預設程式開原檔"""
+    """點縮圖 → 大圖預覽：開啟就最大化；滑鼠滾輪縮放(以游標為中心)、按住拖曳移動；
+    下方「－／＋／適合視窗／原尺寸」；雙擊＝在適合視窗與原尺寸之間切換；可用預設程式開原檔"""
     top = tk.Toplevel(root)
     top.title(f"預覽：{title}")
     top.configure(bg="#1E293B")
-    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
-    W, H = int(sw * 0.85), int(sh * 0.85)
-    top.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
+    try:
+        top.state("zoomed")                           # 最大化
+    except tk.TclError:
+        sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+        top.geometry(f"{sw}x{sh - 60}+0+0")
+    top.transient(root)
     bar = tk.Frame(top, bg="#1E293B", padx=12, pady=8)
     bar.pack(fill=tk.X, side=tk.BOTTOM)
     tk.Label(bar, text=os.path.basename(path), font=(FAM, 13, "bold"), fg="white", bg="#1E293B").pack(side=tk.LEFT)
+    zl = tk.Label(bar, text="", font=(FAM, 13, "bold"), fg="#93C5FD", bg="#1E293B")
+    zl.pack(side=tk.LEFT, padx=(16, 0))
+    tk.Label(bar, text="滾輪縮放・按住拖曳移動・雙擊切換大小", font=(FAM, 12), fg="#CBD5E1", bg="#1E293B").pack(side=tk.LEFT,
+                                                                                                  padx=(16, 0))
+    cv = tk.Canvas(top, bg="#334155", highlightthickness=0, cursor="fleur")
+    cv.pack(fill=tk.BOTH, expand=True)
+    msg = cv.create_text(40, 40, text="載入中…", fill="white", font=(FAM, 16), anchor="nw")
+    top.update_idletasks()
+    # 原圖：PDF 用高倍率轉一次(放大也清楚)，之後縮放都從這張縮
+    src = None
+    try:
+        if path.lower().endswith(".pdf"):
+            import fitz
+            doc = fitz.open(path)
+            pg = doc[0]
+            z = min(4.0, 3600 / max(pg.rect.width, pg.rect.height, 1))
+            pix = pg.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False)
+            src = Image.frombytes("RGB", (pix.width, pix.height), pix.samples)
+            doc.close()
+        else:
+            src = ImageOps.exif_transpose(Image.open(path)).convert("RGB")
+    except Exception:
+        src = None
+    if src is None:
+        cv.itemconfigure(msg, text="這個檔案無法預覽，請用「用預設程式開啟原檔」")
+        ui.button(bar, "關閉", top.destroy, "ghost").pack(side=tk.RIGHT)
+        return
+    cv.delete(msg)
+    st = {"z": 1.0, "fit": 1.0, "x": 0.0, "y": 0.0, "img": None, "job": None, "drag": None}
+
+    def fit_scale():
+        cw, ch = max(cv.winfo_width(), 200), max(cv.winfo_height(), 200)
+        return min((cw - 30) / src.width, (ch - 30) / src.height)
+
+    def render(fast=False):
+        cw, ch = max(cv.winfo_width(), 200), max(cv.winfo_height(), 200)
+        z = st["z"]
+        # 只取畫面看得到的那一塊來縮放(放很大也不吃記憶體)
+        x0 = max(0, int(-st["x"] / z)); y0 = max(0, int(-st["y"] / z))
+        x1 = min(src.width, int((cw - st["x"]) / z) + 1); y1 = min(src.height, int((ch - st["y"]) / z) + 1)
+        cv.delete("img")
+        if x1 <= x0 or y1 <= y0:
+            return
+        crop = src.crop((x0, y0, x1, y1))
+        w_, h_ = max(1, int((x1 - x0) * z)), max(1, int((y1 - y0) * z))
+        crop = crop.resize((w_, h_), Image.BILINEAR if fast else Image.LANCZOS)
+        st["img"] = ImageTk.PhotoImage(crop)
+        cv.create_image(st["x"] + x0 * z, st["y"] + y0 * z, image=st["img"], anchor="nw", tags="img")
+        zl.configure(text=f"{z / st['fit'] * 100:.0f}%（適合視窗＝100%）")
+
+    def later():
+        if st["job"]:
+            top.after_cancel(st["job"])
+        st["job"] = top.after(180, render)            # 停下來再用高品質重畫
+
+    def set_zoom(nz, cx=None, cy=None):
+        nz = max(st["fit"] * 0.5, min(nz, st["fit"] * 12, 8.0))
+        cw, ch = cv.winfo_width(), cv.winfo_height()
+        cx = cw / 2 if cx is None else cx
+        cy = ch / 2 if cy is None else cy
+        k = nz / st["z"]
+        st["x"] = cx - (cx - st["x"]) * k
+        st["y"] = cy - (cy - st["y"]) * k
+        st["z"] = nz
+        render(fast=True)
+        later()
+
+    def fit():
+        st["fit"] = st["z"] = fit_scale()
+        cw, ch = cv.winfo_width(), cv.winfo_height()
+        st["x"] = (cw - src.width * st["z"]) / 2
+        st["y"] = (ch - src.height * st["z"]) / 2
+        render()
+
+    def actual():
+        set_zoom(1.0)
+
+    def wheel(e):
+        set_zoom(st["z"] * (1.2 if e.delta > 0 else 1 / 1.2), e.x, e.y)
+
+    def press(e):
+        st["drag"] = (e.x, e.y, st["x"], st["y"])
+
+    def move(e):
+        if st["drag"]:
+            sx, sy, ox, oy = st["drag"]
+            st["x"], st["y"] = ox + e.x - sx, oy + e.y - sy
+            render(fast=True)
+            later()
+
+    def dbl(e):
+        if abs(st["z"] - st["fit"]) < 1e-3:
+            set_zoom(min(1.0, st["fit"] * 3) if st["fit"] < 1 else st["fit"] * 2.5, e.x, e.y)
+        else:
+            fit()
+    cv.bind("<MouseWheel>", wheel)
+    cv.bind("<ButtonPress-1>", press)
+    cv.bind("<B1-Motion>", move)
+    cv.bind("<ButtonRelease-1>", lambda e: st.update(drag=None))
+    cv.bind("<Double-Button-1>", dbl)
+    cv.bind("<Configure>", lambda e: (fit() if not st["img"] else later()))
+    top.bind("<Escape>", lambda e: top.destroy())
+    top.bind("<plus>", lambda e: set_zoom(st["z"] * 1.25))
+    top.bind("<equal>", lambda e: set_zoom(st["z"] * 1.25))
+    top.bind("<minus>", lambda e: set_zoom(st["z"] / 1.25))
     ui.button(bar, "關閉", top.destroy, "ghost").pack(side=tk.RIGHT)
     ui.button(bar, "用預設程式開啟原檔", lambda: os.startfile(path), "ghost").pack(side=tk.RIGHT, padx=(0, 8))
-    lab = tk.Label(top, text="載入中…", font=(FAM, 16), fg="white", bg="#1E293B")
-    lab.pack(fill=tk.BOTH, expand=True)
-    im = _thumb(path, W - 40, H - 90, zoom_w=(W - 40) * 1.5)
-    if im is None:
-        lab.configure(text="這個檔案無法預覽，請用「用預設程式開啟原檔」")
-        return
-    ph = ImageTk.PhotoImage(im)
-    lab.configure(image=ph, text="")
-    lab.image = ph
-    top.bind("<Escape>", lambda e: top.destroy())
-    top.transient(root)
+    ui.button(bar, "原尺寸", actual, "ghost").pack(side=tk.RIGHT, padx=(0, 8))
+    ui.button(bar, "適合視窗", fit, "ghost").pack(side=tk.RIGHT, padx=(0, 8))
+    ui.button(bar, "＋", lambda: set_zoom(st["z"] * 1.25), "ghost", padx=14).pack(side=tk.RIGHT, padx=(0, 8))
+    ui.button(bar, "－", lambda: set_zoom(st["z"] / 1.25), "ghost", padx=14).pack(side=tk.RIGHT, padx=(0, 8))
     top.focus_set()
+    top.after(80, fit)
 
 
 def _step_sections(root, state, facts, sc, W):
@@ -995,7 +1098,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
         tk.Label(top, text=nm if len(nm) <= 13 else nm[:12] + "…", font=(FAM, 11), fg=INK2, bg="white").pack(side=tk.LEFT, padx=4)
         caption_entry(fr, p)
         v = tk.StringVar(master=root, value=p["cat"])
-        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", font=(FAM, 12), width=10)
+        cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", height=26, font=(FAM, 12), width=10)
         cb.pack(fill=tk.X, pady=(4, 0))
         cb.bind("<<ComboboxSelected>>", lambda e: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set(p["cat"]))
         row = tk.Frame(fr, bg="white")
@@ -1072,7 +1175,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
             draggable(lb, p)
             tk.Label(fr, text=(("⭐" if p["ad"] else "") + p["name"])[:14], font=(FAM, 10), fg=INK2, bg="white").pack(anchor="w")
             v = tk.StringVar(master=root, value="放到…")
-            cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU[:-2], state="readonly",
+            cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU[:-2], state="readonly", height=26,
                               font=(FAM, 11), width=8)
             cb.pack(fill=tk.X)
             cb.bind("<<ComboboxSelected>>", lambda e, p=p, v=v: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set("放到…"))

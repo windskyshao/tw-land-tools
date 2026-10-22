@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9b"
-BUILD_DATE = "2026-10-21"
+VERSION = "1.1.9c"
+BUILD_DATE = "2026-10-23"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -4418,7 +4418,18 @@ def toggle_continuous_mode():
     """切換連續模式"""
     if continuous_mode_active:
         stop_continuous_mode()
-    else:
+        return
+    if is_running:
+        update_message("有程式正在運行中，請結束後再開連續模式")
+        return
+    # 新版：案件附件(背景逐項跑、看資料夾判斷有沒有、全國土地使用分區最後單獨跑)；謄本/土增稅那段走舊版
+    try:
+        import case_attach
+        case_attach.open_window(root, old_mode=start_continuous_mode,
+                                on_finish=lambda res: update_message(
+                                    "[連續模式] 完成：" + "、".join(f"{n}{'✓' if s == 'done' else '✗'}" for n, s, _m in res)))
+    except Exception as e:
+        update_message(f"[錯誤] 無法開啟連續模式：{e}")
         start_continuous_mode()
 
 def _copy_trans_to_case_folder(trans_path):
@@ -5893,15 +5904,15 @@ def _prep_transcript_source(display_name, script_name):
         return None
 
     # 3) 詢問是否把已自行調閱的謄本複製進來
-    ans = _ask_yesno_cancel_big(
+    # 按鈕直接寫要做什麼(原本要對照「是／否／取消」的說明)
+    pick = show_large_choice(
         f"{display_name}｜匯入既有謄本",
         "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
-        f"存放位置：\n{trans_dir}\n\n"
-        "「是」＝選擇檔案複製進來（可多選）\n"
-        "「否」＝略過，直接開啟工具\n"
-        "「取消」＝先不開")
-    if ans is None:
+        f"存放位置：\n{trans_dir}",
+        [("選檔案複製進來", "#4CAF50"), ("不用，直接開啟工具", "#1976D2"), ("取消", "#9E9E9E")])
+    if pick is None:
         return None  # 取消
+    ans = pick == 0
 
     if ans:  # 是 → 多選檔案複製
         try:

@@ -621,7 +621,8 @@ class QuickCaseWindow:
             return ""
 
     def _build_detail(self, parent, b):
-        """建物明細：左邊類別＋合計，右邊每層一格(上層名、下面積)整齊排；主建物綠、附屬橘。沒有分層資料就列層次名稱"""
+        """建物明細：左邊類別＋合計，右邊每層一格(上層名、下面積)整齊排；主建物綠、附屬橘。沒有分層資料就列層次名稱。
+        ★以坪為主(大字)、㎡小字；最後一列主建物＋附屬合計；註明以謄本為準(大樓的共有部分不在這裡)"""
         f = tk.Frame(parent, bg="white")
         floors = sorted((x for x in b.get("main_floors") or [] if x.get("floor")), key=lambda x: self._floor_key(x["floor"]))
         att = [a for a in b.get("attached") or [] if a.get("use")]
@@ -636,10 +637,10 @@ class QuickCaseWindow:
             hd = tk.Frame(f, bg="white")
             hd.grid(row=r, column=0, sticky="nw", padx=(0, 14), pady=(0 if r == 0 else 8, 0))
             tk.Label(hd, text=name, font=ui.FB, fg=accent, bg="white", anchor="w").pack(anchor="w")
-            if total:                # 合計：㎡ 跟 坪 都列
-                tk.Label(hd, text=f"{self._num(total)}㎡", font=ui.FB, fg=INK, bg="white", anchor="w").pack(anchor="w")
+            if total:                # 小計：坪(大) ＋ ㎡(小)
                 if self._ping(total):
                     tk.Label(hd, text=f"{self._ping(total)} 坪", font=ui.FB, fg=accent, bg="white", anchor="w").pack(anchor="w")
+                tk.Label(hd, text=f"{self._num(total)}㎡", font=ui.FS, fg=INK2, bg="white", anchor="w").pack(anchor="w")
             if use:
                 tk.Label(hd, text=use, font=ui.FS, fg=INK2, bg="white", anchor="w").pack(anchor="w")
             box = tk.Frame(f, bg="white")
@@ -652,11 +653,28 @@ class QuickCaseWindow:
                 c = tk.Frame(box, bg=tint, highlightthickness=1, highlightbackground=edge, padx=8, pady=3)
                 c.grid(row=k // per_row, column=k % per_row, sticky="nsew", padx=(0, 6), pady=(0, 6))
                 tk.Label(c, text=lbl, font=ui.FS, fg=INK2, bg=tint).pack()
-                tk.Label(c, text=f"{self._num(m2)}㎡", font=ui.FB, fg=INK, bg=tint).pack()
                 if self._ping(m2):
-                    tk.Label(c, text=f"{self._ping(m2)} 坪", font=ui.FS, fg=accent, bg=tint).pack()
+                    tk.Label(c, text=f"{self._ping(m2)} 坪", font=ui.FB, fg=INK, bg=tint).pack()
+                tk.Label(c, text=f"{self._num(m2)}㎡", font=ui.FS, fg=INK2, bg=tint).pack()
             for k in range(min(per_row, len(cells))):
                 box.grid_columnconfigure(k, uniform=f"c{r}")
+        # 合計(主建物＋附屬建物)
+        try:
+            tot = float(str(b.get("area_m2") or 0).replace(",", "")) + sum(float(a.get("m2") or 0) for a in att)
+        except Exception:
+            tot = 0
+        row = len(groups)
+        if tot > 0:
+            tf = tk.Frame(f, bg="white")
+            tf.grid(row=row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+            tk.Label(tf, text="合計", font=ui.FB, fg=INK, bg="white").pack(side=tk.LEFT)
+            tk.Label(tf, text=f"{self._ping(tot)} 坪", font=ui.FB, fg=ui.THEMES["blue_strong"][0], bg="white").pack(side=tk.LEFT, padx=(14, 6))
+            tk.Label(tf, text=f"（{tot:.2f}㎡；主建物" + ("＋附屬建物" if att else "") + "）", font=ui.FS, fg=INK2,
+                     bg="white").pack(side=tk.LEFT)
+            row += 1
+        tk.Label(f, text="※ 這裡是地籍便民系統的登記資料，實際面積以謄本為準；大樓、社區的共有部分（公設）不會出現在這裡。",
+                 font=ui.FS, fg=ui.THEMES["orange_strong"][0], bg="white", justify="left",
+                 wraplength=max(300, self.W - 220)).grid(row=row, column=0, columnspan=2, sticky="w", pady=(6, 0))
         return f
 
     def _lookup_door(self):

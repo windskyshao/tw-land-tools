@@ -51,11 +51,11 @@ LINE = RGBColor(0xC9, 0xDC, 0xEB)
 
 # 版面用「設計座標」(13.333x7.5 吋)寫，輸出時依頁面大小換算(A4 橫式為預設，印 A4 滿版)
 SW, SH = Inches(13.333), Inches(7.5)
-PAGES = {"a4l": ("A4 橫式", 11.693, 8.268), "169": ("螢幕 16:9", 13.333, 7.5)}
+PAGES = {"a4l": ("A4 橫式", 11.693, 8.268), "169": ("螢幕 16:9", 13.333, 7.5), "a4p": ("A4 直式", 8.268, 11.693)}
 # 挑版面畫面用：(名稱, 說明, 寬, 高, 可用)
 PAGE_CHOICES = [("a4l", "A4 橫式", "印成 A4 滿版（建議）", 297, 210, True),
                 ("169", "螢幕 16:9", "電視、投影機播放", 16, 9, True),
-                ("a4p", "A4 直式", "直式 DM 傳單", 210, 297, False)]
+                ("a4p", "A4 直式", "直式照片多、直式 DM", 210, 297, True)]
 # 版型(依物件型式)：key → (圖示, 名稱, 適用, 包含頁面, 可用)
 TEMPLATES = {
     "building": ("🏢", "大樓・華廈", "公寓、華廈、大樓、套房", "封面・基本資料・總覽・成果圖・室內・景觀・公設・行情", True),
@@ -124,24 +124,40 @@ IMG_EXT = (".jpg", ".jpeg", ".png", ".webp", ".bmp")
 # 照片分類(挑照片視窗的下拉選單)；依檔名關鍵字猜
 LAYOUT_CAT = "格局平面圖"      # 不是照片頁：每張自己一頁「格局平面圖」(左圖右重點)，放在照片頁前面
 STREET_CAT = "周邊街景"
-CATS = ["封面", "大樓外觀", STREET_CAT, "大廳公設", "客廳", "餐廳廚房", "臥室", "衛浴", "其他空間", "陽台景觀", "前後陽台", "車位",
+EXT_CAT = "標的外觀"          # 原「大樓外觀」：透天、店面也適用(舊設定讀進來自動換名)
+SHOP_CAT = "店面空間"
+CATS = ["封面", EXT_CAT, STREET_CAT, "騎樓", SHOP_CAT, "大廳公設",
+        "客廳", "廳堂", "餐廳廚房", "臥室", "書房", "和室", "佛堂", "衛浴", "儲藏室", "樓梯間", "其他空間",
+        "陽台景觀", "前後陽台", "頂樓露台", "庭院", "車位", "車庫",
         LAYOUT_CAT, "不使用"]
+CAT_RENAME = {"大樓外觀": EXT_CAT}
 CAT_SEP = "──────────"       # 下拉選單裡的分隔線(選到會自動退回)，把「格局平面圖」跟照片分類隔開
 CAT_MENU = CATS[:-2] + [CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
 _GUESS = [
     (LAYOUT_CAT, ("平面圖", "格局", "配置圖", "floorplan", "floor_plan", "layout")),
     (STREET_CAT, ("街景", "周邊", "週邊", "街道", "路口", "巷口", "商圈", "street")),
+    ("車庫", ("車庫", "garage")),
     ("車位", ("停車", "車位", "車道", "parking")),
+    ("騎樓", ("騎樓",)),
+    (SHOP_CAT, ("店面", "店內", "營業", "門市", "櫃台", "櫃檯", "shop", "store")),
+    ("佛堂", ("佛堂", "神明", "神桌", "祖先", "公媽", "佛廳")),
+    ("廳堂", ("廳堂", "正廳", "大廳堂")),
+    ("書房", ("書房", "書桌", "study")),
+    ("和室", ("和室", "榻榻米")),
+    ("儲藏室", ("儲藏", "儲物", "置物", "收納")),
+    ("樓梯間", ("樓梯", "梯間", "stair")),
+    ("頂樓露台", ("頂樓", "屋頂", "露台", "rooftop")),
+    ("庭院", ("庭院", "花園", "院子", "前院", "後院", "garden")),
     ("前後陽台", ("洗衣", "工作陽台", "前陽台", "後陽台", "生活陽台")),
-    ("其他空間", ("儲藏", "更衣", "玄關", "走道")),
+    ("其他空間", ("更衣", "玄關", "走道", "夾層")),
     ("衛浴", ("浴", "衛", "廁", "bath")),
     ("餐廳廚房", ("廚", "餐", "kitchen")),
     ("客廳", ("客廳", "客餐", "起居", "living")),
-    ("臥室", ("臥", "房間", "主臥", "bedroom", "study")),
-    ("陽台景觀", ("景觀", "視野", "夜景", "view", "露台")),
+    ("臥室", ("臥", "房間", "主臥", "bedroom")),
+    ("陽台景觀", ("景觀", "視野", "夜景", "view")),
     ("前後陽台", ("陽台", "balcony")),             # 沒提到景觀的陽台 = 前/後陽台(不是每個陽台都有景觀)
     ("大廳公設", ("大廳", "公設", "健身", "ktv", "泳池", "中庭", "信箱", "交誼", "lobby", "gym")),
-    ("大樓外觀", ("外觀", "大樓", "建築", "門面", "facade")),
+    (EXT_CAT, ("外觀", "大樓", "建築", "門面", "facade")),
 ]
 
 
@@ -272,7 +288,9 @@ def load_settings(case_dir, photos):
         v = saved.get(p["name"].lower())
         if v:
             if not (old and v.get("cat") == "不使用" and p["cat"] == LAYOUT_CAT):
-                p["cat"] = v.get("cat", p["cat"])
+                p["cat"] = CAT_RENAME.get(v.get("cat"), v.get("cat", p["cat"]))
+                if p["cat"] not in CATS:
+                    p["cat"] = "其他空間"
             if "cap" in v:
                 p["cap"] = v["cap"]
             for k in ("order", "prev"):
@@ -302,15 +320,17 @@ def save_settings(case_dir, photos, page, template="building", show_agents=True,
 
 
 # 照片頁：(頁名, 包含的分類, 每頁最多幾張)；順序＝簡報裡的頁面順序
-PHOTO_PAGES = [("室內精選｜客餐廳", ("客廳", "餐廳廚房"), 4),
-               ("室內精選｜臥室・衛浴", ("臥室", "衛浴", "其他空間"), 4),
-               ("景觀・陽台", ("陽台景觀", "前後陽台"), 3),
-               ("大樓外觀・公設", ("大樓外觀", "大廳公設", "車位"), 4),
+PHOTO_PAGES = [("室內精選｜客餐廳", ("客廳", "廳堂", "餐廳廚房"), 4),
+               ("室內精選｜臥室・衛浴", ("臥室", "書房", "和室", "佛堂", "衛浴", "儲藏室", "樓梯間", "其他空間"), 4),
+               ("景觀・陽台", ("陽台景觀", "前後陽台", "頂樓露台", "庭院"), 3),
+               ("大樓外觀・公設", (EXT_CAT, "大廳公設", "車位", "車庫", "騎樓", SHOP_CAT), 4),
                ("周邊環境・街景", (STREET_CAT,), 4)]
 # 透天・店面版的照片頁：店面先看外觀、街景
-STREET_PHOTO_PAGES = [("外觀・周邊街景", ("大樓外觀", STREET_CAT, "車位"), 4),
-                      ("室內空間", ("客廳", "餐廳廚房", "臥室", "衛浴", "其他空間"), 4),
-                      ("景觀・陽台", ("陽台景觀", "前後陽台", "大廳公設"), 3)]
+STREET_PHOTO_PAGES = [("外觀・周邊街景", (EXT_CAT, STREET_CAT, "騎樓", "車位", "車庫"), 4),
+                      ("店面・營業空間", (SHOP_CAT,), 4),
+                      ("室內空間", ("客廳", "廳堂", "餐廳廚房", "臥室", "書房", "和室", "佛堂", "衛浴", "儲藏室", "樓梯間",
+                                    "其他空間"), 4),
+                      ("景觀・陽台・頂樓", ("陽台景觀", "前後陽台", "頂樓露台", "庭院", "大廳公設"), 3)]
 
 
 def split_pages(n, cap):
@@ -340,7 +360,9 @@ def guess_cat(name):
 def caption_of(p):
     """照片說明：檔名有描述就用(去副檔名、去英文)；IMG_xxxx 就用分類名"""
     base = os.path.splitext(p["name"])[0]
-    if re.match(r"^(img|dsc|dji|pxl|s__|line_|photo|image)[\s_\-]*\d", base, re.I) or re.fullmatch(r"[A-Za-z0-9_\s\-]+", base):
+    if re.match(r"^(img|dsc|dji|pxl|s__|line_|photo|image)[\s_\-]*\d", base, re.I) or re.fullmatch(r"[A-Za-z0-9_\s\-]+", base) \
+            or re.search(r"\d{4}[-_./]\d{1,2}[-_./]\d{1,2}|[上下]午\s*\d|\d{1,2}[:：]\d{2}|^\s*(相片|照片|圖片|截圖)", base):
+        # 手機自動檔名(相片 2026-10-15 下午3:05:51、IMG_1234…)不是說明 → 用分類名
         return p.get("cat") if p.get("cat") not in (None, "不使用", "封面") else ""
     return re.sub(r"\s*[A-Za-z][A-Za-z\s]*$", "", base).strip()
 
@@ -437,6 +459,8 @@ def _floor_order(name):
     n = _cn_int(name) or 0
     if "地下" in name:
         return (0, -n)
+    if "騎樓" in name:                    # 騎樓在地面(一樓前面)：排在一層旁邊，不要跑到頂樓上面
+        return (0.5, 0)
     if "屋頂" in name or "突出" in name:
         return (3, 0)
     return (1, n) if n else (2, 0)
@@ -1656,6 +1680,10 @@ def slide_back(deck, phones):
 def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_cover=False, template="building", sel=None):
     """sel＝「頁面內容」步驟的選擇 {單元: {on, pick}}；None＝照預設自動帶"""
     f = facts(d)
+    if REAL_H > REAL_W:                     # A4 直式：另一套直式排版(保留富住通外框、LOGO、售/租章、封底)
+        import marketing_deck_portrait
+        return marketing_deck_portrait.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
+                                             show_agents=show_agents, back_cover=True, sel=sel, template=template)
     if template == "villa":
         import marketing_deck_street
         return marketing_deck_street.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
@@ -1663,7 +1691,7 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
     tmp = tempfile.mkdtemp(prefix="deck_")
     deck = Deck(f, tmp)
     by = {c: ordered([p for p in chosen if p["cat"] == c]) for c in CATS}
-    cover = (by["封面"] or by["陽台景觀"] or by["大樓外觀"] or by["客廳"] or [None])[0]
+    cover = (by["封面"] or by["陽台景觀"] or by[EXT_CAT] or by["客廳"] or [None])[0]
     roots = [r for r in (case_dir, exp) if r]
 
     def first(pattern):
@@ -1688,7 +1716,7 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
                 plans = hits[:3]
                 break
     plans = sel_paths(sel, "plan", plans)
-    cad_pdf = first(os.path.join("0.謄本", "地籍圖謄本*標註*.pdf")) or first(os.path.join("0.謄本", "地籍圖謄本*.pdf"))
+    cad_pdf = first(os.path.join("0.謄本", "*地籍圖*標註*.pdf")) or first(os.path.join("0.謄本", "*地籍圖*.pdf"))
     cad_pages = sel_paths(sel, "cadastral", [cad_pdf] if cad_pdf else [])
     if cad_pages:
         cad_pdf = cad_pages[0]
@@ -1842,7 +1870,8 @@ def collect_sections(case_dir, exp, template, d):
         zon = _globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
                      os.path.join("1.基本資料", "png", "*都市計畫使用分區*.png"))
         add("zoning", "使用分區", "都市計畫圖(只取地圖區)＋分區、建蔽容積", zon, zon[:1], empty="1.基本資料 沒有都市計畫截圖")
-    cads = _globs(roots, os.path.join("0.謄本", "地籍圖謄本*標註*.pdf"), os.path.join("0.謄本", "地籍圖謄本*.pdf"))
+    cads = [c for c in _globs(roots, os.path.join("0.謄本", "*地籍圖*標註*.pdf"), os.path.join("0.謄本", "*地籍圖*.pdf"))
+            if "合併" not in os.path.basename(c) and "_temp" not in os.path.basename(c)]      # 檔名自己改過的(例：425地號畫線地籍圖)也算
     add("cadastral", "地籍圖", "地籍圖謄本(標註版優先)", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
     plans = _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*.pdf"))
     imgs = [h for h in _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*")) if h.lower().endswith((".png", ".jpg", ".jpeg"))]

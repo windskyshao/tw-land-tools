@@ -78,6 +78,10 @@ def load_entries():
 
 def wait_adjust(sec=10):
     """跟手動版一樣：截圖前留 10 秒讓使用者調整地圖位置與顯示範圍(地圖圖磚也趁這時載完)"""
+    if os.environ.get("LAND_HEADLESS") == "1":          # 不顯示視窗(連續模式背景跑)：沒人能調整，只等圖磚載完
+        log("背景執行：等地圖載入 3 秒後截圖")
+        time.sleep(3)
+        return
     log("\033[93m請調整地圖位置和顯示範圍，10 秒後自動截圖...\033[0m")
     L.countdown(sec)
 
@@ -341,42 +345,7 @@ def run_new(d, entries):
         label = f"{e['city']} {e['area']} {e['section']} {e['lot_number']}"
         log(f"\n>>> [{i}/{len(entries)}] {label}")
         try:
-            WebDriverWait(d, 20).until(lambda x: len(Select(x.find_element(By.ID, "land_city_id")).options) > 1)
-            if not _pick(d.find_element(By.ID, "land_city_id"), e["city"]):
-                log(f"  找不到縣市「{e['city']}」，略過")
-                continue
-            _wait_options(d, "land_town_id")
-            time.sleep(0.5)
-            if not _pick(d.find_element(By.ID, "land_town_id"), e["area"], part=True):
-                log(f"  找不到行政區「{e['area']}」，略過")
-                continue
-            _wait_options(d, "land_section_id")
-            time.sleep(0.5)
-            if not _pick(d.find_element(By.ID, "land_section_id"), e["section"], strip_code=True):
-                log(f"  找不到地段「{e['section']}」，略過")
-                continue
-            box = d.find_element(By.ID, "land_landno")
-            box.clear()
-            box.send_keys(str(e["lot_number"]))
-            d.execute_script("arguments[0].click();", d.find_element(By.ID, "btn_land_search_id"))
-            want = _lot8(e["lot_number"])
-            found = False
-            end = time.time() + 20
-            while time.time() < end:
-                try:
-                    a = d.switch_to.alert
-                    log(f"  網站訊息：{a.text}")
-                    a.accept()
-                    break
-                except Exception:
-                    pass
-                txt = d.execute_script("return document.body.innerText") or ""
-                if want and re.search(r"地號\s*" + want, txt):
-                    found = True
-                    break
-                time.sleep(0.5)
-            if not found:
-                log("  查無資料或網站沒有回應，略過")
+            if not locate_new(d, e):
                 continue
             time.sleep(1)
             grab_coord_new(d, e)
@@ -386,6 +355,87 @@ def run_new(d, entries):
         except Exception as ex:
             log(f"  這筆失敗：{ex}")
     return ok
+
+
+def locate_new(d, e):
+    """最新版：縣市→行政區→地段→地號 查詢，地圖跳到那一筆(畫出地號框)。找到回 True"""
+    WebDriverWait(d, 20).until(lambda x: len(Select(x.find_element(By.ID, "land_city_id")).options) > 1)
+    if not _pick(d.find_element(By.ID, "land_city_id"), e["city"]):
+        log(f"  找不到縣市「{e['city']}」，略過")
+        return False
+    _wait_options(d, "land_town_id")
+    time.sleep(0.5)
+    if not _pick(d.find_element(By.ID, "land_town_id"), e["area"], part=True):
+        log(f"  找不到行政區「{e['area']}」，略過")
+        return False
+    _wait_options(d, "land_section_id")
+    time.sleep(0.5)
+    if not _pick(d.find_element(By.ID, "land_section_id"), e["section"], strip_code=True):
+        log(f"  找不到地段「{e['section']}」，略過")
+        return False
+    box = d.find_element(By.ID, "land_landno")
+    box.clear()
+    box.send_keys(str(e["lot_number"]))
+    d.execute_script("arguments[0].click();", d.find_element(By.ID, "btn_land_search_id"))
+    want = _lot8(e["lot_number"])
+    end = time.time() + 20
+    while time.time() < end:
+        try:
+            a = d.switch_to.alert
+            log(f"  網站訊息：{a.text}")
+            a.accept()
+            break
+        except Exception:
+            pass
+        txt = d.execute_script("return document.body.innerText") or ""
+        if want and re.search(r"地號\s*" + want, txt):
+            return True
+        time.sleep(0.5)
+    log("  查無資料或網站沒有回應，略過")
+    return False
+
+
+def view_one(spec):
+    """--view「縣市|行政區|地段|地號」：開最新版地籍便民、定位到那一筆就停住給使用者看(不截圖)，
+    使用者關掉瀏覽器視窗才結束。地籍圖處理工具的「🗺 線上地圖查看」用"""
+    parts = (spec.split("|") + ["", "", "", ""])[:4]
+    e = dict(zip(("city", "area", "section", "lot_number"), [p.strip() for p in parts]))
+    log(f"地籍便民：定位到 {e['city']}{e['area']}{e['section']} {e['lot_number']} 地號…")
+    d = L.create_chrome_driver(options=L.options)
+    L.driver = d
+    try:
+        try:
+            d.execute_cdp_cmd("Browser.grantPermissions", {"permissions": ["geolocation"]})
+        except Exception:
+            pass
+        open_page(d, NEW_URL)
+        time.sleep(4)
+        d.execute_script("[...document.querySelectorAll('button')].filter(b=>/我已瞭解|關閉導覽/.test(b.innerText)).forEach(b=>b.click())")
+        time.sleep(1)
+        try:
+            ok = locate_new(d, e)
+        except Exception as ex:
+            ok = False
+            log(f"  定位失敗：{ex}")
+        log("已定位，請直接在瀏覽器裡查看；看完關掉瀏覽器視窗即可" if ok
+            else "沒有自動定位成功，請在網頁左邊手動選地段、輸入地號")
+        while True:                                   # 等使用者關掉視窗
+            time.sleep(1.5)
+            try:
+                if not d.window_handles:
+                    break
+            except Exception:
+                break
+    finally:
+        try:
+            d.quit()
+        except Exception:
+            pass
+        try:
+            import shutil
+            shutil.rmtree(L.user_data_dir, ignore_errors=True)
+        except Exception:
+            pass
 
 
 # ---------------------------------------------------------------- 門牌查詢(data.json 有門牌時，地號截完再用門牌查一次)
@@ -652,7 +702,11 @@ def run_new_doors(d, doors):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--ver", choices=["old", "new"], default="old")
+    ap.add_argument("--view", default="")
     a, _ = ap.parse_known_args()
+    if a.view:
+        view_one(a.view)
+        return
     name = "舊版" if a.ver == "old" else "最新版"
     entries = load_entries()
     if not entries:
