@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9c"
-BUILD_DATE = "2026-10-23"
+VERSION = "1.1.9d"
+BUILD_DATE = "2026-10-25"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -8004,7 +8004,7 @@ UPDATE_SOURCES = [
 ]
 
 
-def _open_url_with_ssl_fallback(url, timeout=8):
+def _open_url_with_ssl_fallback(url, timeout=8, headers=None):
     """開啟 URL，遇 SSL 憑證驗證失敗時自動 fallback。
 
     優先順序：
@@ -8017,7 +8017,7 @@ def _open_url_with_ssl_fallback(url, timeout=8):
     import urllib.error
     import ssl
 
-    req = urllib.request.Request(url, headers={'User-Agent': 'tw-land-tools-updater'})
+    req = urllib.request.Request(url, headers=dict({'User-Agent': 'tw-land-tools-updater'}, **(headers or {})))
 
     # Try 1：預設（使用 Windows 系統根憑證）
     try:
@@ -8155,131 +8155,284 @@ def perform_multi_update(updates):
 
     temp_dir = tempfile.mkdtemp(prefix="land_update_")
 
-    # === 階段 1：下載所有 asset 到 temp ===
-    download_results = []
-    total_count = len(updates)
-
-    for idx, u in enumerate(updates, 1):
-        if not u.get('asset_url') or not u.get('asset_name'):
-            update_message(f"⚠️ [{idx}/{total_count}] {u['source']['name']} 沒有可下載的 asset，跳過")
-            continue
-
-        source = u['source']
-        name = source['name']
-        ver = u['remote_version']
-
-        update_message(f"⏬ [{idx}/{total_count}] 下載 {name} v{ver}...")
-
-        dl_path = os.path.join(temp_dir, u['asset_name'])
+    # === 階段 1：下載(＋解壓)所有 asset 到 temp ===
+    # ★在背景執行緒跑、另開進度視窗：以前在主畫面同一個執行緒下載，下載中點一下視窗 Windows 就判定
+    #   「沒有回應」、畫面凍住(其實還在下載)；而且只試一次，網路一抖就整個失敗、要再按一次更新
+    global _UPDATE_WIN
+    if _UPDATE_WIN is not None:                   # 已經在下載了(又按了一次更新) → 把進度視窗叫到前面就好
         try:
-            # 用 SSL fallback 機制下載
-            with _open_url_with_ssl_fallback(u['asset_url'], timeout=60) as r:
-                total_size = int(r.headers.get('Content-Length', 0))
-                downloaded = 0
-                last_pct = -1
-                with open(dl_path, 'wb') as f:
+            _UPDATE_WIN.win.deiconify()
+            _UPDATE_WIN.win.lift()
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            return
+        except Exception:
+            _UPDATE_WIN = None
+    prog = _UPDATE_WIN = _UpdateProgressWin(len(updates))
+    state = {'done': False, 'results': None, 'error': None, 'cancelled': False}
+
+    def _worker():
+        try:
+            state['results'] = _update_download_all(updates, temp_dir, exe_dir, prog)
+        except _UpdateCancelled:
+            state['cancelled'] = True
+        except _UpdateError as e:
+            state['error'] = (e.title, e.msg)
+        except Exception as e:
+            state['error'] = ("更新失敗", f"{e}\n\n所有更新已取消，原本的程式沒有被動到。")
+        finally:
+            state['done'] = True
+
+    import threading
+    threading.Thread(target=_worker, daemon=True).start()
+
+    def _poll():
+        prog.pump()
+        if not state['done']:
+            root.after(150, _poll)
+            return
+        global _UPDATE_WIN
+        prog.close()
+        _UPDATE_WIN = None
+        if state['cancelled'] or state['error'] or not state['results']:
+            shutil.rmtree(temp_dir, ignore_errors=True)
+            if state['cancelled']:
+                update_message("⏹ 已取消更新，原本的程式沒有被動到")
+            elif state['error']:
+                update_message(f"❌ 更新失敗：{state['error'][0]}")
+                show_large_message(*state['error'])
+            else:
+                show_large_message("更新", "沒有可下載的項目")
+            return
+        _finish_multi_update(updates, state['results'], temp_dir, exe_dir, current_exe)
+    _poll()
+
+
+_UPDATE_WIN = None
+
+
+class _UpdateCancelled(Exception):
+    pass
+
+
+class _UpdateError(Exception):
+    def __init__(self, title, msg):
+        super().__init__(msg)
+        self.title, self.msg = title, msg
+
+
+class _UpdateProgressWin:
+    """更新下載進度視窗(主執行緒畫面；背景執行緒只透過 post() 丟訊息進來)"""
+
+    def __init__(self, total):
+        import queue as _q
+        self.q = _q.Queue()
+        self.cancel_flag = False
+        self.win = w = tk.Toplevel(root)
+        w.title("下載更新中")
+        w.configure(bg="white")
+        w.resizable(False, False)
+        w.transient(root)
+        w.protocol("WM_DELETE_WINDOW", self._ask_cancel)
+        f = tk.Frame(w, bg="white", padx=26, pady=20)
+        f.pack(fill=tk.BOTH, expand=True)
+        tk.Label(f, text="正在下載更新", font=("Microsoft JhengHei", 16, "bold"), fg="#1E3A8A", bg="white").pack(anchor="w")
+        self.item = tk.Label(f, text=f"準備中…（共 {total} 項）", font=("Microsoft JhengHei", 13), fg="#111827", bg="white")
+        self.item.pack(anchor="w", pady=(10, 6))
+        self.bar = ttk.Progressbar(f, length=480, mode="determinate", maximum=100)
+        self.bar.pack(fill=tk.X)
+        self.detail = tk.Label(f, text="", font=("Microsoft JhengHei", 12), fg="#374151", bg="white")
+        self.detail.pack(anchor="w", pady=(6, 0))
+        self.note = tk.Label(f, text="", font=("Microsoft JhengHei", 12, "bold"), fg="#B45309", bg="white",
+                             wraplength=480, justify="left")
+        self.note.pack(anchor="w", pady=(4, 0))
+        tk.Label(f, text="下載時可以繼續使用其他功能；下載完會自動關閉程式、更新、重新開啟。",
+                 font=("Microsoft JhengHei", 11), fg="#4B5563", bg="white", wraplength=480,
+                 justify="left").pack(anchor="w", pady=(12, 0))
+        tk.Button(f, text="取消更新", font=("Microsoft JhengHei", 12), command=self._ask_cancel,
+                  relief="groove", padx=14).pack(anchor="e", pady=(12, 0))
+        w.update_idletasks()
+        x = root.winfo_rootx() + (root.winfo_width() - w.winfo_width()) // 2
+        y = root.winfo_rooty() + (root.winfo_height() - w.winfo_height()) // 3
+        w.geometry(f"+{max(0, x)}+{max(0, y)}")
+
+    def _ask_cancel(self):
+        if show_large_yesno("取消更新", "確定要取消這次更新嗎？\n（原本的程式不會被動到，之後可以再按更新）"):
+            self.cancel_flag = True
+            self.note.configure(text="正在取消…")
+
+    def post(self, **kw):                      # 背景執行緒呼叫
+        if self.cancel_flag:
+            raise _UpdateCancelled()
+        self.q.put(kw)
+
+    def pump(self):                            # 主執行緒呼叫
+        try:
+            while True:
+                kw = self.q.get_nowait()
+                if "item" in kw:
+                    self.item.configure(text=kw["item"])
+                if "pct" in kw:
+                    if kw["pct"] is None:
+                        self.bar.configure(mode="indeterminate")
+                        self.bar.start(12)
+                    else:
+                        self.bar.stop()
+                        self.bar.configure(mode="determinate", value=kw["pct"])
+                if "detail" in kw:
+                    self.detail.configure(text=kw["detail"])
+                if "note" in kw:
+                    self.note.configure(text=kw["note"])
+                if "log" in kw:
+                    update_message(kw["log"])
+        except Exception:
+            pass
+
+    def close(self):
+        try:
+            self.bar.stop()
+            self.win.destroy()
+        except Exception:
+            pass
+
+
+def _mb(n):
+    return f"{n / 1048576:.1f} MB"
+
+
+def _download_resumable(url, path, prog, label, tries=8):
+    """下載到 path：中斷會自動重試(最多 tries 次)，而且從已下載的地方續傳，不用整個重來。
+    下載完檢查大小跟伺服器說的一樣才算成功。回傳下載的位元組數"""
+    import time
+    total = 0
+    last_err = None
+    for attempt in range(1, tries + 1):
+        have = os.path.getsize(path) if os.path.exists(path) else 0
+        if total and have >= total:
+            return have
+        hdr = {'Range': f'bytes={have}-'} if have else None
+        try:
+            with _open_url_with_ssl_fallback(url, timeout=30, headers=hdr) as r:
+                code = getattr(r, 'status', None) or r.getcode()
+                if have and code != 206:          # 伺服器不支援續傳 → 從頭來
+                    have = 0
+                length = int(r.headers.get('Content-Length', 0) or 0)
+                total = have + length if length else total
+                mode = 'ab' if have else 'wb'
+                got, t0, t_last = have, time.time(), 0
+                with open(path, mode) as f:
                     while True:
                         chunk = r.read(256 * 1024)
                         if not chunk:
                             break
                         f.write(chunk)
-                        downloaded += len(chunk)
-                        if total_size > 0:
-                            pct = downloaded * 100 // total_size
-                            if pct != last_pct and pct % 10 == 0:
-                                update_message(f"   {pct}%（{downloaded:,}/{total_size:,} bytes）")
-                                last_pct = pct
-            update_message(f"✅ [{idx}/{total_count}] {name} 下載完成（{downloaded:,} bytes）")
+                        got += len(chunk)
+                        now = time.time()
+                        if now - t_last > 0.25:
+                            t_last = now
+                            spd = (got - have) / max(now - t0, 0.001)
+                            if total:
+                                left = (total - got) / spd if spd > 0 else 0
+                                prog.post(pct=got * 100 / total,
+                                          detail=f"{got * 100 // total}%　{_mb(got)} / {_mb(total)}　"
+                                                 f"{_mb(spd)}/秒　約剩 {int(left // 60)} 分 {int(left % 60)} 秒")
+                            else:
+                                prog.post(detail=f"{_mb(got)}　{_mb(spd)}/秒")
+            if total and got < total:
+                raise IOError(f"連線提早結束（{_mb(got)} / {_mb(total)}）")
+            prog.post(note="")
+            return got
+        except _UpdateCancelled:
+            raise
         except Exception as e:
-            shutil.rmtree(temp_dir, ignore_errors=True)
-            err_msg = str(e)
-            if 'CERTIFICATE_VERIFY_FAILED' in err_msg:
-                show_large_message(
-                    "下載失敗：SSL 憑證問題",
-                    f"{name} 無法下載。\n\n"
-                    f"請檢查本機：\n"
-                    f"  1. 日期時間是否正確\n"
-                    f"  2. Windows Update 是否最新\n"
-                    f"  3. 防火牆/防毒是否擋住 GitHub\n\n"
-                    f"或到 GitHub release 頁面用瀏覽器手動下載。"
-                )
-            else:
-                show_large_message("下載失敗", f"{name}：{e}\n\n所有更新已取消。")
-            return
+            last_err = e
+            if 'CERTIFICATE_VERIFY_FAILED' in str(e):
+                raise _UpdateError("下載失敗：SSL 憑證問題",
+                                   f"{label} 無法下載。\n\n請檢查本機：\n  1. 日期時間是否正確\n"
+                                   f"  2. Windows Update 是否最新\n  3. 防火牆/防毒是否擋住 GitHub\n\n"
+                                   f"或到 GitHub release 頁面用瀏覽器手動下載。")
+            if attempt >= tries:
+                break
+            wait = min(3 * attempt, 15)
+            have = os.path.getsize(path) if os.path.exists(path) else 0
+            for sec in range(wait, 0, -1):
+                prog.post(note=f"網路中斷（{str(e)[:50]}），{sec} 秒後自動重試（第 {attempt + 1}/{tries} 次）"
+                               + (f"，從 {_mb(have)} 接著下載" if have else ""))
+                time.sleep(1)
+    raise _UpdateError("下載失敗", f"{label}：試了 {tries} 次都沒有成功（{last_err}）。\n\n"
+                                   f"可能是網路不穩，請稍後再按右上角 🔄 更新。\n所有更新已取消，原本的程式沒有被動到。")
+
+
+def _update_download_all(updates, temp_dir, exe_dir, prog):
+    """(背景執行緒) 依序下載、解壓；回傳 download_results。錯誤丟 _UpdateError、取消丟 _UpdateCancelled"""
+    import zipfile
+    import shutil
+    download_results = []
+    total_count = len(updates)
+    for idx, u in enumerate(updates, 1):
+        if not u.get('asset_url') or not u.get('asset_name'):
+            prog.post(log=f"⚠️ [{idx}/{total_count}] {u['source']['name']} 沒有可下載的 asset，跳過")
+            continue
+        source = u['source']
+        name = source['name']
+        ver = u['remote_version']
+        prog.post(item=f"[{idx}/{total_count}] {name} v{ver}", pct=0, detail="連線中…", note="",
+                  log=f"⏬ [{idx}/{total_count}] 下載 {name} v{ver}…（進度在另一個小視窗）")
+        dl_path = os.path.join(temp_dir, u['asset_name'])
+        got = _download_resumable(u['asset_url'], dl_path, prog, name)
+        prog.post(pct=100, log=f"✅ [{idx}/{total_count}] {name} 下載完成（{_mb(got)}）")
 
         install_type = source['install_type']
-
         if install_type == 'zip_replace':
-            # 解壓 zip
             extract_dir = os.path.join(temp_dir, f"extracted_{idx}")
+            prog.post(item=f"[{idx}/{total_count}] 解壓 {name}…", pct=None, detail="")
             try:
-                update_message(f"📦 解壓 {name}...")
                 with zipfile.ZipFile(dl_path, 'r') as z:
                     z.extractall(extract_dir)
             except Exception as e:
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                show_large_message("解壓失敗", f"{name}：{e}")
-                return
-
-            # 找解壓後的 root（zip 可能有頂層資料夾）
+                raise _UpdateError("解壓失敗", f"{name}：{e}\n\n下載的檔案可能不完整，請再按一次更新。")
             entries = os.listdir(extract_dir)
             if len(entries) == 1 and os.path.isdir(os.path.join(extract_dir, entries[0])):
                 src_root = os.path.join(extract_dir, entries[0])
             else:
                 src_root = extract_dir
-
             new_main_exe = os.path.join(src_root, '地籍資料查詢系統.exe')
             if not os.path.exists(new_main_exe):
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                show_large_message("更新失敗", f"zip 內找不到 地籍資料查詢系統.exe\n預期：{new_main_exe}")
-                return
-
-            download_results.append({
-                'type': 'zip',
-                'name': name,
-                'src_root': src_root,
-                'new_exe_path': new_main_exe,
-            })
+                raise _UpdateError("更新失敗", f"zip 內找不到 地籍資料查詢系統.exe\n預期：{new_main_exe}")
+            download_results.append({'type': 'zip', 'name': name, 'src_root': src_root, 'new_exe_path': new_main_exe})
 
         elif install_type == 'runtime_replace':
             # 直接解壓到程式資料夾旁的 python_embedded_new(同一顆磁碟，之後才能整個資料夾瞬間對調)
             new_rt = os.path.join(exe_dir, 'python_embedded_new')
             try:
                 shutil.rmtree(new_rt, ignore_errors=True)
-                update_message(f"📦 解壓 {name}（檔案很多，約需 1~3 分鐘）...")
+                prog.post(item=f"[{idx}/{total_count}] 解壓 {name}（檔案很多，約需 1~3 分鐘）…", pct=None, detail="")
                 with zipfile.ZipFile(dl_path, 'r') as z:
                     z.extractall(new_rt)
                 os.remove(dl_path)
-                if not os.path.exists(os.path.join(new_rt, 'python.exe')) or                         not os.path.exists(os.path.join(new_rt, 'pythonw.exe')):
+                if not os.path.exists(os.path.join(new_rt, 'python.exe')) or \
+                        not os.path.exists(os.path.join(new_rt, 'pythonw.exe')):
                     raise RuntimeError("壓縮檔內找不到 python.exe / pythonw.exe")
                 with open(os.path.join(new_rt, 'runtime_version.txt'), 'w', encoding='utf-8') as f:
                     f.write(str(ver))
+            except _UpdateCancelled:
+                shutil.rmtree(new_rt, ignore_errors=True)
+                raise
             except Exception as e:
                 shutil.rmtree(new_rt, ignore_errors=True)
-                shutil.rmtree(temp_dir, ignore_errors=True)
-                show_large_message("解壓失敗", f"{name}：{e}\n\n所有更新已取消，原本的環境沒有被動到。")
-                return
+                raise _UpdateError("解壓失敗", f"{name}：{e}\n\n所有更新已取消，原本的環境沒有被動到。")
             download_results.append({'type': 'runtime', 'name': name, 'new_dir': new_rt})
 
         elif install_type == 'exe_replace':
-            # 計算中文目標檔名
             target_filename = source['rename_to_format'].format(ver=ver)
-            # 舊版 glob pattern（同 source 的 local search pattern）
             old_glob = source['rename_to_format'].replace('{ver}', '*')
+            download_results.append({'type': 'exe', 'name': name, 'src_path': dl_path,
+                                     'target_filename': target_filename, 'old_glob': old_glob})
+    return download_results
 
-            download_results.append({
-                'type': 'exe',
-                'name': name,
-                'src_path': dl_path,
-                'target_filename': target_filename,
-                'old_glob': old_glob,
-            })
 
-    if not download_results:
-        shutil.rmtree(temp_dir, ignore_errors=True)
-        show_large_message("更新", "沒有可下載的項目")
-        return
-
+def _finish_multi_update(updates, download_results, temp_dir, exe_dir, current_exe):
+    """(主執行緒) 全部下載好之後：產生 updater.bat → 提示 → 啟動 updater、關閉主程式"""
+    import subprocess
     # === 階段 2：產生 updater.bat ===
     updater_path = os.path.join(temp_dir, "_updater.bat")
 
