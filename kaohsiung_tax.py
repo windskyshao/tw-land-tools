@@ -33,6 +33,13 @@ elif '__file__' in globals():
 
 
 import sys
+try:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import tk_textmenu as _tkm
+    _tkm.auto()          # 輸入框/文字區右鍵：剪下、複製、貼上、全選
+except Exception:
+    pass
 print("\n" + "=" * 78, flush=True)
 print("        高雄市土地增值稅自動估算程式", flush=True)
 print("=" * 78, flush=True)

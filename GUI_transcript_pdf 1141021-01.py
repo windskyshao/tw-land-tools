@@ -24,6 +24,13 @@ except (AttributeError, ValueError):
     pass
 
 import tkinter as tk
+try:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import tk_textmenu as _tkm
+    _tkm.auto()          # 輸入框/文字區右鍵：剪下、複製、貼上、全選
+except Exception:
+    pass
 from tkinter import ttk, scrolledtext, messagebox, filedialog
 class _LazyPandas:
     """pandas 用到才載入(載入要 1.5~4 秒，只有匯出 Excel 才用得到)→ 程式啟動快很多。

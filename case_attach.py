@@ -227,7 +227,15 @@ class Runner:
         self.q.put(("alldone",))
 
 
-def open_window(root, on_finish=None, old_mode=None):
+def open_window(root, on_finish=None, old_mode=None, on_line=None):
+    """on_line(text)：每一項的過程訊息也送一份到主程式的訊息欄(跟單獨執行時一樣看得到提示)"""
+    def say(t):
+        if on_line:
+            try:
+                on_line(t)
+            except Exception:
+                pass
+
     case = _case()
     if not case:
         ui.message(root, "連續模式", "目前沒有案件（data.json 是空的），請先用地籍便民或快速建立案件建立案件。")
@@ -239,7 +247,15 @@ def open_window(root, on_finish=None, old_mode=None):
     W, H = int(820 * sc), int(860 * sc)
     sw, sh = win.winfo_screenwidth(), win.winfo_screenheight()
     W, H = min(W, sw - 40), min(H, sh - 80)
-    win.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
+    try:                                       # 跟其他子程式一樣：佔主程式左邊的空間(主程式固定在右側 1/3)，不蓋住主程式
+        rx = root.winfo_x()
+        if rx > 600:
+            W, H = rx - 10, sh - 80
+            win.geometry(f"{W}x{H}+0+0")
+        else:
+            raise ValueError
+    except (tk.TclError, ValueError):
+        win.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
     win.transient(root)
     ui.header(win, "🧩 連續模式・案件附件", f"{case['title']}　勾選要抓的附件，按「開始」逐項自動完成")
     foot = ui.footer(win)
@@ -323,6 +339,49 @@ def open_window(root, on_finish=None, old_mode=None):
     line_lbl = tk.Label(prog, text="", font=(FAM, 11), fg=INK2, bg="#EEF4FF", anchor="w", justify="left", wraplength=W - 80)
     line_lbl.pack(fill=tk.X)
     cont_btn = ui.button(prog, "我完成驗證了，繼續 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary")
+    float_box = [None]
+
+    def show_float(name):
+        """要人操作的項目(全國土地使用分區)：右下角永遠在最上層的小提示框，不會被瀏覽器蓋住。
+        連續模式視窗先藏起來：它掛在主程式底下，點主程式時會跟著跳出來擋住瀏覽器"""
+        hide_float(restore=False)
+        try:
+            win.withdraw()
+        except tk.TclError:
+            pass
+        f = tk.Toplevel(root)
+        f.title("連續模式：需要你操作")
+        f.attributes("-topmost", True)
+        f.configure(bg="#FFF4E5", highlightthickness=2, highlightbackground="#E58135")
+        tk.Label(f, text=f"🖐 {name}", font=(FAM, 16, "bold"), fg="#7C2D12", bg="#FFF4E5").pack(anchor="w", padx=16, pady=(12, 4))
+        tk.Label(f, text="1. 在瀏覽器上完成「真人驗證」（點一下勾選框）\n"
+                         "2. 等網頁出現查詢結果（地號定位、分區圖）\n"
+                         "3. 再按下面的「我完成驗證了，繼續」",
+                 font=(FAM, 13), fg="#1C1917", bg="#FFF4E5", justify="left").pack(anchor="w", padx=16)
+        f._line = tk.Label(f, text="", font=(FAM, 11), fg="#57534E", bg="#FFF4E5", wraplength=380, justify="left",
+                           height=2, anchor="nw")      # 固定兩行高：訊息再長也不會把按鈕擠出框外
+        f._line.pack(anchor="w", padx=16, pady=(6, 0))
+        ui.button(f, "我完成驗證了，繼續 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary").pack(
+            anchor="e", padx=16, pady=12)
+        f.update_idletasks()
+        w, h = max(f.winfo_reqwidth(), 420), f.winfo_reqheight()
+        f.geometry(f"{w}x{h}+{f.winfo_screenwidth() - w - 24}+{f.winfo_screenheight() - h - 70}")
+        f.protocol("WM_DELETE_WINDOW", lambda: None)            # 不讓它被誤關(做完會自己關)
+        float_box[0] = f
+
+    def hide_float(restore=True):
+        if float_box[0] is not None:
+            try:
+                float_box[0].destroy()
+            except Exception:
+                pass
+            float_box[0] = None
+        if restore:                                      # 這一項做完：連續模式視窗再叫回來
+            try:
+                if win.state() == "withdrawn":
+                    win.deiconify()
+            except tk.TclError:
+                pass
 
     q = queue.Queue()
     runner_box = [None]
@@ -363,9 +422,12 @@ def open_window(root, on_finish=None, old_mode=None):
                     rows[key]["frame"].configure(highlightbackground=BLUE, highlightthickness=2)
                     prog_lbl.configure(text=f"第 {n}/{total} 項：{rows[key]['item']['name']}")
                     bar_item.start(12)
+                    say(f"[連續模式] 第 {n}/{total} 項：{rows[key]['item']['name']} 開始")
                     if inter:
                         cont_btn.pack(anchor="w", pady=(6, 0))
                         line_lbl.configure(text="已開啟瀏覽器：請完成真人驗證，網頁出現查詢結果後按「繼續」")
+                        say("  🖐 需要你操作：在瀏覽器完成真人驗證，網頁出現查詢結果後，按右下角提示框的「我完成驗證了，繼續」")
+                        show_float(rows[key]['item']['name'])
                 elif kind == "tick":
                     _, key, sec = m
                     if key == state["cur"]:
@@ -373,10 +435,21 @@ def open_window(root, on_finish=None, old_mode=None):
                         prog_lbl.configure(text=f"{t}　已 {sec} 秒")
                 elif kind == "line":
                     line_lbl.configure(text="→ " + m[2][:120])
+                    say("  " + m[2])
+                    if float_box[0] is not None:
+                        try:
+                            _t = m[2].strip().strip("═=─-—").strip()      # 分隔線不顯示(會撐高提示框、擠掉按鈕)
+                            if _t:
+                                float_box[0]._line.configure(text="→ " + (_t[:44] + "…" if len(_t) > 45 else _t))
+                        except Exception:
+                            pass
                 elif kind == "end":
                     _, key, st, msg, sec = m
                     bar_item.stop()
                     cont_btn.pack_forget()
+                    hide_float()
+                    _txt = {"done": "✓ 完成", "nodata": "— 官方查無資料", "stopped": "■ 已停止"}.get(st, "✗ 失敗")
+                    say(f"[連續模式] {rows[key]['item']['name']}：{_txt}（{sec} 秒）" + (f"　{msg}" if msg else ""))
                     state["done"] += 1
                     bar_all.configure(value=state["done"])
                     rows[key]["frame"].configure(highlightbackground="#CBD5E1", highlightthickness=1)
@@ -409,6 +482,7 @@ def open_window(root, on_finish=None, old_mode=None):
             if not ui.message(win, "連續模式", "還在執行中，要停止並關閉嗎？", kind="ask", ok="停止並關閉", cancel="繼續執行"):
                 return
             stop()
+        hide_float(restore=False)
         win.destroy()
     win.protocol("WM_DELETE_WINDOW", on_close)
     if old_mode:                                     # 謄本、結構化、土增稅、編輯物件資料這些要人操作的，照舊版連續模式跑
@@ -416,6 +490,7 @@ def open_window(root, on_finish=None, old_mode=None):
     ui.button(btns, "關閉", on_close, "ghost").pack(side=tk.LEFT, padx=(0, 8))
     ui.button(btns, "■ 停止", stop, "ghost").pack(side=tk.LEFT, padx=(0, 8))
     run_btn = ui.button(btns, "▶ 開始", lambda: start(), "primary")
+    win._start = start                              # 給測試/其他程式直接開始指定項目
     run_btn.pack(side=tk.LEFT)
     win.after(300, pump)
     return win

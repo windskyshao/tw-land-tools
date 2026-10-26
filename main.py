@@ -28,6 +28,11 @@ from datetime import datetime
 # 後續所有 widget / 函式定義照常建在這個 root 上
 root = tk.Tk()
 root.title("地籍資料查詢系統 - 載入中...")
+try:
+    import tk_textmenu
+    tk_textmenu.install(root)          # 所有輸入框/文字區(含物件編輯器等子視窗)：右鍵 剪下/複製/貼上/全選
+except Exception:
+    pass
 # 簡單置中的 splash 視窗
 try:
     _sw = root.winfo_screenwidth()
@@ -44,7 +49,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9e"
+VERSION = "1.1.9f"
 BUILD_DATE = "2026-10-26"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -4425,7 +4430,8 @@ def toggle_continuous_mode():
     # 新版：案件附件(背景逐項跑、看資料夾判斷有沒有、全國土地使用分區最後單獨跑)；謄本/土增稅那段走舊版
     try:
         import case_attach
-        case_attach.open_window(root, old_mode=start_continuous_mode,
+        case_attach.open_window(root,                                   # 舊版連續模式按鈕已拿掉(使用者 10-26)
+                                on_line=update_message,          # 每項的過程提示也顯示在訊息欄
                                 on_finish=lambda res: update_message(
                                     "[連續模式] 完成：" + "、".join(f"{n}{'✓' if s == 'done' else '✗'}" for n, s, _m in res)))
     except Exception as e:
@@ -9396,5 +9402,114 @@ if selected_json_path:
     root.after(200, update_json_status_display)
 
 setup_data_editor_module()
+
+
+# ===================== 檔案拖曳：從檔案總管把檔案拖到主視窗 → 放進目前案件的資料夾 =====================
+_CASE_SUBS = ["0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關"]
+
+
+def _current_case_folder():
+    try:
+        with open(get_data_json_path(), 'r', encoding='utf-8') as f:
+            d0 = json.load(f)[0]
+        name = f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}"
+        return get_work_folder(name), name
+    except Exception:
+        return None, ""
+
+
+def _suggest_sub(paths):
+    """依檔案類型建議放哪一類：照片→2.照片；謄本/地籍圖/成果圖 PDF→0.謄本；實價/行情→3.行情"""
+    names = [os.path.basename(p).lower() for p in paths]
+    if names and all(n.endswith(('.jpg', '.jpeg', '.png', '.heic', '.webp', '.bmp', '.gif')) for n in names):
+        return 2
+    if any(k in n for n in names for k in ('謄本', '地籍圖', '成果圖', '平面圖', '格局')):
+        return 0
+    if any(k in n for n in names for k in ('實價', '行情', '104', '成交')):
+        return 3
+    return 4
+
+
+def _on_main_drop(paths, event=None):
+    import shutil
+    paths = [p for p in paths if os.path.exists(p)]
+    if not paths:
+        return None
+    case_dir, case_name = _current_case_folder()
+    if not case_dir:
+        show_large_message("拖曳檔案", "請先建立或選擇案件，再把檔案拖進來。\n（檔案會放進目前案件的資料夾）")
+        return None
+    sug = _suggest_sub(paths)
+    names = "、".join(os.path.basename(p) for p in paths[:3]) + (f" 等 {len(paths)} 個" if len(paths) > 3 else "")
+    opts = [(sub + ("（建議）" if i == sug else ""), "#2F7D63" if i == sug else "#3D72C9") for i, sub in enumerate(_CASE_SUBS)]
+    idx = show_large_choice("放到哪個資料夾",
+                            f"要把「{names}」複製到目前案件「{case_name}」的哪個資料夾？\n（原檔不會被移動或刪除）",
+                            opts + [("取消", "#6B7280")])
+    if idx is None:
+        return None
+    target = os.path.join(case_dir, _CASE_SUBS[idx])
+    os.makedirs(target, exist_ok=True)
+    done, errs = 0, []
+    for src in paths:
+        try:
+            base, ext = os.path.splitext(os.path.basename(src.rstrip('\\/')))
+            dest = os.path.join(target, base + ext)
+            n = 1
+            while os.path.exists(dest):
+                dest = os.path.join(target, f"{base} ({n}){ext}")
+                n += 1
+            if os.path.isdir(src):
+                shutil.copytree(src, dest)
+            else:
+                shutil.copy2(src, dest)
+            done += 1
+        except Exception as e:
+            errs.append(f"{os.path.basename(src)}：{e}")
+    update_message(f"📥 已把 {done} 個檔案複製到「{case_name}\\{_CASE_SUBS[idx]}」" + (f"（{len(errs)} 個失敗）" if errs else ""))
+    if errs:
+        show_large_message("拖曳檔案", "有些檔案沒有複製成功：\n" + "\n".join(errs[:8]))
+    if done:
+        root.after(200, lambda: _after_drop_followup(_CASE_SUBS[idx], [os.path.basename(p) for p in paths]))
+    return 'copy'
+
+
+def _after_drop_followup(sub, names):
+    """拖進來之後順便問下一步：地籍圖→開地籍圖處理工具；謄本→謄本結構化；照片→行銷簡報"""
+    low = [n.lower() for n in names]
+    if sub == "0.謄本":
+        if any(n.endswith(".pdf") and "地籍圖" in n for n in low):
+            ans = show_large_choice("要開地籍圖處理工具嗎？",
+                                    "剛放進地籍圖。要開啟「地籍圖處理工具」來標註邊長、路名路寬嗎？\n（會直接打開這個案件的 0.謄本）",
+                                    [("開啟地籍圖處理工具", "#2F7D63"), ("先不要", "#9E9E9E")])
+            if ans == 0:
+                launch_cadastral_map_tool()
+                return
+        if any(n.endswith(".pdf") and "謄本" in n and not any(k in n for k in ("地籍圖", "成果圖")) for n in low):
+            _offer_structuring("剛放進新的謄本，還沒做謄本結構化")
+    elif sub == "2.照片":
+        if any(n.endswith((".jpg", ".jpeg", ".png", ".heic", ".webp")) for n in low):
+            ans = show_large_choice("要做行銷簡報嗎？", "剛放進照片。要開「行銷簡報」挑照片做簡報嗎？",
+                                    [("開啟行銷簡報", "#E58135"), ("先不要", "#9E9E9E")])
+            if ans == 0:
+                try:
+                    data_editor.open_marketing_deck()
+                except Exception as e:
+                    show_large_message("行銷簡報", f"無法開啟行銷簡報：{e}")
+
+
+try:
+    import dnd_helper
+    if dnd_helper.enable(root):
+        dnd_helper.drop_files(root, _on_main_drop)
+
+        # 物件編輯器、萬用查詢…所有子視窗也能拖檔案進來(一樣放進目前案件的資料夾)
+        def _reg_toplevel(e):
+            w = e.widget
+            if isinstance(w, tk.Toplevel) and not getattr(w, "_drop_ok", False):
+                w._drop_ok = True
+                dnd_helper.drop_files(w, _on_main_drop)
+        root.bind_class("Toplevel", "<Map>", _reg_toplevel, add="+")
+except Exception as _e:
+    print(f"[拖曳] 未啟用：{_e}")
 
 root.mainloop()

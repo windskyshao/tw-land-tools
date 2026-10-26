@@ -6,6 +6,13 @@
 import sys
 import io
 import os
+try:
+    import os as _os, sys as _sys
+    _sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
+    import tk_textmenu as _tkm
+    _tkm.auto()          # 輸入框/文字區右鍵：剪下、複製、貼上、全選
+except Exception:
+    pass
 
 # 🔥 在 PyInstaller 環境中，優先載入 python_embedded 的套件
 # 這樣才能正確導入 selenium 和 rapidocr

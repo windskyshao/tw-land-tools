@@ -261,6 +261,7 @@ termcolor==3.1.0
 threadpoolctl==3.5.0
 tifffile==2024.8.30
 tiktoken==0.9.0
+tkinterdnd2==0.7.0
 tkintermapview==1.29
 tomli==2.2.1
 torch==2.1.0+cpu
