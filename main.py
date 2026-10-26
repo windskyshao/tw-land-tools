@@ -44,8 +44,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9d"
-BUILD_DATE = "2026-10-25"
+VERSION = "1.1.9e"
+BUILD_DATE = "2026-10-26"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -8512,7 +8512,7 @@ def _finish_multi_update(updates, download_results, temp_dir, exe_dir, current_e
                 'for /L %%i in (1,1,10) do (',
                 '    if "!RT_OK!"=="0" (',
                 f'        move "{rt}" "{rt_old}" >nul 2>&1 && set RT_OK=1',
-                '        if "!RT_OK!"=="0" timeout /t 2 /nobreak > nul',
+                '        if "!RT_OK!"=="0" ping -n 3 127.0.0.1 > nul',
                 '    )',
                 ')',
                 'if "!RT_OK!"=="0" (',
@@ -8520,9 +8520,29 @@ def _finish_multi_update(updates, download_results, temp_dir, exe_dir, current_e
                 f'    rmdir /S /Q "{dr["new_dir"]}" 2>nul',
                 '    pause',
                 ') else (',
-                f'    move "{dr["new_dir"]}" "{rt}" >nul 2>&1',
-                '    if errorlevel 1 (',
-                f'        echo [X] {dr["name"]}：新環境搬移失敗，已換回原本的環境',
+                # ★剛解壓的新環境(2 萬多個檔)常被防毒掃描鎖住，搬一次就失敗(同事 10-26 遇到)→
+                #   重試 20 次(每次等 3 秒)；還不行改用 robocopy 複製；都失敗才換回舊環境
+                '    set NEW_OK=0',
+                '    for /L %%j in (1,1,20) do (',
+                '        if "!NEW_OK!"=="0" (',
+                f'            move "{dr["new_dir"]}" "{rt}" >nul 2>&1 && set NEW_OK=1',
+                '            if "!NEW_OK!"=="0" (',
+                '                echo   waiting for antivirus scan... %%j/20',
+                '                ping -n 4 127.0.0.1 > nul',          # 等約 3 秒(timeout 在沒有主控台輸入時會直接跳過)
+                '            )',
+                '        )',
+                '    )',
+                '    if "!NEW_OK!"=="0" (',
+                '        echo   copying new environment instead...',
+                f'        robocopy "{dr["new_dir"]}" "{rt}" /E /R:5 /W:3 /NFL /NDL /NJH /NJS /NP >nul',
+                '        if !errorlevel! LSS 8 (',
+                '            set NEW_OK=1',
+                f'            start "" /B cmd /c rmdir /S /Q "{dr["new_dir"]}"',
+                '        )',
+                '    )',
+                '    if "!NEW_OK!"=="0" (',
+                f'        echo [X] {dr["name"]}：新環境搬移失敗，已換回原本的環境（稍後再按更新即可，程式照常可用）',
+                f'        rmdir /S /Q "{rt}" 2>nul',
                 f'        move "{rt_old}" "{rt}" >nul 2>&1',
                 '        pause',
                 '    ) else (',
