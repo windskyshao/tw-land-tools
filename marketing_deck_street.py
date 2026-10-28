@@ -327,19 +327,25 @@ def floors_slide(M, deck, C, f):
     lx, lw = Inches(0.5), Inches(8.3)
     top = Inches(1.35)
     avail = M.FOOTER_Y - Inches(0.9) - top
-    rh = min(Inches(0.85), avail // max(1, len(rows)))
+    if missing or f.get("below"):
+        avail -= Inches(0.7)                                             # 留給下方「不在本建號」的說明
+    # 樓層少(透天兩層)時每層拉高、整欄疊滿，像一棟樓；長條本身最粗 0.9 吋，字跟著放大
+    rh = min(Inches(2.6), avail // max(1, len(rows)))
+    big = rh / Inches(0.85)
+    fs = int(min(26, max(17, 17 * big ** 0.5)))
+    bh = min(Inches(0.9), rh - Inches(0.32))
     vmax = max([v for _, v, _ in rows] + [0])
     for i, (k, v, ok) in enumerate(rows):
         y = top + rh * i
         M.box(s, lx, y + Inches(0.06), Inches(1.6), rh - Inches(0.12), C["panel"] if ok else C["white"], C["amber"] if ok else C["line"])
-        M.text(s, lx, y + Inches(0.06), Inches(1.6), rh - Inches(0.12), k, 17, True, C["amber_dk"] if ok else C["light"],
+        M.text(s, lx, y + Inches(0.06), Inches(1.6), rh - Inches(0.12), k, fs, True, C["amber_dk"] if ok else C["light"],
                PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
         if not ok:
             M.text(s, lx + Inches(1.75), y, lw - Inches(1.9), rh, "不在本建號登記範圍", 14, True, C["grey"], anchor=MSO_ANCHOR.MIDDLE)
             continue
         bw = int((lw - Inches(3.4)) * (v / vmax)) if vmax else 0
-        M.box(s, lx + Inches(1.75), y + Inches(0.16), max(bw, Inches(0.2)), rh - Inches(0.32), C["amber"])
-        M.text(s, lx + Inches(1.75) + bw + Inches(0.15), y, Inches(1.6), rh, f"{v:g} 坪", 17, True, C["char"],
+        M.box(s, lx + Inches(1.75), y + (rh - bh) // 2, max(bw, Inches(0.2)), bh, C["amber"])
+        M.text(s, lx + Inches(1.75) + bw + Inches(0.15), y, Inches(1.6), rh, f"{v:g} 坪", fs, True, C["char"],
                anchor=MSO_ANCHOR.MIDDLE)
     note = []
     if missing:

@@ -295,6 +295,10 @@ class ModernStyle:
 # 🔥 基準目錄設定
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
+TOOL_VERSION = "2.3"                                   # 跟 GitHub tag v2.3、檔名「電子謄本結構化v2.3.exe」一致
+UPDATE_REPO = "windskyshao/tw-transcript-structurer"   # 主程式的自動更新也是看這個 repo
+LAUNCHED_BY_MAIN = "--base-dir" in sys.argv            # 由「地籍資料查詢系統」主程式開的
+
 # 🔥 雙重保險：確保 BASE_DIR 不是 _internal 目錄
 if '_internal' in BASE_DIR or BASE_DIR.endswith('_internal'):
     BASE_DIR = os.path.dirname(BASE_DIR)
@@ -1471,6 +1475,9 @@ class ModernTranscriptGUI:
         self.current_template = "完整"  # 預設模板
         # 🔧 綁定關閉事件，自動儲存設定
         self.master.protocol("WM_DELETE_WINDOW", self.on_closing)
+        # 單獨開啟時，啟動後背景檢查新版(由主程式開的不查：主程式啟動時已經幫它查過、更新過)
+        if not LAUNCHED_BY_MAIN:
+            self.master.after(6000, lambda: self.check_update(silent=True))
 
     # 🔧 加入這些新方法
     def comprehensive_debug_theme_switch(self):
@@ -1895,7 +1902,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.2 (2026-10-12) | 電子謄本功能測試版",
+                               text="v2.3 (2026-10-27) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2405,11 +2412,16 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.2 (2026-10-12) | {status_text}",
+                            text=f"v2.3 (2026-10-27) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
-        version_label.pack(side="right", padx=30, pady=12)  # 從pady=20改為12
+        # 檢查更新(右側工具列已經滿了，放標題列版本號旁邊)
+        upd = tk.Label(header, text="🔄 檢查更新", font=("微軟正黑體", 12, "bold"), bg="#E8F5E9", fg="#1B5E20",
+                       padx=12, pady=3, cursor="hand2")
+        upd.pack(side="right", padx=(0, 20), pady=10)
+        upd.bind("<Button-1>", lambda e: self.check_update(silent=False))
+        version_label.pack(side="right", padx=(30, 12), pady=12)  # 從pady=20改為12
 
     def apply_theme(self):
         """套用主題到整個界面 - 修正變數作用域"""
@@ -4544,7 +4556,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.2 (2026-10-12) | 電子謄本功能測試版",
+                            text="v2.3 (2026-10-27) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -4554,6 +4566,213 @@ class ModernTranscriptGUI:
         """更新狀態列訊息"""
         if hasattr(self, 'status_label'):
             self.status_label.config(text=f"🟢 {message}")
+
+    def ask_open_folder_then_finish(self, title, message, folder=None):
+        """問「是否開啟資料夾？」(預設否)；不管選哪個，接著問這批是不是做完了、要不要退出程式"""
+        if self.show_custom_messagebox(title, message, "yesno", default_no=True):
+            if folder:
+                try:
+                    os.startfile(folder)
+                except Exception as _e:
+                    print(f"開啟資料夾失敗: {_e}", flush=True)
+            else:
+                self.open_output_folder()
+        self.ask_finish_batch()
+
+    def ask_finish_batch(self):
+        """本批謄本處理完畢：退出程式(主程式接著會問要不要載入結構化資料) 或 繼續處理其他檔案"""
+        dlg = tk.Toplevel(self.master)
+        dlg.title("本批謄本已處理完畢")
+        dlg.transient(self.master)
+        dlg.configure(bg=ModernStyle.BG_LIGHT)
+        dlg.resizable(False, False)
+        fam = "微軟正黑體"
+        k = max(1.0, dlg.winfo_fpixels("1i") / 96)
+        tk.Label(dlg, text="✅ 本批謄本已處理完畢", font=(fam, 17, "bold"), fg="#1B5E20",
+                 bg=ModernStyle.BG_LIGHT).pack(anchor="w", padx=26, pady=(22, 8))
+        tip = "要退出程式，還是繼續處理其他檔案？"
+        if LAUNCHED_BY_MAIN:
+            tip += "\n\n退出後，主程式會接著問要不要載入這次的結構化資料。"
+        tk.Label(dlg, text=tip, font=(fam, 14), fg="#1C1917", bg=ModernStyle.BG_LIGHT, justify="left",
+                 wraplength=int(520 * k)).pack(anchor="w", padx=26)
+        res = {"v": "continue"}
+
+        def done(v):
+            res["v"] = v
+            dlg.destroy()
+        bf = tk.Frame(dlg, bg=ModernStyle.BG_LIGHT)
+        bf.pack(fill="x", padx=26, pady=(22, 22))
+        tk.Button(bf, text="繼續處理其他檔案", font=(fam, 14), bg="#E0E0E0", fg="#1C1917", relief="flat",
+                  padx=18, pady=10, cursor="hand2", command=lambda: done("continue")).pack(side="right")
+        ex = tk.Button(bf, text="退出程式", font=(fam, 14, "bold"), bg="#55B092", fg="#10261D", relief="flat",
+                       padx=26, pady=10, cursor="hand2", command=lambda: done("exit"))
+        ex.pack(side="right", padx=(0, 12))
+        dlg.bind("<Escape>", lambda e: done("continue"))
+        dlg.bind("<Return>", lambda e: done("exit"))
+        dlg.protocol("WM_DELETE_WINDOW", lambda: done("continue"))
+        dlg.update_idletasks()
+        w, h = dlg.winfo_reqwidth(), dlg.winfo_reqheight()
+        dlg.geometry(f"+{(dlg.winfo_screenwidth() - w) // 2}+{(dlg.winfo_screenheight() - h) // 3}")
+        try:
+            dlg.grab_set()
+            ex.focus_set()
+        except Exception:
+            pass
+        self.master.wait_window(dlg)
+        if res["v"] == "exit":
+            self.on_closing()
+
+    # ===================== 自己檢查更新(跟主程式用同一個 GitHub 來源、同樣檔名) =====================
+    @staticmethod
+    def _ver_tuple(v):
+        m = re.search(r"(\d+)\.(\d+)(?:\.(\d+))?([a-zA-Z])?", str(v or ""))
+        if not m:
+            return (0, 0, 0, 0)
+        return (int(m.group(1)), int(m.group(2)), int(m.group(3) or 0), ord(m.group(4).lower()) if m.group(4) else 0)
+
+    @staticmethod
+    def _urlopen(url, timeout=20, headers=None):
+        import urllib.request
+        import ssl
+        req = urllib.request.Request(url, headers=dict({"User-Agent": "tw-transcript-structurer-updater",
+                                                        "Accept": "application/vnd.github+json"}, **(headers or {})))
+        try:
+            return urllib.request.urlopen(req, timeout=timeout)
+        except Exception as e:
+            if "CERTIFICATE" not in str(e).upper():
+                raise
+            import certifi
+            return urllib.request.urlopen(req, timeout=timeout, context=ssl.create_default_context(cafile=certifi.where()))
+
+    def check_update(self, silent=True):
+        """查 GitHub 最新版。silent=True(啟動時背景查)：查不到或已是最新都不打擾"""
+        def work():
+            try:
+                with self._urlopen(f"https://api.github.com/repos/{UPDATE_REPO}/releases/latest") as r:
+                    rel = json.loads(r.read().decode("utf-8"))
+                tag = rel.get("tag_name") or ""
+                asset = next((a for a in rel.get("assets", []) if str(a.get("name", "")).startswith("transcript-tool_v")
+                              and a["name"].lower().endswith(".exe")), None)
+                res = (tag, asset, rel.get("body") or "")
+            except Exception as e:
+                res = ("", None, str(e))
+            try:
+                self.master.after(0, lambda: self._after_check(res, silent))
+            except Exception:
+                pass
+        threading.Thread(target=work, daemon=True).start()
+
+    def _after_check(self, res, silent):
+        tag, asset, body = res
+        if not tag or not asset:
+            if not silent:
+                self.show_custom_messagebox("檢查更新", "目前查不到新版本資訊（可能網路不通），請稍後再試。")
+            return
+        if self._ver_tuple(tag) <= self._ver_tuple(TOOL_VERSION):
+            if not silent:
+                self.show_custom_messagebox("檢查更新", f"目前已是最新版（v{TOOL_VERSION}）。")
+            return
+        ver = tag.lstrip("vV")
+        if not getattr(sys, "frozen", False):
+            if not silent:
+                self.show_custom_messagebox("檢查更新", f"有新版 {tag}（開發環境不自動更新）。")
+            return
+        notes = "\n".join(l_.strip("#- ").strip() for l_ in body.splitlines() if l_.strip())[:500]
+        after = ("更新完程式會關閉，請從主程式再按一次【電子謄本結構化】。" if LAUNCHED_BY_MAIN
+                 else "更新完會自動重新開啟。")
+        if self.show_custom_messagebox("有新版本", f"電子謄本結構化有新版：v{TOOL_VERSION} → v{ver}\n\n{notes}\n\n"
+                                                f"要現在更新嗎？（下載約 1~2 分鐘；{after}）", "yesno"):
+            self._do_self_update(ver, asset["browser_download_url"], int(asset.get("size") or 0))
+
+    def _do_self_update(self, ver, url, size):
+        """下載存成「電子謄本結構化v{ver}.exe」(跟主程式自動更新的檔名一樣，主程式會自動用最新版)。
+        舊版檔案留著不刪(主程式那邊也是這樣)，不會互相打架"""
+        import subprocess
+        import tempfile
+        import time as _t
+        exe = sys.executable
+        target = os.path.join(os.path.dirname(exe), f"電子謄本結構化v{ver}.exe")
+        part = target + ".download"
+        win = tk.Toplevel(self.master)
+        win.title("下載更新中")
+        win.transient(self.master)
+        win.resizable(False, False)
+        win.configure(bg=ModernStyle.BG_LIGHT)
+        tk.Label(win, text=f"正在下載電子謄本結構化 v{ver}…", font=("微軟正黑體", 14, "bold"),
+                 bg=ModernStyle.BG_LIGHT).pack(padx=24, pady=(18, 8), anchor="w")
+        bar = ttk.Progressbar(win, length=420, mode="determinate", maximum=100)
+        bar.pack(padx=24, pady=(0, 6))
+        info = tk.Label(win, text="連線中…", font=("微軟正黑體", 12), bg=ModernStyle.BG_LIGHT, fg="#444")
+        info.pack(padx=24, pady=(0, 18), anchor="w")
+        state = {"done": False, "err": None, "pct": 0, "txt": ""}
+
+        def work():
+            total = size
+            for attempt in range(1, 7):                      # 斷線自動重試、接著下載
+                have = os.path.getsize(part) if os.path.exists(part) else 0
+                try:
+                    hdr = {"Accept": "application/octet-stream"}
+                    if have:
+                        hdr["Range"] = f"bytes={have}-"
+                    with self._urlopen(url, timeout=30, headers=hdr) as r:
+                        if have and getattr(r, "status", 200) != 206:
+                            have = 0
+                        ln = int(r.headers.get("Content-Length", 0) or 0)
+                        total = (have + ln) if ln else total
+                        with open(part, "ab" if have else "wb") as f:
+                            got = have
+                            while True:
+                                ch = r.read(256 * 1024)
+                                if not ch:
+                                    break
+                                f.write(ch)
+                                got += len(ch)
+                                if total:
+                                    state["pct"] = got * 100 / total
+                                    state["txt"] = f"{got / 1048576:.1f} / {total / 1048576:.1f} MB"
+                    if total and os.path.getsize(part) < total:
+                        raise IOError("連線提早結束")
+                    os.replace(part, target)
+                    state["done"] = True
+                    return
+                except Exception as e:
+                    state["err"] = str(e)
+                    state["txt"] = f"網路中斷，{3 * attempt} 秒後重試（第 {attempt + 1}/6 次）"
+                    _t.sleep(3 * attempt)
+            state["done"] = True
+
+        threading.Thread(target=work, daemon=True).start()
+
+        def poll():
+            bar.configure(value=state["pct"])
+            info.configure(text=state["txt"] or "連線中…")
+            if not state["done"]:
+                return self.master.after(200, poll)
+            win.destroy()
+            if not os.path.exists(target):
+                self.show_custom_messagebox("更新失敗", f"下載沒有成功（{state['err']}）。\n原本的程式沒有被動到，稍後再試即可。")
+                return
+            if LAUNCHED_BY_MAIN:
+                # 主程式在等這個程式結束；這裡不自己重開(重開的新程式主程式管不到)，請使用者從主程式再開
+                self.show_custom_messagebox("更新完成", f"已下載 v{ver}。\n\n程式現在會關閉，請從主程式再按一次【電子謄本結構化】，"
+                                                    "就會開新版。")
+                self.on_closing()
+                return
+            bat = os.path.join(tempfile.gettempdir(), f"transcript_update_{os.getpid()}.bat")
+            args = " ".join(f'"{a}"' for a in sys.argv[1:])
+            lines = ["@echo off", "chcp 65001 > nul",
+                     ":wait", f'tasklist /FI "PID eq {os.getpid()}" 2>nul | find "{os.getpid()}" >nul && (ping -n 2 127.0.0.1 >nul & goto wait)',
+                     "ping -n 2 127.0.0.1 >nul",
+                     f'start "" "{target}" {args}'.rstrip(), '(del "%~f0") & exit']
+            with open(bat, "w", encoding="utf-8") as f:
+                f.write("\r\n".join(lines) + "\r\n")
+            subprocess.Popen(["cmd", "/d", "/c", bat], creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+            try:
+                self.on_closing()
+            except Exception:
+                pass
+            os._exit(0)
+        poll()
 
     def show_custom_messagebox(self, title, message, msg_type="info", default_no=False):
         """自定義訊息對話框 - 修正版本"""
@@ -5849,14 +6068,10 @@ class ModernTranscriptGUI:
                             proc_btn.config(state="normal")
                             scan_btn.config(state="normal")
                             outdir = os.path.dirname(data[0]) if data else getattr(self, 'output_directory', '(無輸出)')
-                            if self.show_custom_messagebox(
+                            self.ask_open_folder_then_finish(
                                 "處理完成",
                                 f"完成！共輸出 {len(data)} 個檔案\n\n儲存目錄：\n{outdir}\n\n是否開啟輸出資料夾？",
-                                "yesno"):
-                                try:
-                                    os.startfile(outdir)
-                                except Exception as _e:
-                                    print(f"開啟資料夾失敗: {_e}", flush=True)
+                                folder=outdir)
                         self.master.after(800, after_done)
                     elif status == 'cancelled':
                         progress_window.show_completion(False, "已取消", len(data))
@@ -6850,10 +7065,7 @@ class ModernTranscriptGUI:
                         f"💾 儲存目錄: {os.path.dirname(exported_files[0][1])}\n\n"
                         f"是否要開啟檔案所在資料夾？")
                 
-                result = self.show_custom_messagebox("批次匯出完成", message, "yesno", default_no=True)
-                
-                if result:
-                    self.open_output_folder()
+                self.ask_open_folder_then_finish("批次匯出完成", message)
             else:
                 self.show_custom_messagebox("錯誤", "所有格式匯出都失敗了")
                 
@@ -7362,10 +7574,7 @@ class ModernTranscriptGUI:
                     f"💾 儲存目錄: {os.path.dirname(filepath)}\n\n"
                     f"是否要開啟檔案所在資料夾？")
             
-            result = self.show_custom_messagebox("匯出完成", message, "yesno", default_no=True)
-            
-            if result:
-                self.open_output_folder()
+            self.ask_open_folder_then_finish("匯出完成", message)
             
             return filepath
             
@@ -7413,10 +7622,7 @@ class ModernTranscriptGUI:
                         f"💾 儲存目錄: {os.path.dirname(exported_files[0][1])}\n\n"
                         f"是否要開啟檔案所在資料夾？")
                 
-                result = self.show_custom_messagebox("批次匯出完成", message, "yesno", default_no=True)
-                
-                if result:
-                    self.open_output_folder()
+                self.ask_open_folder_then_finish("批次匯出完成", message)
             else:
                 self.show_custom_messagebox("錯誤", "所有格式匯出都失敗了")
                 

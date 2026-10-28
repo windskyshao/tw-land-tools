@@ -31,6 +31,27 @@ UNUSED = "#CBD5E1"
 LAYOUT = "#7C3AED"      # 格局平面圖(紫)，跟照片分類區隔
 
 
+def _fit_dropdown(cb):
+    """下拉選單別超出螢幕：每次打開前依選單上方/下方剩下的空間，決定一次顯示幾項(其餘用捲軸)"""
+    def fit():
+        try:
+            import tkinter.font as tkfont
+            pop = cb.tk.eval(f"ttk::combobox::PopdownWindow {cb}")
+            try:
+                f_ = cb.tk.call(f"{pop}.f.l", "cget", "-font")
+                row = tkfont.Font(root=cb, font=f_).metrics("linespace") + 2
+            except Exception:
+                row = int(30 * max(1.0, cb.winfo_fpixels("1i") / 96))
+            sh = cb.winfo_screenheight()
+            below = sh - (cb.winfo_rooty() + cb.winfo_height()) - 60      # 留工作列
+            above = cb.winfo_rooty() - 20
+            n = max(5, int(max(below, above) // row) - 1)
+            cb.configure(height=min(len(cb.cget("values")), n))
+        except Exception:
+            cb.configure(height=10)
+    cb.configure(postcommand=fit)
+
+
 def _guard_sep(cb, v, p):
     """下拉選到分隔線 → 退回原本的分類"""
     from marketing_deck import CAT_SEP
@@ -412,6 +433,7 @@ def _step_photos(root, photos, facts, state, sc, W):
         tk.Label(fr, text=name, font=(FAM, 12), fg=INK, bg="white", wraplength=TW, justify="left").pack(anchor="w", pady=(4, 2))
         v = tk.StringVar(master=root, value=p["cat"])
         cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", height=26, font=(FAM, 13), width=10)
+        _fit_dropdown(cb)
         cb.pack(anchor="w")
         _guard_sep(cb, v, p)
         v.trace_add("write", refresh)
@@ -1106,6 +1128,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
         caption_entry(fr, p)
         v = tk.StringVar(master=root, value=p["cat"])
         cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU, state="readonly", height=26, font=(FAM, 12), width=10)
+        _fit_dropdown(cb)
         cb.pack(fill=tk.X, pady=(4, 0))
         cb.bind("<<ComboboxSelected>>", lambda e: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set(p["cat"]))
         row = tk.Frame(fr, bg="white")
@@ -1184,6 +1207,7 @@ def _step_arrange(root, photos, facts, state, sc, W):
             v = tk.StringVar(master=root, value="放到…")
             cb = ttk.Combobox(fr, textvariable=v, values=CAT_MENU[:-2], state="readonly", height=26,
                               font=(FAM, 11), width=8)
+            _fit_dropdown(cb)
             cb.pack(fill=tk.X)
             cb.bind("<<ComboboxSelected>>", lambda e, p=p, v=v: set_cat(p, v.get()) if v.get() != CAT_SEP else v.set("放到…"))
         canvas.update_idletasks()

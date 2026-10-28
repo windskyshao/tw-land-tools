@@ -511,6 +511,89 @@ LINE_MAX = 5000               # ★線條圖不重新取樣:原圖長邊 ≤ 此
 PDF_LINE_ZOOM = 6.0           # PDF 線條圖轉圖倍率(6 倍 ≈ 432 dpi;成果圖/地籍圖印 A4 約 490 dpi)
 
 
+CAPTIONS = {}                 # 照片路徑 → 燒在照片邊角的文字標籤範圍(0～1)；裁切時別切到(photo_captions.py 用 OCR 找)
+
+
+def load_captions(paths):
+    """找出照片邊角的文字標籤(例：「附近街景圖」)。結果存快取(路徑＋修改時間＋大小)，同一張不重算；
+    OCR 在 python_embedded 跑(主程式沒打包 OCR)，最多等 3 分鐘，失敗就照舊置中裁"""
+    import subprocess
+    frozen = getattr(sys, "frozen", False)
+    exe_dir = os.path.dirname(sys.executable) if frozen else os.path.dirname(os.path.abspath(__file__))
+    internal = getattr(sys, "_MEIPASS", exe_dir) if frozen else exe_dir
+    cache_p = os.path.join(exe_dir, "photo_captions_cache.json")
+    try:
+        with open(cache_p, encoding="utf-8") as f:
+            cache = json.load(f)
+    except Exception:
+        cache = {}
+
+    def key(p):
+        st = os.stat(p)
+        return f"{os.path.abspath(p)}|{int(st.st_mtime)}|{st.st_size}"
+    todo = []
+    for p in dict.fromkeys(paths):
+        try:
+            k = key(p)
+        except OSError:
+            continue
+        if k in cache:
+            CAPTIONS[p] = cache[k]
+        elif p.lower().endswith((".jpg", ".jpeg", ".png", ".webp", ".bmp")):
+            todo.append(p)
+    if not todo:
+        return
+    log(f"檢查 {len(todo)} 張照片邊角有沒有文字標籤（裁切時避開）…")
+    script = os.path.join(internal, "photo_captions.py")
+    if frozen:
+        py_dir = os.path.join(exe_dir, "python_embedded")
+        py = os.path.join(py_dir, "python.exe")
+        env = dict(os.environ, PYTHONHOME=py_dir, PYTHONNOUSERSITE="1",
+                   PYTHONPATH=internal + os.pathsep + os.path.join(py_dir, "Lib", "site-packages"))
+    else:
+        py, env = sys.executable, dict(os.environ)
+    env["PYTHONIOENCODING"] = "utf-8"
+    tmpd = tempfile.mkdtemp(prefix="cap_")
+    src, dst = os.path.join(tmpd, "in.json"), os.path.join(tmpd, "out.json")
+    with open(src, "w", encoding="utf-8") as f:
+        json.dump(todo, f, ensure_ascii=False)
+    try:
+        subprocess.run([py, script, src, dst], env=env, cwd=internal, capture_output=True, timeout=180,
+                       creationflags=0x08000000)
+    except Exception as e:
+        log(f"（照片文字標籤檢查沒完成：{e}）")
+    try:
+        with open(dst, encoding="utf-8") as f:
+            got = json.load(f)
+    except Exception:
+        got = {}
+    n = 0
+    for p, box in got.items():
+        CAPTIONS[p] = box
+        n += bool(box)
+        try:
+            cache[key(p)] = box
+        except OSError:
+            pass
+    if n:
+        log(f"  有 {n} 張照片邊角有文字標籤，裁切時會保留")
+    try:
+        with open(cache_p, "w", encoding="utf-8") as f:
+            json.dump(cache, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _keep_span(lo_default, size, full, a, b):
+    """裁切窗(長 size)在 0～full 之間滑動：盡量包住 [a, b](標籤)，包不住就貼齊標籤那一側"""
+    start = lo_default
+    if b - a <= size:
+        start = min(max(start, b - size), a)
+    else:
+        start = 0 if a < full - b else full - size
+    return int(max(0, min(start, full - size)))
+
+
 def prep_image(path, box_w, box_h, mode="cover", tmpdir=None, max_side=None, enhance=True, lossless=False):
     """事先把圖裁成框的比例(cover)或整張放進(contain)，縮小、轉正、微提亮 → 存成 JPEG/PNG 暫存檔。
     回傳 (暫存檔, 實際寬, 實際高)；contain 時寬高可能比框小"""
@@ -521,12 +604,18 @@ def prep_image(path, box_w, box_h, mode="cover", tmpdir=None, max_side=None, enh
     ratio = box_w / box_h
     w, h = im.size
     if mode == "cover":
+        cap = CAPTIONS.get(path)                          # 照片邊角燒進去的字(例：「附近街景圖」)：裁切窗挪過去包住它
         if w / h > ratio:
             nw = int(h * ratio)
-            im = im.crop(((w - nw) // 2, 0, (w - nw) // 2 + nw, h))
+            x0 = (w - nw) // 2
+            if cap:
+                x0 = _keep_span(x0, nw, w, cap[0] * w, cap[2] * w)
+            im = im.crop((x0, 0, x0 + nw, h))
         else:
             nh = int(w / ratio)
             top = max(0, int((h - nh) * 0.45))           # 稍微偏上(天花板少、主體多)
+            if cap:
+                top = _keep_span(top, nh, h, cap[1] * h, cap[3] * h)
             im = im.crop((0, top, w, top + nh))
         out_w, out_h = box_w, box_h
     else:
@@ -1680,6 +1769,10 @@ def slide_back(deck, phones):
 def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_cover=False, template="building", sel=None):
     """sel＝「頁面內容」步驟的選擇 {單元: {on, pick}}；None＝照預設自動帶"""
     f = facts(d)
+    try:
+        load_captions([p["path"] for p in chosen if p.get("path")])
+    except Exception as e:
+        log(f"（照片文字標籤檢查失敗：{e}）")
     if REAL_H > REAL_W:                     # A4 直式：另一套直式排版(保留富住通外框、LOGO、售/租章、封底)
         import marketing_deck_portrait
         return marketing_deck_portrait.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,

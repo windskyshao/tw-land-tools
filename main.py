@@ -33,6 +33,40 @@ try:
     tk_textmenu.install(root)          # 所有輸入框/文字區(含物件編輯器等子視窗)：右鍵 剪下/複製/貼上/全選
 except Exception:
     pass
+
+
+def _front_dialogs():
+    """選檔案／選資料夾／另存新檔視窗一律跳到最前面。
+    沒指定 parent 時 Windows 常把它開在 VS Code、瀏覽器等視窗後面，使用者以為按鈕沒反應。
+    做法：臨時開一個看不見、永遠在最上層的小視窗當 parent，選完就關掉"""
+    def wrap(fn):
+        def inner(*a, **kw):
+            if kw.get("parent") is not None:
+                return fn(*a, **kw)
+            holder = tk.Toplevel(root)
+            try:
+                holder.withdraw()
+                holder.attributes("-topmost", True)
+                holder.lift()
+                holder.focus_force()
+            except tk.TclError:
+                pass
+            try:
+                return fn(*a, parent=holder, **kw)
+            finally:
+                try:
+                    holder.destroy()
+                except tk.TclError:
+                    pass
+        inner._front = True
+        return inner
+    for name in ("askopenfilename", "askopenfilenames", "asksaveasfilename", "askdirectory"):
+        f = getattr(filedialog, name)
+        if not getattr(f, "_front", False):
+            setattr(filedialog, name, wrap(f))
+
+
+_front_dialogs()
 # 簡單置中的 splash 視窗
 try:
     _sw = root.winfo_screenwidth()
@@ -49,8 +83,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9f"
-BUILD_DATE = "2026-10-26"
+VERSION = "1.1.9g"
+BUILD_DATE = "2026-10-28"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -4432,6 +4466,8 @@ def toggle_continuous_mode():
         import case_attach
         case_attach.open_window(root,                                   # 舊版連續模式按鈕已拿掉(使用者 10-26)
                                 on_line=update_message,          # 每項的過程提示也顯示在訊息欄
+                                tax_check=_structured_problem,   # 土增稅前跟按鈕一樣檢查結構化是不是這個案件
+                                json_path=lambda: selected_json_path,
                                 on_finish=lambda res: update_message(
                                     "[連續模式] 完成：" + "、".join(f"{n}{'✓' if s == 'done' else '✗'}" for n, s, _m in res)))
     except Exception as e:
@@ -5685,7 +5721,8 @@ def _confirm_batch_before_structuring(display_name):
         first = folders[0]
         first_exists = os.path.isdir(get_work_folder(first))
         tk.Label(win, text=f"【{display_name}】會依「目前的 data.json」決定存到哪個資料夾。",
-                 font=(_fam, FB, 'bold'), bg='white', justify='left', wraplength=640).pack(padx=24, pady=(22, 10), anchor='w')
+                 font=(_fam, FB, 'bold'), bg='white', justify='left',
+                 wraplength=int(640 * max(1.0, win.winfo_fpixels('1i') / 96))).pack(padx=24, pady=(22, 10), anchor='w')
         tk.Label(win, text=f"目前 data.json 的案件（共 {len(folders)} 筆）：",
                  font=(_fam, F), bg='white').pack(padx=24, anchor='w')
         box = tk.Frame(win, bg='#F7F7F7', relief=tk.GROOVE, bd=1)
@@ -5722,11 +5759,11 @@ def _confirm_batch_before_structuring(display_name):
     bf = tk.Frame(win, bg='white')
     bf.pack(pady=20)
     tk.Button(bf, text=b1, command=lambda: _set('proceed'), font=(_fam, FBTN, 'bold'),
-              bg=b1bg, fg='black', width=b1w, height=2).pack(side=tk.LEFT, padx=8)
+              bg=b1bg, fg='black', padx=18, pady=10).pack(side=tk.LEFT, padx=8)   # 不用字數定寬(中文字會被切)
     tk.Button(bf, text=b2, command=lambda: _set('goto_land'), font=(_fam, FBTN, 'bold'),
-              bg=b2bg, fg='black', width=b2w, height=2).pack(side=tk.LEFT, padx=8)
+              bg=b2bg, fg='black', padx=18, pady=10).pack(side=tk.LEFT, padx=8)
     tk.Button(bf, text="取消", command=lambda: _set('cancel'), font=(_fam, FBTN),
-              bg='#E0E0E0', width=9, height=2).pack(side=tk.LEFT, padx=8)
+              bg='#E0E0E0', padx=28, pady=10).pack(side=tk.LEFT, padx=8)
 
     win.update_idletasks()
     w, h = win.winfo_width(), win.winfo_height()
@@ -5911,54 +5948,58 @@ def _prep_transcript_source(display_name, script_name):
 
     # 3) 詢問是否把已自行調閱的謄本複製進來
     # 按鈕直接寫要做什麼(原本要對照「是／否／取消」的說明)
-    pick = show_large_choice(
-        f"{display_name}｜匯入既有謄本",
-        "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
-        f"存放位置：\n{trans_dir}",
-        [("選檔案複製進來", "#4CAF50"), ("不用，直接開啟工具", "#1976D2"), ("取消", "#9E9E9E")])
-    if pick is None:
-        return None  # 取消
-    ans = pick == 0
-
-    if ans:  # 是 → 多選檔案複製
-        try:
-            cfg = load_config() or {}
-        except Exception:
-            cfg = {}
-        init_dir = cfg.get("transcript_import_last_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
-        if not os.path.isdir(init_dir):
-            init_dir = os.path.expanduser("~")
-        files = filedialog.askopenfilenames(
-            title="選擇已調閱的謄本檔（可多選，通常是 PDF）",
-            initialdir=init_dir,
-            filetypes=[("謄本檔 PDF", "*.pdf"), ("所有檔案", "*.*")])
-        if files:
-            copied, skipped = 0, 0
-            for src in files:
-                try:
-                    base = os.path.basename(src)
-                    dst = os.path.join(trans_dir, base)
-                    # 同名檔已存在且內容相同 → 略過；不同 → 加序號避免覆蓋
-                    if os.path.exists(dst):
-                        if os.path.getsize(dst) == os.path.getsize(src):
-                            skipped += 1
-                            continue
-                        stem, ext = os.path.splitext(base)
-                        n = 2
-                        while os.path.exists(os.path.join(trans_dir, f"{stem}_{n}{ext}")):
-                            n += 1
-                        dst = os.path.join(trans_dir, f"{stem}_{n}{ext}")
-                    _shutil.copy2(src, dst)
-                    copied += 1
-                except Exception as e:
-                    update_message(f"[複製失敗] {os.path.basename(src)}：{e}")
-            update_message(f"[匯入] 已複製 {copied} 個謄本到「0.謄本」" + (f"（{skipped} 個已存在略過）" if skipped else ""))
-            # 記住這次的來源資料夾，下次直接停在這
+    while True:
+        pick = show_large_choice(
+            f"{display_name}｜匯入既有謄本",
+            "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
+            f"存放位置：\n{trans_dir}",
+            [("選檔案複製進來", "#4CAF50"), ("不用，直接開啟工具", "#1976D2"), ("取消", "#9E9E9E")])
+        if pick is None:
+            return None  # 取消
+        if pick != 0:
+            break                       # 不用匯入，直接開工具
+        if True:  # 選檔案複製進來
             try:
-                cfg["transcript_import_last_dir"] = os.path.dirname(files[0])
-                save_config(cfg, show_message=False)
+                cfg = load_config() or {}
             except Exception:
-                pass
+                cfg = {}
+            init_dir = cfg.get("transcript_import_last_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
+            if not os.path.isdir(init_dir):
+                init_dir = os.path.expanduser("~")
+            files = filedialog.askopenfilenames(
+                title="選擇已調閱的謄本檔（可多選，通常是 PDF）",
+                initialdir=init_dir,
+                filetypes=[("謄本檔 PDF", "*.pdf"), ("所有檔案", "*.*")])
+            if not files:
+                continue                # 選檔視窗按取消 → 回上一步(重新問要不要匯入)，不要直接開工具
+            if files:
+                copied, skipped = 0, 0
+                for src in files:
+                    try:
+                        base = os.path.basename(src)
+                        dst = os.path.join(trans_dir, base)
+                        # 同名檔已存在且內容相同 → 略過；不同 → 加序號避免覆蓋
+                        if os.path.exists(dst):
+                            if os.path.getsize(dst) == os.path.getsize(src):
+                                skipped += 1
+                                continue
+                            stem, ext = os.path.splitext(base)
+                            n = 2
+                            while os.path.exists(os.path.join(trans_dir, f"{stem}_{n}{ext}")):
+                                n += 1
+                            dst = os.path.join(trans_dir, f"{stem}_{n}{ext}")
+                        _shutil.copy2(src, dst)
+                        copied += 1
+                    except Exception as e:
+                        update_message(f"[複製失敗] {os.path.basename(src)}：{e}")
+                update_message(f"[匯入] 已複製 {copied} 個謄本到「0.謄本」" + (f"（{skipped} 個已存在略過）" if skipped else ""))
+                # 記住這次的來源資料夾，下次直接停在這
+                try:
+                    cfg["transcript_import_last_dir"] = os.path.dirname(files[0])
+                    save_config(cfg, show_message=False)
+                except Exception:
+                    pass
+            break
 
     # 4) 讓工具預設開「0.謄本」
     #    電子謄本結構化：讀自己的 settings.json 的 source_directory → 這裡先幫它寫好（不必改那支 exe）
@@ -7478,25 +7519,44 @@ def show_large_choice(title, message, options):
     dialog = tk.Toplevel(root)
     dialog.title(title)
     msg_lines = message.count('\n') + 1
-    dialog_height = min(150 + msg_lines * 30 + 100, 600)
-    width = max(780, 190 * len(options) + 60)
+    k = max(1.0, dialog.winfo_fpixels('1i') / 96)       # 螢幕縮放倍率(125%/150%/250%…字會跟著變大)
+    sw_, sh_ = dialog.winfo_screenwidth(), dialog.winfo_screenheight()
+    dialog_height = int(min(150 + msg_lines * 30 + 100, 600) * k)
+    width = min(int(max(780, 190 * len(options) + 60) * k), sw_ - 40)
     x = (dialog.winfo_screenwidth() - width) // 2
     y = (dialog.winfo_screenheight() - dialog_height) // 2
     dialog.geometry(f"{width}x{dialog_height}+{x}+{y}")
     dialog.transient(root)
     dialog.grab_set()
-    tk.Label(dialog, text=message, font=("Microsoft JhengHei", 16), wraplength=width - 30,
-             justify=tk.LEFT, padx=20, pady=20).pack(fill=tk.X)
+    msg_lbl = tk.Label(dialog, text=message, font=("Microsoft JhengHei", 16), wraplength=width - 30,
+                       justify=tk.LEFT, padx=20, pady=20)
+    msg_lbl.pack(fill=tk.X)
     btn_frame = tk.Frame(dialog)
     btn_frame.pack(side=tk.BOTTOM, pady=20)
-    bw = max(8, max(len(t) for t, _ in options) + 2)
 
     def pick(i):
         result[0] = None if i == len(options) - 1 else i
         dialog.destroy()
-    for i, (text, color) in enumerate(options):
-        tk.Button(btn_frame, text=text, font=("Microsoft JhengHei", 14), command=lambda i=i: pick(i),
-                  width=bw, height=2, bg=color, fg='white').pack(side=tk.LEFT, padx=8)
+    # 按鈕寬度依實際字寬(中文字一個佔兩格，用字數算 width 會把字切掉)，全部取最寬那顆
+    btns = [tk.Button(btn_frame, text=text, font=("Microsoft JhengHei", 14), command=lambda i=i: pick(i),
+                      padx=18, pady=12, bg=color, fg='white') for i, (text, color) in enumerate(options)]
+    dialog.update_idletasks()
+    bpx = max(b.winfo_reqwidth() for b in btns)
+    bpy = max(b.winfo_reqheight() for b in btns)
+    for b in btns:
+        cell = tk.Frame(btn_frame, width=bpx, height=bpy)
+        cell.pack_propagate(False)
+        cell.pack(side=tk.LEFT, padx=8)
+        b.pack(in_=cell, fill=tk.BOTH, expand=True)
+        b.lift(cell)
+    need_w = (bpx + 16) * len(btns) + 60
+    if need_w > width:                                # 按鈕排不下：視窗加寬
+        width = min(need_w, sw_ - 40)
+        msg_lbl.configure(wraplength=width - 30)
+    dialog.update_idletasks()
+    dialog_height = min(dialog.winfo_reqheight() + int(10 * k), sh_ - 80)   # 照實際內容高度，不留大片空白
+    dialog.geometry(f"{width}x{dialog_height}+{(dialog.winfo_screenwidth() - width) // 2}"
+                    f"+{(dialog.winfo_screenheight() - dialog_height) // 2}")
     dialog.bind('<Escape>', lambda e: pick(len(options) - 1))
     dialog.protocol("WM_DELETE_WINDOW", lambda: pick(len(options) - 1))
     dialog.focus_set()
@@ -7672,6 +7732,96 @@ def _short_lot(lot):
         return str(lot)
 
 
+def _adopt_files_from_wrong_case():
+    """目前選用的謄本結構化 JSON 跟目前案件一致，但檔案放在別的案件資料夾 → 判斷那個舊案件是不是「查錯地號」建的，
+    是就把舊資料夾的檔案全部搬到目前案件(同名子資料夾)，舊資料夾搬空後刪掉。
+    「查錯」的判斷：舊案件 data.json 的地號，一筆都不在謄本的土地裡(謄本是 474、舊案件是 476)。
+    舊案件本身也對(例：舊案件是 474+476 兩筆，新案件只建 474)→ 不動，只改指向。"""
+    global selected_json_path
+    import shutil
+    cur_dir = os.path.dirname(os.path.dirname(os.path.abspath(get_data_json_path())))   # …\前鎮區盛興段-474
+    old_dir = os.path.dirname(os.path.dirname(os.path.abspath(selected_json_path)))     # …\前鎮區盛興段-476
+    old_data = os.path.join(old_dir, "4.其他相關", "data.json")
+    if (os.path.normcase(cur_dir) == os.path.normcase(old_dir)
+            or os.path.normcase(cur_dir) == os.path.normcase(os.path.abspath(PROGRAM_DIR))
+            or os.path.normcase(os.path.dirname(old_dir)) != os.path.normcase(os.path.abspath(PROGRAM_DIR))
+            or not os.path.isfile(old_data)):
+        return              # 同一個資料夾、目前沒有案件資料夾、或謄本不在某個案件資料夾裡 → 不處理
+
+    def _norm(lot):
+        try:
+            m, _, c = str(lot).strip().partition("-")
+            return f"{int(m)}-{int(c or 0)}"
+        except Exception:
+            return str(lot).strip()
+
+    with open(selected_json_path, "r", encoding="utf-8") as f:
+        trans = json.load(f)
+    trans_lots = set()
+    for it in trans if isinstance(trans, list) else []:
+        if "土地謄本" not in it.get("謄本類型", ""):
+            continue
+        m = re.search(r"([^\s]+段)\s*(\d+-\d+)", (it.get("基本資訊") or {}).get("地號建號", ""))
+        if m:
+            trans_lots.add((m.group(1), _norm(m.group(2))))
+    with open(old_data, "r", encoding="utf-8") as f:
+        old_lots = {(x.get("section", ""), _norm(x.get("lot_number", ""))) for x in (json.load(f) or [])}
+    if not trans_lots or not old_lots or (old_lots & trans_lots):
+        return              # 舊案件也是對的(或判斷不了)→ 不搬
+
+    old_name, cur_name = os.path.basename(old_dir), os.path.basename(cur_dir)
+    moved, kept = [], []
+    for dirpath, _dirs, files in os.walk(old_dir):
+        rel = os.path.relpath(dirpath, old_dir)
+        for fn in files:
+            src = os.path.join(dirpath, fn)
+            if os.path.normcase(src) == os.path.normcase(old_data):
+                continue    # 舊案件(查錯地號)的 data.json 不要
+            dst_dir = os.path.normpath(os.path.join(cur_dir, rel))
+            dst = os.path.join(dst_dir, fn)
+            if os.path.exists(dst):
+                if os.path.getsize(dst) == os.path.getsize(src):
+                    os.remove(src)          # 新案件已經有一模一樣大小的同名檔 → 舊的不用留
+                    continue
+                stem, ext = os.path.splitext(fn)
+                dst = os.path.join(dst_dir, f"{stem}(從{old_name}搬來){ext}")
+                if os.path.exists(dst):
+                    kept.append(os.path.join(rel, fn))
+                    continue
+            os.makedirs(dst_dir, exist_ok=True)
+            shutil.move(src, dst)
+            moved.append(os.path.join(rel, fn))
+            if os.path.normcase(src) == os.path.normcase(selected_json_path):
+                selected_json_path = dst
+    if not moved:
+        return
+    try:
+        cfg = load_config() or {}
+        cfg["selected_json"] = selected_json_path
+        save_config(cfg, show_message=False)
+    except Exception:
+        pass
+    removed = False
+    if not kept and not any(fs for _p, _d, fs in os.walk(old_dir) if _p != os.path.dirname(old_data)) \
+            and os.listdir(os.path.dirname(old_data)) == ["data.json"]:
+        try:
+            shutil.rmtree(old_dir)
+            removed = True
+        except Exception:
+            pass
+    update_divider()
+    update_message(f"\033[92m📦 謄本原本放在【{old_name}】(地號查錯建的案件)，已自動搬到【{cur_name}】：\033[0m")
+    for p in moved[:12]:
+        update_message(f"   {p}")
+    if len(moved) > 12:
+        update_message(f"   …共 {len(moved)} 個檔案")
+    if removed:
+        update_message(f"   舊資料夾【{old_name}】已搬空，已刪除")
+    elif kept:
+        update_message(f"   有 {len(kept)} 個檔案兩邊都有、內容不同，留在【{old_name}】請自行比對")
+    update_divider()
+
+
 def _recheck_transcript_link(unlink=True):
     """data.json(目前案件)換了之後，檢查目前選用的謄本結構化 JSON 是不是同一個案件。
     完全不同地段 → unlink=True：解除連結(不刪檔)並提示重新結構化；unlink=False：只把狀態標籤標成「不符」"""
@@ -7684,8 +7834,20 @@ def _recheck_transcript_link(unlink=True):
         print(f"[謄本檢查] 失敗：{e}")
         return
     print(f"[謄本檢查] 一致={ok} 順序問題={order} 案件={d} 謄本={t}", flush=True)
-    if not (d and t) or ok or order:
-        return          # 一致、或只是順序不同(另有自動重排) → 不動
+    if d and t and ok:
+        # 一致：謄本可能還放在「查錯地號」的舊案件資料夾(例：門牌先查錯成 476 做了結構化，改建 474 案件)→ 自動搬過來
+        try:
+            _adopt_files_from_wrong_case()
+        except Exception as e:
+            print(f"[謄本檢查] 搬舊案件檔案失敗：{e}", flush=True)
+        # 狀態標籤可能還停在上一個案件的「不符」→ 重新整理
+        try:
+            update_json_status_display()
+        except Exception:
+            pass
+        return
+    if not (d and t) or order:
+        return          # 只是順序不同(另有自動重排) → 不動
     old = f"{t['area']}{t['section']}{_short_lot(t['lot_number'])}"
     new = f"{d['area']}{d['section']}{_short_lot(d['lot_number'])}"
     update_divider()
@@ -9130,6 +9292,11 @@ def check_and_warn_data_consistency():
     try:
         # 🔥 使用已儲存的 selected_json_path（如果有的話）
         is_consistent, warning_msg, data_info, transcript_info, is_order_issue = check_data_consistency(selected_json_path)
+        if is_consistent and selected_json_path and data_info and transcript_info:
+            try:
+                _adopt_files_from_wrong_case()      # 謄本還放在查錯地號的舊案件資料夾 → 搬到目前案件
+            except Exception as _e:
+                print(f"[啟動] 搬舊案件檔案失敗：{_e}", flush=True)
         try:
             diag_lines.append(f"  data_info = {data_info}")
             diag_lines.append(f"  transcript_info = {bool(transcript_info)}（True=有解析到, False=無）")

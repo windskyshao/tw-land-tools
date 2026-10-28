@@ -505,7 +505,7 @@ class QuickCaseWindow:
         g.pack(fill=tk.X)
         self._kv(g, 0, "縣市 / 行政區", f"{r['city']} {r['area']}")
         self._kv(g, 1, "地段", r["section"], True)
-        self._kv(g, 2, "地號", r["lot_number"], True)
+        self._kv(g, 2, "可能地號" if r.get("lot_uncertain") else "地號", r["lot_number"], True)
         self._kv(g, 3, "座標", f"{r['lat']:.5f}, {r['lng']:.5f}")
         btns = tk.Frame(c1, bg=c1.cget("bg"))
         btns.pack(anchor="w", pady=(8, 0))
@@ -582,7 +582,11 @@ class QuickCaseWindow:
                 w = todo.pop()
                 todo.extend(w.winfo_children())
                 w.bind("<Button-1>", lambda e, i=i: self.sel_build.set(i))
-        if note:
+        if note and note.startswith("⚠"):           # 地號不確定：醒目警告(紅字淡橘底)，不要用淡灰小字
+            tk.Label(self.build_box, text=note, font=ui.FB, fg=ui.BAD, bg="#FFF4E5", justify="left", padx=10, pady=6,
+                     highlightthickness=1, highlightbackground="#F5C27A",
+                     wraplength=self.W - 140).pack(anchor="w", fill=tk.X, pady=(6, 0))
+        elif note:
             tk.Label(self.build_box, text="ⓘ " + note, font=ui.FS, fg=INK2, bg=bg, justify="left",
                      wraplength=self.W - 120).pack(anchor="w", pady=(4, 0))
 
@@ -754,6 +758,13 @@ class QuickCaseWindow:
         i = self.sel_build.get()
         builds = getattr(self, "cur_builds", []) or []
         entry = entry_from_result(r, builds[i] if 0 <= i < len(builds) else None)
+        if r.get("lot_uncertain") and not (0 <= i < len(builds)):
+            if not ui.message(self.top, "地號還沒確認",
+                              f"這個門牌在附近的地號都對不到建號，{r.get('section', '')} {r.get('lot_number', '')} 地號"
+                              "只是門牌定位點落在的那一筆，可能不是這棟房子的土地。\n\n"
+                              "建議先用謄本或地籍圖確認地號，再用「地籍選單」查正確的地號建立案件。\n\n"
+                              "仍要用這個地號建立嗎？", kind="ask", ok="仍要建立", cancel="先不要"):
+                return
         msg = self._city_conflict([entry], mode)
         if msg:
             tk.Label(self.body, text=msg, font=ui.FB, fg=ui.BAD, bg=ui.BG, wraplength=self.W - 80,
@@ -814,7 +825,7 @@ class QuickCaseWindow:
                 tk.Label(row, text="✗ " + it["err"], font=ui.F, fg=ui.BAD, bg="white", anchor="w", justify="left",
                          wraplength=self.W - 200).grid(row=1, column=1, sticky="w")
                 continue
-            tk.Label(row, text=f"{r['area']} {r['section']} {r['lot_number']} 地號", font=ui.F,
+            tk.Label(row, text=f"{r['area']} {r['section']} {r['lot_number']} " + ("可能地號" if r.get("lot_uncertain") else "地號"), font=ui.F,
                      fg=ui.THEMES["blue_strong"][0], bg="white", anchor="w").grid(row=1, column=1, sticky="w")
             b = self._batch_build(r)
             if b:
@@ -827,7 +838,7 @@ class QuickCaseWindow:
                 info += f"　·　社區：{r['community']}"
             if bad_city:
                 info = f"不同縣市（{r['city']}），請另外建立案件"
-            fg = ui.BAD if bad_city else (teal if b else INK2)
+            fg = ui.BAD if (bad_city or r.get("lot_uncertain")) else (teal if b else INK2)
             tk.Label(row, text=info, font=ui.FS, fg=fg, bg="white", anchor="w", justify="left",
                      wraplength=self.W - 200).grid(row=2, column=1, sticky="w", pady=(2, 0))
             if usable:
@@ -840,6 +851,13 @@ class QuickCaseWindow:
                    for var, it in self.batch_vars if var.get() and it["res"]]
         if not entries:
             tk.Label(self.body, text="請至少勾選一筆", font=ui.FB, fg=ui.BAD, bg=ui.BG).pack(anchor="w")
+            return
+        unsure = [f"{it['res'].get('section', '')} {it['res'].get('lot_number', '')}（{it['res'].get('door', '')}）"
+                  for var, it in self.batch_vars if var.get() and it["res"] and it["res"].get("lot_uncertain")]
+        if unsure and not ui.message(self.top, "有地號還沒確認",
+                                     "下面這些門牌在附近的地號都對不到建號，地號只是門牌定位點落在的那一筆，可能不對：\n\n"
+                                     + "\n".join(unsure[:8]) + "\n\n建議先確認地號。仍要照這樣建立嗎？",
+                                     kind="ask", ok="仍要建立", cancel="先不要"):
             return
         msg = self._city_conflict(entries, mode)
         if msg:

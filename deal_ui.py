@@ -300,6 +300,52 @@ def message(parent, title, text, kind="info", ok="確定", cancel="取消"):
     return res["v"]
 
 
+def choice(parent, title, text, buttons, kind="ask", default=0):
+    """多個選項的詢問框(大字)。buttons＝[(文字, "primary"/"ghost"), …] 由左到右；回傳按下的索引，關閉/Esc 回 None。
+    Enter＝default 那一顆"""
+    top = tk.Toplevel(parent)
+    top.withdraw()
+    top.title(title)
+    top.configure(bg=CARD)
+    top.resizable(False, False)
+    top.transient(parent)
+    res = {"v": None}
+    sym, col = {"info": ("i", PRIMARY), "ask": ("?", ACCENT), "warn": ("!", BAD)}.get(kind, ("?", ACCENT))
+    body = tk.Frame(top, bg=CARD, padx=30, pady=26)
+    body.pack(fill="both", expand=True)
+    ic = tk.Canvas(body, width=44, height=44, bg=CARD, highlightthickness=0)
+    ic.create_oval(2, 2, 42, 42, fill=col, outline="")
+    ic.create_text(22, 22, text=sym, font=(FAMILY, 20, "bold"), fill="white")
+    ic.pack(side="left", anchor="n", padx=(0, 18))
+    tk.Label(body, text=text, font=(FAMILY, 16), fg=TEXT, bg=CARD, justify="left", wraplength=760).pack(side="left", anchor="w")
+    bar = tk.Frame(top, bg=BG, padx=20, pady=14)
+    bar.pack(fill="x")
+
+    def done(v):
+        res["v"] = v
+        top.destroy()
+    for i in range(len(buttons) - 1, -1, -1):          # 右邊先排，畫面上才是由左到右
+        txt, k = buttons[i]
+        button(bar, txt, lambda i=i: done(i), kind=k,
+               font=(FAMILY, 15, "bold") if k == "primary" else (FAMILY, 15)).pack(side="right", padx=(10, 0))
+    top.bind("<Return>", lambda e: done(default))
+    top.bind("<Escape>", lambda e: done(None))
+    top.protocol("WM_DELETE_WINDOW", lambda: done(None))
+    top.update_idletasks()
+    try:
+        px, py = parent.winfo_rootx(), parent.winfo_rooty()
+        pw, ph = parent.winfo_width(), parent.winfo_height()
+        w, h = top.winfo_reqwidth(), top.winfo_reqheight()
+        top.geometry(f"+{max(0, px + (pw - w) // 2)}+{max(0, py + (ph - h) // 3)}")
+    except Exception:
+        pass
+    top.deiconify()
+    top.grab_set()
+    top.focus_set()
+    parent.wait_window(top)
+    return res["v"]
+
+
 def segmented(parent, var, options, color=None):
     """圓角分段切換鈕：選中＝主色實心白字，其餘白底主色框"""
     main = color or PRIMARY

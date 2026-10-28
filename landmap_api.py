@@ -234,6 +234,71 @@ def _parcel_at(lat, lng):
 _progress = None
 
 
+def _search_neighbors(start, tried, match, rings=(4, 7, 10, 13, 17, 22, 28, 35), max_match=40):
+    """門牌在定位點那筆地號對不到建號時，找真正登記這個門牌的地號：
+    ① 先試地號數字相鄰的(透天常一排 474、475、476…，定位點常偏到隔壁)
+    ② 再從定位點往外一圈圈找：每圈約每 3 公尺取一點查地號(窄的透天地只有 4 公尺寬，取太疏會整筆跳過)，
+       新出現的地號逐筆比對門牌，近的先找、找到就停。
+    回傳 (key, (候選, 地號資訊, lat, lng), 比對結果) 或 None；座標保留門牌定位點"""
+    import math
+    from concurrent.futures import ThreadPoolExecutor
+    c0, p0, lat0, lng0 = start
+    k_lat = 1 / 111320.0
+    k_lng = 1 / (111320.0 * math.cos(math.radians(lat0)))
+    budget = [max_match]
+
+    def parcel(pt):
+        try:
+            return pt, _parcel_at(*pt)
+        except LandmapError:
+            return pt, None
+
+    def try_batch(ex, new):
+        keys = list(new)[:max(0, budget[0])]
+        budget[0] -= len(keys)
+        for key, m in zip(keys, ex.map(lambda k: match(new[k][1]), keys)):
+            if (m or {}).get("matches"):
+                x = new[key]
+                return key, (x[0], x[1], lat0, lng0), m
+        return None
+
+    with ThreadPoolExecutor(8) as ex:
+        # ① 地號數字相鄰(同段、母號 ±1~3)
+        mother = re.match(r"(\d+)", str(p0.get("landNo") or ""))
+        if mother:
+            n0 = int(mother.group(1))
+            new = {}
+            for d in (1, -1, 2, -2, 3, -3):
+                if n0 + d <= 0:
+                    continue
+                key = (p0.get("sectNo"), str(n0 + d))
+                if key not in tried:
+                    new[key] = (c0, dict(p0, landNo=str(n0 + d)), lat0, lng0)
+            tried.update(new)
+            hit = try_batch(ex, new)
+            if hit:
+                return hit
+        # ② 定位點周圍一圈圈、每 3 公尺一點
+        for r in rings:
+            if budget[0] <= 0:
+                break
+            n = max(8, int(math.ceil(2 * math.pi * r / 3)))
+            pts = [(lat0 + r * math.sin(2 * math.pi * i / n) * k_lat, lng0 + r * math.cos(2 * math.pi * i / n) * k_lng)
+                   for i in range(n)]
+            new = {}
+            for pt, p in ex.map(parcel, pts):
+                if not p:
+                    continue
+                key = (p.get("sectNo"), p.get("landNo"))
+                if key not in tried and key not in new:
+                    new[key] = (c0, p, pt[0], pt[1])
+            tried.update(new)
+            hit = try_batch(ex, new) if new else None
+            if hit:
+                return hit
+    return None
+
+
 def _step(n):
     if _progress:
         try:
@@ -293,6 +358,99 @@ def _official_door(door):
     return re.sub(r"(\d+)號之(\d+)", r"\1之\2號", door)
 
 
+_CN_DIGIT = "零一二三四五六七八九"
+
+
+def _cn_num(n):
+    """12 → 十二、20 → 二十、105 → 一百零五(地政登記樓層寫國字)"""
+    n = int(n)
+    if n < 10:
+        return _CN_DIGIT[n]
+    if n < 20:
+        return "十" + (_CN_DIGIT[n % 10] if n % 10 else "")
+    if n < 100:
+        return _CN_DIGIT[n // 10] + "十" + (_CN_DIGIT[n % 10] if n % 10 else "")
+    rest = n % 100
+    return _CN_DIGIT[n // 100] + "百" + ("" if not rest else ("零" + _CN_DIGIT[rest] if rest < 10 else _cn_num(rest)))
+
+
+def _easymap_door(full):
+    """地籍便民(easymap)「門牌地址定位」：用地政登記資料查 門牌 → 建號 → 座落地號。
+    比「國土測繪門牌點位 → 該點的地號」準：門牌點常偏到隔壁地號(例：三多二路357巷23號點位在盛興段476，
+    登記在 474)。easymap 擋海外，桌面版在台灣電腦上跑才連得到；連不到/查無就回 None，照舊法。
+    回傳 {sect_code, sect_name, landno8, lot_number, bno8, door}；查無此門牌回 {}；連不到回 None"""
+    # 樓層改國字(地政寫「十二樓」，寫 12樓 查不到)；沒樓層也試(地號一樣，只是建號可能是同棟別戶)
+    with_floor = re.sub(r"(\d+)樓", lambda m: _cn_num(m.group(1)) + "樓", full)
+    no_floor = re.sub(r"(號(?:之\d+)?)[\d一二三四五六七八九十百]+樓.*$", r"\1", full)
+    tries = [x for i, x in enumerate([with_floor, no_floor]) if x and x not in [with_floor, no_floor][:i]]
+    for q in tries:
+        try:
+            data = urllib.parse.urlencode({"fullplate": q}).encode("utf-8")
+            req = urllib.request.Request("https://easymap.moi.gov.tw/Z10Web/RoadPath_ajax_detail", data=data, headers={
+                "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)", "X-Requested-With": "XMLHttpRequest",
+                "Referer": "https://easymap.moi.gov.tw/Z10Web/Normal",
+                "Content-Type": "application/x-www-form-urlencoded; charset=UTF-8"})
+            try:
+                h = urllib.request.urlopen(req, timeout=10).read().decode("utf-8", "replace")
+            except urllib.error.URLError as e:
+                if "CERTIFICATE" not in str(e).upper():
+                    raise
+                import certifi
+                h = urllib.request.urlopen(req, timeout=10, context=ssl.create_default_context(cafile=certifi.where())
+                                           ).read().decode("utf-8", "replace")
+        except Exception:
+            return None                                  # 連不到(海外/網路)：不再試，交給舊法
+        txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"<(script|style).*?</\1>", " ", h, flags=re.S)))
+        m = re.search(r"查詢結果門牌:\s*(\S+).*?地段\s+(\d{4})\s+(\S+)\s+地號\s+(\d{8})(?:.*?建號\s+(\d{8}))?", txt)
+        if not m:
+            continue
+        land = m.group(4)
+        mother, child = int(land[:4]), int(land[4:])
+        return {"door": m.group(1).translate(_FW), "sect_code": m.group(2), "sect_name": m.group(3),
+                "landno8": land, "lot_number": f"{mother}" + (f"-{child}" if child else ""),
+                "bno8": m.group(5) or ""}
+    return {}                                            # 連得上、但地政登記查無此門牌
+
+
+def _resolve_address_easymap(t, raw, door, em):
+    """地籍便民查到的地號 → 位置、建號(此地號上比對門牌)、社區"""
+    city, code, town, tid, _rest = _split_city_town(t)
+    secs = (_get("/api/sections", city=code, area=tid).get("sections") or []) if tid else []
+    sec = next((s for s in secs if str(s.get("id")) == em["sect_code"]), None)
+    _step(1)
+    if not sec:
+        return None
+    res = _base_result("address", raw)
+    res.update(city=city, city_code=code, area=town, section=sec.get("name") or em["sect_name"],
+               sect_code=em["sect_code"], office=sec.get("office", ""), lot_number=em["lot_number"], door=door,
+               lot_source="easymap")
+    pb = _get("/api/parcelbatch", city=code, office=res["office"], sect=res["sect_code"], landno=em["landno8"])
+    if pb.get("status") != "OK" or pb.get("lat") is None:
+        return None
+    res["lat"], res["lng"] = float(pb["lat"]), float(pb["lng"])
+    _step(2)
+    try:
+        m = _get("/api/matchdoor", timeout=40, city=code, sect=res["sect_code"], landno=res["lot_number"],
+                 door=door, office=res["office"])
+    except LandmapError:
+        m = {}
+    builds = _builds_from(m)
+    bno = str(int(em["bno8"][:5])) + (f"-{int(em['bno8'][5:])}" if em["bno8"] and int(em["bno8"][5:]) else "") \
+        if em["bno8"] else ""
+    if bno and len(builds) > 1:                          # 有寫樓層：地籍便民直接告訴我們是哪一戶
+        same = [b for b in builds if str(b.get("build_no")) == bno]
+        builds = same or builds
+    res["builds"] = builds
+    res["build_note"] = (m.get("note", "") if builds else
+                         f"地籍便民登記資料：此門牌在 {res['section']} {res['lot_number']} 地號"
+                         + (f"（建號 {bno}）" if bno else "") + "，但阿生地圖建物資料暫時對不到")
+    _step(3)
+    res["community"] = _community(code, res["lat"], res["lng"], res["section"], res["lot_number"], door)
+    _step(4)
+    res["map_url"] = map_url(res["lat"], res["lng"], door)
+    return res
+
+
 def _resolve_address(t, raw):
     from concurrent.futures import ThreadPoolExecutor
     res = _base_result("address", raw)
@@ -300,6 +458,16 @@ def _resolve_address(t, raw):
     _c2, _code2, _t2, _id2, door = _split_city_town(t)
     door = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", door)
     res["door"] = door
+    # ① 先問地籍便民(地政登記：門牌→建號→地號)，最準
+    em = _easymap_door(t)
+    if em:
+        try:
+            r_em = _resolve_address_easymap(t, raw, door, em)
+            if r_em:
+                return r_em
+        except LandmapError:
+            pass
+    # ② 地籍便民連不到/查無：國土測繪門牌點位 → 該點地號 → 比對門牌(對不到再找附近地號)
     variants = _door_variants(t)
 
     def locate(q):                      # 門牌 → (候選, 地號資訊)
@@ -336,6 +504,15 @@ def _resolve_address(t, raw):
         matches = dict(zip(order, ex.map(lambda k: match(uniq[k][1]), order)))
         _step(3)
     chosen = next((k for k in order if (matches.get(k) or {}).get("matches")), None)
+    if not chosen and em is None:                       # 地籍便民連不到才找附近(連得到又查無＝登記沒有這個門牌，找也白找)
+        # 門牌定位點常落在隔壁地號(例：三多二路357巷23號 定位在盛興段476，建號 2697 其實登記在 474)
+        # → 往外一圈一圈找相鄰地號，逐筆比對門牌；對到的才是真正的地號
+        found = _search_neighbors(uniq[order[0]], set(order), match)
+        if found:
+            key, x, m = found
+            uniq[key], matches[key] = x, m
+            order.insert(0, key)
+            chosen = key
     c, p, lat, lng = uniq[chosen or order[0]]
     city, code, town, _tid, _rest = _split_city_town(c.get("name", "") or t)
     if not town:
@@ -347,7 +524,12 @@ def _resolve_address(t, raw):
         res["builds"] = _builds_from(matches[chosen])
         res["build_note"] = matches[chosen].get("note", "")
     else:
-        res["build_note"] = "這個門牌在此地號上找不到對應建號（可能是透天新建未登記、或門牌與地號不一致）"
+        # 附近地號都對不到：地號只是「門牌定位點落在的那筆」，不一定是這個門牌的土地 → 要明確警告
+        res["lot_uncertain"] = True
+        why = ("地籍便民的地政登記資料查無此門牌" if em == {} else
+               "這個門牌在定位點附近的地號都找不到對應建號")
+        res["build_note"] = (f"⚠ {why}，地號只是「門牌定位點落在的那一筆」，"
+                             "可能不是這棟房子的土地（透天新建未登記、門牌整編、或門牌寫法不同）。請用謄本或地籍圖確認地號。")
     res["community"] = _community(res["city_code"], res["lat"], res["lng"], res["section"], res["lot_number"], door)
     _step(4)
     res["map_url"] = map_url(res["lat"], res["lng"], door)
