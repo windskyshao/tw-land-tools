@@ -83,7 +83,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9h"
+VERSION = "1.1.9i"
 BUILD_DATE = "2026-10-29"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -132,13 +132,64 @@ def has_contacts_admin():
     except Exception:
         return False
 
+def _contacts_headers():
+    """🔒 通訊錄只給公司同事：帶阿生地圖登入憑證(伺服器確認是不是富住通同事)；
+    舊共用權杖只在過渡期(到 2026-11-15)還有效，先一起帶著"""
+    h = {'X-Contacts-Token': CONTACTS_DL_TOKEN}
+    try:
+        import landmap_login
+        t = landmap_login.token()
+        if t:
+            h['X-Landmap-Session'] = t
+    except Exception:
+        pass
+    return h
+
+
+def contacts_login(parent, on_done=None):
+    """編輯器按『Google 登入』用(登入阿生地圖，之後就記住)"""
+    import landmap_login
+    return landmap_login.login(parent, on_done)
+
+
+def contacts_account():
+    """目前登入阿生地圖的帳號 dict(name, email…) 或 None"""
+    try:
+        import landmap_login
+        return landmap_login.account()
+    except Exception:
+        return None
+
+
 def update_contacts_from_cloud():
-    """從雲端下載最新通訊錄覆蓋本機。回傳 (ok:bool, msg:str)。"""
+    """從雲端下載最新通訊錄覆蓋本機。回傳 (ok:bool, msg:str)；
+    msg 是 LOGIN_REQUIRED(要先登入) / NOT_STAFF(帳號還沒被認定是公司同事) 時，編輯器會給對應的說明與登入鈕"""
     try:
         import requests, os as _os, shutil as _sh
         from base_dir_helper import get_base_dir
-        r = requests.get(CONTACTS_BASE_URL + "/contacts/download",
-                         headers={'X-Contacts-Token': CONTACTS_DL_TOKEN}, timeout=60)
+        try:
+            r = requests.get(CONTACTS_BASE_URL + "/contacts/download", headers=_contacts_headers(), timeout=90)
+        except requests.exceptions.Timeout:
+            return False, "雲端伺服器沒回應（可能剛睡醒），請過一分鐘再按一次"
+        except requests.exceptions.ConnectionError:
+            return False, "連不上雲端，請確認網路正常後再試"
+        if r.status_code == 401:
+            # 本機記著的登入已失效(在網頁登出、帳號被停用…)→清掉，讓按鈕回到「Google 登入」
+            try:
+                import landmap_login
+                if landmap_login.token():
+                    landmap_login.logout(local_only=True)
+            except Exception:
+                pass
+            return False, "LOGIN_REQUIRED"
+        if r.status_code == 403:
+            try:
+                if r.json().get('status') == 'NOT_STAFF':
+                    return False, "NOT_STAFF"
+            except Exception:
+                pass
+        if r.status_code == 503:
+            return False, "暫時無法確認你的身分（阿生地圖連不上），請稍後再試"
         if r.status_code == 404:
             return False, "雲端還沒有通訊錄（請管理者先上傳一次）"
         if r.status_code != 200:
@@ -152,8 +203,11 @@ def update_contacts_from_cloud():
                 _sh.copy2(dest, dest + '.bak_before_cloud_update')
         except Exception:
             pass
-        with open(dest, 'wb') as f:
-            f.write(content)
+        try:
+            with open(dest, 'wb') as f:
+                f.write(content)
+        except PermissionError:
+            return False, "通訊錄.xlsx 正在被 Excel 開著，請先關掉 Excel 再按一次"
         updated = r.headers.get('X-Contacts-Updated', '')
         try:
             from config_manager import load_config, save_config
@@ -200,8 +254,7 @@ def get_contacts_cloud_meta():
     """回傳雲端通訊錄 (updated_str, exists_bool)；失敗回 (None, False)。"""
     try:
         import requests
-        r = requests.get(CONTACTS_BASE_URL + "/contacts/meta",
-                         headers={'X-Contacts-Token': CONTACTS_DL_TOKEN}, timeout=30)
+        r = requests.get(CONTACTS_BASE_URL + "/contacts/meta", headers=_contacts_headers(), timeout=30)
         if r.status_code != 200:
             return None, False
         d = r.json()
@@ -292,6 +345,8 @@ def setup_data_editor_module():
     data_editor.save_final_data = save_final_data
     data_editor.load_contacts_from_excel = load_contacts_from_excel
     data_editor.update_contacts_from_cloud = update_contacts_from_cloud
+    data_editor.contacts_login = contacts_login
+    data_editor.contacts_account = contacts_account
     data_editor.upload_contacts_to_cloud = upload_contacts_to_cloud
     data_editor.has_contacts_admin = has_contacts_admin
     data_editor.get_contacts_cloud_meta = get_contacts_cloud_meta

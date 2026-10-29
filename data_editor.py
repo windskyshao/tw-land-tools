@@ -9071,13 +9071,49 @@ def open_data_editor():
             except Exception:
                 pass
             show_large_message("更新通訊錄", "OK " + msg + "\n\n名單已即時刷新。")
+        elif msg == "LOGIN_REQUIRED":         # 🔒 通訊錄只給公司同事：要先用 Google 登入阿生地圖
+            _refresh_login_btn()              # 舊登入失效時按鈕要變回「Google 登入」
+            if show_large_yesno("更新通訊錄", "通訊錄只給公司同事使用，要先用 Google 帳號登入阿生地圖確認身分。\n\n"
+                                            "登入一次之後就會記住，不用每次登入。\n要現在登入嗎？"):
+                _do_contacts_login(retry=True)
+        elif msg == "NOT_STAFF":
+            _acc = (globals().get('contacts_account') or (lambda: None))() or {}
+            show_large_message("更新通訊錄", f"你登入的阿生地圖帳號（{_acc.get('name', '')} {_acc.get('email', '')}）"
+                                            "還沒被認定是公司同事。\n\n請跟管理者說一聲，在阿生地圖「會員管理」把你設成富住通成員；"
+                                            "\n或確認 Google 帳號的名稱是你的本名（會自動對公司員工名冊）。")
         else:
             show_large_message("更新通訊錄", "無法更新：" + msg)
+
+    def _do_contacts_login(retry=False):
+        _login = globals().get('contacts_login', None)
+        if _login is None:
+            show_large_message("Google 登入", "此版本尚未支援登入。")
+            return
+
+        def _done(acc):
+            _refresh_login_btn()
+            if acc and retry:
+                _on_update_contacts()
+        _login(contacts_sync_row.winfo_toplevel(), _done)
+
+    def _refresh_login_btn():
+        try:
+            _acc = (globals().get('contacts_account') or (lambda: None))()
+            if _acc:
+                login_btn.config(text=f"👤 {_acc.get('name', '') or '已登入'}", bg="#E8F5E9", fg="#1B5E20")
+            else:
+                login_btn.config(text="🔑 Google 登入（11/15 起更新通訊錄要登入）", bg="#FFF3E0", fg="#7A3E00")
+        except Exception:
+            pass
 
     update_contacts_btn = tk.Button(contacts_sync_row, text="🔄 更新通訊錄", command=_on_update_contacts,
               font=("Microsoft JhengHei", 10, "bold"),
               bg='#4CAF50', fg='white')
     update_contacts_btn.pack(side=tk.LEFT, padx=5)
+    login_btn = tk.Button(contacts_sync_row, text="", command=lambda: _do_contacts_login(False),
+                          font=("Microsoft JhengHei", 10, "bold"), relief="groove")
+    login_btn.pack(side=tk.LEFT, padx=5)
+    _refresh_login_btn()
 
     # 背景偵測雲端有無新版通訊錄（Render 可能冷啟動→用執行緒，不卡編輯器開啟）
     def _check_contacts_update_bg():
