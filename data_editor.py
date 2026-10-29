@@ -7646,14 +7646,14 @@ def open_data_editor():
 
                 def _post(model_name):
                     url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-                           f"{model_name}:generateContent?key={api_key}")
+                           f"{model_name}:generateContent")          # 🔒 金鑰放標頭，不放網址
                     payload = {"contents": [{"parts": [{"text": prompt}]}]}
                     # 🔥 gemini-2.5-flash 是「思考模型」，關閉思考可加快回應，
                     #    並避免『思考佔滿輸出額度→回傳沒有文字(parts)』導致沒回填也沒訊息。
                     #    （gemini-flash-latest 不吃 thinkingBudget=0，故僅對 2.5-flash 加）
                     if model_name.startswith("gemini-2.5-flash"):
                         payload["generationConfig"] = {"thinkingConfig": {"thinkingBudget": 0}}
-                    return requests.post(url, json=payload, timeout=90)
+                    return requests.post(url, json=payload, timeout=90, headers={"x-goog-api-key": api_key})
 
                 def _post_with_retry(model_name, retries=3):
                     # 503/500/502/504 = Google 伺服器暫時過載/異常 -> 等一下自動重試(指數退避)

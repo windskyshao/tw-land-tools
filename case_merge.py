@@ -119,17 +119,18 @@ def _ps_quote(s):
 
 def excel_to_pdf(src, dst):
     """Excel COM 轉 PDF；只關自己開的活頁簿，Excel 裡沒有別的活頁簿才結束 Excel(不動使用者開著的檔)"""
+    # 🔒 路徑用環境變數傳給 PowerShell，不拼進指令(檔名含 ’ 之類的引號時曾可跳出字串執行任意指令)
     ps = (
         "$ErrorActionPreference='Stop';"
         "$x=New-Object -ComObject Excel.Application;$x.DisplayAlerts=$false;"
-        f"$wb=$x.Workbooks.Open({_ps_quote(src)},0,$true);"
-        f"try{{$wb.ExportAsFixedFormat(0,{_ps_quote(dst)})}}finally{{$wb.Close($false)}};"
+        "$wb=$x.Workbooks.Open($env:CM_SRC,0,$true);"
+        "try{$wb.ExportAsFixedFormat(0,$env:CM_DST)}finally{$wb.Close($false)};"
         "if($x.Workbooks.Count -eq 0){$x.Quit()};"
         "[void][Runtime.InteropServices.Marshal]::ReleaseComObject($x)"
     )
     try:
         subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], capture_output=True,
-                       timeout=120, creationflags=NO_WINDOW)
+                       timeout=120, creationflags=NO_WINDOW, env=dict(os.environ, CM_SRC=src, CM_DST=dst))
     except Exception:
         pass
     if os.path.exists(dst) and os.path.getsize(dst) > 0:

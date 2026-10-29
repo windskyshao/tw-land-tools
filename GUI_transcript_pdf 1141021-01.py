@@ -32,6 +32,25 @@ try:
 except Exception:
     pass
 from tkinter import ttk, scrolledtext, messagebox, filedialog
+
+def _sha256_ok(path, digest):
+    """🔒 下載的檔案跟 GitHub 記錄的 sha256 比對；GitHub 沒給雜湊就略過"""
+    if not str(digest or "").lower().startswith("sha256:"):
+        return True
+    import hashlib
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for b in iter(lambda: f.read(1 << 20), b""):
+            h.update(b)
+    return h.hexdigest().lower() == digest.split(":", 1)[1].strip().lower()
+
+
+def _safe_release(ver, url):
+    """🔒 版本號只能是 0.4.6 這種格式、下載只能來自 GitHub(會寫進更新用的批次檔)"""
+    import re as _re
+    return bool(_re.fullmatch(r"\d+(?:\.\d+)*[a-z]?", ver or "")) and str(url).startswith("https://github.com/")
+
+
 class _LazyPandas:
     """pandas 用到才載入(載入要 1.5~4 秒，只有匯出 Excel 才用得到)→ 程式啟動快很多。
     用法跟 pd 一樣：pd.DataFrame(...)、pd.ExcelWriter(...)"""
@@ -295,7 +314,7 @@ class ModernStyle:
 # 🔥 基準目錄設定
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
-TOOL_VERSION = "2.3"                                   # 跟 GitHub tag v2.3、檔名「電子謄本結構化v2.3.exe」一致
+TOOL_VERSION = "2.4"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
 UPDATE_REPO = "windskyshao/tw-transcript-structurer"   # 主程式的自動更新也是看這個 repo
 LAUNCHED_BY_MAIN = "--base-dir" in sys.argv            # 由「地籍資料查詢系統」主程式開的
 
@@ -1902,7 +1921,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.3 (2026-10-27) | 電子謄本功能測試版",
+                               text="v2.4 (2026-10-29) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2412,7 +2431,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.3 (2026-10-27) | {status_text}",
+                            text=f"v2.4 (2026-10-29) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -4556,7 +4575,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.3 (2026-10-27) | 電子謄本功能測試版",
+                            text="v2.4 (2026-10-29) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -4653,6 +4672,9 @@ class ModernTranscriptGUI:
                 tag = rel.get("tag_name") or ""
                 asset = next((a for a in rel.get("assets", []) if str(a.get("name", "")).startswith("transcript-tool_v")
                               and a["name"].lower().endswith(".exe")), None)
+                if asset:                                     # 開發者簽章檔(檔名.sig)
+                    _s = next((a for a in rel.get("assets", []) if a.get("name") == asset["name"] + ".sig"), None)
+                    asset["_sig_url"] = (_s or {}).get("browser_download_url", "")
                 res = (tag, asset, rel.get("body") or "")
             except Exception as e:
                 res = ("", None, str(e))
@@ -4680,9 +4702,27 @@ class ModernTranscriptGUI:
         notes = "\n".join(l_.strip("#- ").strip() for l_ in body.splitlines() if l_.strip())[:500]
         after = ("更新完程式會關閉，請從主程式再按一次【電子謄本結構化】。" if LAUNCHED_BY_MAIN
                  else "更新完會自動重新開啟。")
+        if not _safe_release(ver, asset.get("browser_download_url")):
+            if not silent:
+                self.show_custom_messagebox("檢查更新", "新版資訊格式不正確，為了安全先不更新。")
+            return
         if self.show_custom_messagebox("有新版本", f"電子謄本結構化有新版：v{TOOL_VERSION} → v{ver}\n\n{notes}\n\n"
                                                 f"要現在更新嗎？（下載約 1~2 分鐘；{after}）", "yesno"):
+            self._digest = asset.get("digest") or ""
+            self._sig = (asset.get("_sig_url") or "", asset["name"])
             self._do_self_update(ver, asset["browser_download_url"], int(asset.get("size") or 0))
+
+    def _sig_ok(self, path):
+        """🔒 開發者簽章驗證(release_verify)：GitHub 帳號被盜也做不出假版本"""
+        try:
+            import release_verify
+            url, name = getattr(self, "_sig", ("", ""))
+            if not url.startswith("https://github.com/"):
+                return False
+            with self._urlopen(url, timeout=30) as r:
+                return release_verify.verify_file(path, name, r.read(4096).decode("ascii", "ignore"))
+        except Exception:
+            return False
 
     def _do_self_update(self, ver, url, size):
         """下載存成「電子謄本結構化v{ver}.exe」(跟主程式自動更新的檔名一樣，主程式會自動用最新版)。
@@ -4732,6 +4772,14 @@ class ModernTranscriptGUI:
                                     state["txt"] = f"{got / 1048576:.1f} / {total / 1048576:.1f} MB"
                     if total and os.path.getsize(part) < total:
                         raise IOError("連線提早結束")
+                    if not _sha256_ok(part, getattr(self, "_digest", "")):
+                        os.remove(part)
+                        state["err"] = "下載的檔案跟 GitHub 記錄的不一樣（可能不完整或被竄改）"
+                        break
+                    if not self._sig_ok(part):
+                        os.remove(part)
+                        state["err"] = "新版沒有開發者的簽章或簽章對不上，為了安全不安裝"
+                        break
                     os.replace(part, target)
                     state["done"] = True
                     return

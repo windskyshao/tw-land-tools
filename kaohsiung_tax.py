@@ -1013,7 +1013,7 @@ def ensure_form_filled(driver, lot8: str, uid: str, bday7: str):
             time.sleep(0.3)
             el.send_keys(uid)
             time.sleep(0.3)
-            print(f"📝 已填統編/身分證：{uid}")
+            print(f"📝 已填統編/身分證：{uid[:2]}{'*' * max(0, len(uid) - 4)}{uid[-2:]}")      # 🔒 不印全碼
 
     # 生日（民國 7 碼，可選）
     if bday7 and re.fullmatch(r"\d{7}", bday7):
@@ -1024,7 +1024,7 @@ def ensure_form_filled(driver, lot8: str, uid: str, bday7: str):
             time.sleep(0.3)
             el.send_keys(bday7)
             time.sleep(0.5)  # 等待網頁可能觸發的驗證碼更新
-            print(f"📝 已填生日：{bday7}")
+            print("📝 已填生日：***")                                                  # 🔒 不印生日
 
 # ========= 驗證碼與提交 =========
 def safe_input(prompt="", check_interval=1.0):

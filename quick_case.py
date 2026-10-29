@@ -510,7 +510,8 @@ class QuickCaseWindow:
         btns = tk.Frame(c1, bg=c1.cget("bg"))
         btns.pack(anchor="w", pady=(8, 0))
         self.cat_small = _cat_photo(self.top, 28, ring=2)
-        ui.button(btns, "在阿生地圖上看", lambda: webbrowser.open(r["map_url"]), "primary", CAT_ORANGE,
+        ui.button(btns, "在阿生地圖上看", lambda: str(r.get("map_url", "")).startswith("https://") and webbrowser.open(r["map_url"]),
+                  "primary", CAT_ORANGE,
                   padx=14, pady=5, image=self.cat_small).pack(side=tk.LEFT)
 
         # 建物

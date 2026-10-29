@@ -2124,11 +2124,12 @@ def export_pdf(pptx_path):
         ps = ("$ErrorActionPreference='Stop';"
               "$was = $null -ne (Get-Process POWERPNT -ErrorAction SilentlyContinue);"
               "$pp = New-Object -ComObject PowerPoint.Application;"
-              f"$p = $pp.Presentations.Open('{src}', $true, $false, $false);"
-              f"try {{ $p.SaveAs('{dst}', 32) }} finally {{ $p.Close() }};"
+              "$p = $pp.Presentations.Open($env:MD_SRC, $true, $false, $false);"      # 🔒 路徑用環境變數傳
+              "try { $p.SaveAs($env:MD_DST, 32) } finally { $p.Close() };"
               "if (-not $was) { $pp.Quit() }")
         subprocess.run(["powershell", "-NoProfile", "-NonInteractive", "-Command", ps], timeout=180,
-                       capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                       capture_output=True, creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                       env=dict(os.environ, MD_SRC=src, MD_DST=dst))
         if not os.path.exists(dst):
             return None
         _pdf_restore_images(src, dst)

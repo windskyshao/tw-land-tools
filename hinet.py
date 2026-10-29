@@ -27,6 +27,7 @@ import io
 import re
 import sys
 import json
+import tempfile
 import time
 import base64
 import fitz  # PyMuPDF
@@ -1695,11 +1696,16 @@ def load_or_create_config():
                 cc = old.get("card_cert")
                 if isinstance(cc, dict) and cc.get("id_no") and cc.get("pin"):
                     ch_save("hinet_cert", cc["id_no"], cc["pin"])
-                try:
-                    os.remove(config_file)
-                    print(f"已刪除舊憑證檔：{config_file}", flush=True)
+                try:   # 🔒 只拿掉帳密欄位，其他設定(Gemini 金鑰等)保留
+                    rest = {k: v for k, v in old.items() if k not in ("username", "password", "card_cert")}
+                    if rest:
+                        with open(config_file, "w", encoding="utf-8") as f:
+                            json.dump(rest, f, ensure_ascii=False, indent=2)
+                    else:
+                        os.remove(config_file)
+                    print("已從 config.json 移除舊帳密（改存 Windows 認證管理員）", flush=True)
                 except Exception as _de:
-                    print(f"無法刪除舊憑證檔（可手動刪除）：{config_file}：{_de}", flush=True)
+                    print(f"無法清除 config.json 裡的舊帳密（可手動刪除）：{_de}", flush=True)
                 return old
         except Exception as e:
             print(f"讀取舊 config.json 失敗：{e}", flush=True)
@@ -3405,7 +3411,7 @@ def collect_all_preview_items(driver, debug_mode=False, skip_diagnosis=False):
                 # 5. 截圖保存（用於遠端除錯）
                 try:
                     import os
-                    screenshot_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "debug_screenshot.png")
+                    screenshot_path = os.path.join(tempfile.gettempdir(), "hinet_debug_screenshot.png")   # 🔒 不放程式資料夾
                     driver.save_screenshot(screenshot_path)
                     print(f"[診斷] 已保存截圖: {screenshot_path}", flush=True)
                 except Exception as e:

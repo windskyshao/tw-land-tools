@@ -94,13 +94,9 @@ def get_chromedriver_version(driver_path):
 
 def _curl_path():
     """回傳可用的 curl 路徑（Windows 10/11 內建 System32\\curl.exe，走 Schannel、不依賴 Python 的 OpenSSL）。"""
-    import shutil as _sh
-    c = _sh.which('curl')
-    if c and os.path.exists(c):
-        return c
-    for cand in (r'C:\Windows\System32\curl.exe',):
-        if os.path.exists(cand):
-            return cand
+    sys32 = os.path.join(os.environ.get('SystemRoot', r'C:\Windows'), 'System32', 'curl.exe')
+    if os.path.exists(sys32):                     # 🔒 只用 Windows 內建的 curl(which 會先找目前資料夾，可能被放假的)
+        return sys32
     return None
 
 
@@ -190,6 +186,9 @@ def download_chromedriver(chrome_version, target_path):
         latest = matching_versions[-1]
         download_url = latest['url']
         driver_version = latest['version']
+        if not str(download_url).startswith(("https://storage.googleapis.com/", "https://edgedl.me.gvt1.com/")):
+            print(f"[WebDriver] 下載網址不是 Google 官方，為了安全不下載：{str(download_url)[:80]}")   # 🔒
+            return False
 
         print(f"[WebDriver] 找到 ChromeDriver {driver_version}")
         print(f"[WebDriver] 正在下載...")
@@ -204,6 +203,7 @@ def download_chromedriver(chrome_version, target_path):
 
         with zipfile.ZipFile(zip_path, 'r') as zip_ref:
             zip_ref.extractall(extract_dir)
+        found = False
 
         # 尋找 chromedriver.exe
         for root, dirs, files in os.walk(extract_dir):
@@ -224,6 +224,7 @@ def download_chromedriver(chrome_version, target_path):
                 # 複製新的 chromedriver.exe
                 shutil.copy2(source_path, target_path)
                 print(f"[WebDriver] ChromeDriver {driver_version} 已更新完成！")
+                found = True
                 break
 
         # 清理暫存檔案
@@ -233,7 +234,7 @@ def download_chromedriver(chrome_version, target_path):
         except:
             pass
 
-        return True
+        return found                              # 壓縮檔裡沒有 chromedriver.exe 就不算成功
 
     except Exception as e:
         print(f"[WebDriver] 下載 ChromeDriver 失敗: {e}")

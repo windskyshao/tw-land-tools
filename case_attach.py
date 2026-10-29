@@ -74,6 +74,46 @@ def _paths():
     return exe_dir, internal, py, env
 
 
+# 每項預估秒數：先用這個預設，跑過之後改用這台電腦最近 5 次的平均(網路、電腦快慢不同)
+_EST_DEFAULT = {"nlma": 90, "nbupic": 120, "gbmap": 45, "v523": 60, "easymap": 90, "nlsc": 60, "urbangis": 90,
+                "tcdmap": 40, "geology": 60, "price": 120, "price104": 90, "ftax": 120, "ktax": 90, "luz": 180}
+
+
+def _times_path():
+    return os.path.join(_paths()[0], "連續模式耗時.json")
+
+
+def _times():
+    try:
+        with open(_times_path(), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
+
+
+def est_sec(key):
+    h = _times().get(key) or []
+    return int(sum(h) / len(h)) if h else _EST_DEFAULT.get(key, 60)
+
+
+def record_sec(key, sec):
+    try:
+        d = _times()
+        d[key] = ((d.get(key) or []) + [int(sec)])[-5:]
+        with open(_times_path(), "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def fmt_sec(sec):
+    sec = max(0, int(sec))
+    if sec < 60:
+        return f"{sec} 秒"
+    m, s_ = divmod(sec, 60)
+    return f"{m} 分 {s_} 秒" if m < 10 and s_ else f"{m} 分"
+
+
 def _case():
     """目前案件(主程式資料夾 data.json 第一筆)→ dict(city, area, section, lot, folder)；沒有回 None"""
     exe_dir = _paths()[0]
@@ -581,7 +621,11 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         cb.pack(side=tk.LEFT)
         mid = tk.Frame(fr, bg="white")
         mid.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-        tk.Label(mid, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg="white", anchor="w").pack(anchor="w")
+        nm = tk.Frame(mid, bg="white")
+        nm.pack(anchor="w")
+        tk.Label(nm, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg="white", anchor="w").pack(side=tk.LEFT)
+        if ok:
+            tk.Label(nm, text=f"　⏱ 約 {fmt_sec(est_sec(item['key']))}", font=(FAM, 11), fg=INK2, bg="white").pack(side=tk.LEFT)
         if item.get("note"):
             tk.Label(mid, text=item["note"], font=(FAM, 11), fg=ORANGE if warn else INK2, bg="white", anchor="w").pack(anchor="w")
         if item.get("json") and ok and tax_reason:
@@ -593,6 +637,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         if ok:
             b.pack(side=tk.LEFT)
         rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item)
+        v.trace_add("write", lambda *_: upd_total())
         if ok and item["key"] != "luz":
             v.trace_add("write", lambda *_: sync_all())
         if warn:
@@ -631,6 +676,15 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     ui.big_check(all_row, all_var).pack(side=tk.LEFT)
     tk.Label(all_row, text="全選／全不選", font=(FAM, 14, "bold"), fg=INK, bg=bg).pack(side=tk.LEFT, padx=(6, 4))
     tk.Label(all_row, text="（不含最下面的全國土地使用分區）", font=(FAM, 12), fg=INK2, bg=bg).pack(side=tk.LEFT)
+    total_lbl = tk.Label(all_row, text="", font=(FAM, 13, "bold"), fg=BLUE, bg=bg)
+    total_lbl.pack(side=tk.RIGHT)
+
+    def upd_total():
+        ks = [k for k, r in rows.items() if r["var"].get() and applicable(r["item"], case["city"])]
+        try:
+            total_lbl.configure(text=f"勾了 {len(ks)} 項，預估約 {fmt_sec(sum(est_sec(k) for k in ks))}" if ks else "")
+        except tk.TclError:
+            pass
     all_var.trace_add("write", on_all)
 
     tax_reason = tax_problem()
@@ -650,6 +704,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     lst2.pack(fill=tk.X)
     add_row(lst2, LUZ, warn=True)
     sync_all()
+    upd_total()
     tk.Label(body, text="已經有檔案的預設不勾；要重抓就勾起來或按「單跑」。檔案存到案件資料夾的 1.基本資料、3.行情。",
              font=(FAM, 12), fg=INK2, bg=bg, wraplength=W - 80, justify="left").pack(anchor="w", pady=(10, 0))
 
@@ -744,7 +799,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
             else:
                 jp = cur_json()
                 say(f"[連續模式] 土增稅使用結構化資料：{os.path.basename(jp)}")
-        state.update(done=0, total=len(items), results=[])
+        state.update(done=0, total=len(items), results=[], t_all=time.time(), left=[i["key"] for i in items], title="")
         prog.pack(fill=tk.X, side=tk.BOTTOM, before=foot)
         bar_all.configure(maximum=len(items), value=0)
         r = Runner(case, items, show_var.get(), deal_var.get(), q, json_path=jp)
@@ -756,6 +811,12 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
             runner_box[0].stop = True
             prog_lbl.configure(text="正在停止…（等目前這一項結束）")
 
+    def time_line(key, sec):
+        """本項已用(約幾秒)｜全部已用，還剩約幾分"""
+        used = time.time() - state.get("t_all", time.time())
+        rest = sum(est_sec(k) for k in state.get("left", []) if k != key) + max(0, est_sec(key) - sec)
+        return f"本項 {fmt_sec(sec)}（約 {fmt_sec(est_sec(key))}）｜全部已 {fmt_sec(used)}，還剩約 {fmt_sec(rest)}"
+
     def pump():
         try:
             while True:
@@ -766,7 +827,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     state["cur"] = key
                     rows[key]["status"].configure(text="⏳ 執行中…", fg=BLUE)
                     rows[key]["frame"].configure(highlightbackground=BLUE, highlightthickness=2)
-                    prog_lbl.configure(text=f"第 {n}/{total} 項：{rows[key]['item']['name']}")
+                    state["title"] = f"第 {n}/{total} 項：{rows[key]['item']['name']}"
+                    prog_lbl.configure(text=state["title"] + "\n" + time_line(key, 0))
                     bar_item.start(12)
                     say(f"[連續模式] 第 {n}/{total} 項：{rows[key]['item']['name']} 開始")
                     if inter:
@@ -777,8 +839,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                 elif kind == "tick":
                     _, key, sec = m
                     if key == state["cur"]:
-                        t = prog_lbl.cget("text").split("　")[0]
-                        prog_lbl.configure(text=f"{t}　已 {sec} 秒")
+                        prog_lbl.configure(text=state["title"] + "\n" + time_line(key, sec))
                 elif kind == "line":
                     line_lbl.configure(text="→ " + m[2][:120])
                     say("  " + m[2])
@@ -795,6 +856,10 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     cont_btn.pack_forget()
                     hide_float()
                     _txt = {"done": "✓ 完成", "nodata": "— 官方查無資料", "stopped": "■ 已停止"}.get(st, "✗ 失敗")
+                    if st in ("done", "nodata") and key != "luz":        # 要人操作的不記(等人的時間不準)
+                        record_sec(key, sec)
+                    if key in state.get("left", []):
+                        state["left"].remove(key)
                     say(f"[連續模式] {rows[key]['item']['name']}：{_txt}（{sec} 秒）" + (f"　{msg}" if msg else ""))
                     state["done"] += 1
                     bar_all.configure(value=state["done"])
@@ -816,7 +881,9 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     bar_item.stop()
                     ok = sum(1 for _, s, _m in state["results"] if s == "done")
                     bad = [(n_, m_) for n_, s, m_ in state["results"] if s not in ("done", "nodata")]
-                    prog_lbl.configure(text=f"完成：{ok}/{state['total']} 項成功" + (f"，{len(bad)} 項失敗" if bad else ""))
+                    prog_lbl.configure(text=f"完成：{ok}/{state['total']} 項成功" + (f"，{len(bad)} 項失敗" if bad else "") +
+                                       f"\n總共花了 {fmt_sec(time.time() - state.get('t_all', time.time()))}")
+                    say(f"[連續模式] 全部結束，總共花了 {fmt_sec(time.time() - state.get('t_all', time.time()))}")
                     line_lbl.configure(text="；".join(f"{n_}：{m_}" for n_, m_ in bad)[:300] if bad else
                                        "全部完成，檔案在案件資料夾；可按下方「合併列印」把附件接成一份")
                     if on_finish:

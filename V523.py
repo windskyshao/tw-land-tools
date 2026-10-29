@@ -206,6 +206,15 @@ def init_driver():
     # options.add_argument("--window-position=0,0")
     options.add_argument("--log-level=3")  # 設定日誌級別為錯誤
 
+    # 🔒 上次留下的暫存 Chrome 設定檔(裡面有 V523 登入 cookie)先清掉：超過 1 小時的都是遺留的
+    try:
+        import glob as _glob
+        import shutil as _shutil
+        for _d in _glob.glob(os.path.join(tempfile.gettempdir(), "chrome_v523_*")):
+            if time.time() - os.path.getmtime(_d) > 3600:
+                _shutil.rmtree(_d, ignore_errors=True)
+    except Exception:
+        pass
     # 🔥 使用臨時的 user-data-dir，完全避免密碼彈窗（與 land.py 相同）
     user_data_dir = os.path.join(tempfile.gettempdir(), f"chrome_v523_{int(time.time())}_{random.randint(1000, 9999)}")
     options.add_argument(f"--user-data-dir={user_data_dir}")

@@ -83,8 +83,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9g"
-BUILD_DATE = "2026-10-28"
+VERSION = "1.1.9h"
+BUILD_DATE = "2026-10-29"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1787,6 +1787,27 @@ def kill_subprocess_and_children(process):
     except Exception as e:
         print(f"終止進程時發生錯誤: {e}", flush=True)
 
+# 🔒 子程式在問密碼／PIN／身分證時：輸入框打字遮成 ●，送出後訊息欄不顯示內容(以前會印「成功發送: 密碼」)
+_SENSITIVE_RE = re.compile(r"密碼|PIN|pin碼|身分證|身份證|統一編號|憑證碼", re.I)
+_recent_out = []            # 子程式最近印的幾行(判斷現在在問什麼)
+_mask_input = False
+
+
+def _apply_input_mask(on):
+    global _mask_input
+    _mask_input = on
+    try:
+        if on:
+            if input_field.get() in ("請在此輸入...",) or input_field.cget("fg") == "#6B7280":
+                input_field.delete(0, tk.END)
+                input_field.config(fg="black")
+            input_field.config(show="●")
+        else:
+            input_field.config(show="")
+    except Exception:
+        pass
+
+
 def read_output(process):
     global is_running, current_running_button
     while is_running:
@@ -1834,6 +1855,10 @@ def read_output(process):
                         update_centered_divider(_m_center.group(2), _m_center.group(1)[0])
                         continue
 
+                _recent_out.append(output_str)
+                del _recent_out[:-3]
+                if _SENSITIVE_RE.search(output_str) and not _mask_input:
+                    root.after(0, lambda: _apply_input_mask(True))
                 update_message(output_str)
                 if "已完成執行" in output_str:
                     update_message("[完成] 該程序正常結束")
@@ -3388,6 +3413,20 @@ def import_archive():
             original_name = archive_name
 
         update_message(f"原始資料夾名稱：{original_name}")
+
+        # 🔒 封存裡的資料夾名稱不能蓋到程式本身的資料夾(_internal、python_embedded…)或跳到別的地方
+        _bad = (not original_name or original_name in (".", "..") or any(c in original_name for c in '\\/:*?"<>|')
+                or original_name.lower().startswith(("_internal", "python_embedded", "_backup", "chrome_profile"))
+                or os.path.splitext(original_name)[1].lower() in (".exe", ".dll", ".bat", ".cmd", ".ps1", ".py"))
+        if _bad:
+            show_large_message("匯入封存", f"封存裡的資料夾名稱「{original_name}」不像案件資料夾，為了安全不匯入。")
+            update_message(f"[取消] 封存資料夾名稱不合法：{original_name}")
+            try:
+                if temp_extract_path and os.path.exists(temp_extract_path):
+                    shutil.rmtree(temp_extract_path)
+            except Exception:
+                pass
+            return
 
         # 目標路徑
         dest_folder = os.path.join(os.getcwd(), original_name)
@@ -7974,6 +8013,8 @@ def send_input(event=None):
         # 🔥 如果是 placeholder，當作空字串
         if user_input == "請在此輸入...":
             user_input = ""
+        secret = _mask_input or any(_SENSITIVE_RE.search(x) for x in _recent_out[-2:])
+        _apply_input_mask(False)
         input_field.delete(0, tk.END)
         # 🔥 重新加上 placeholder
         input_field.insert(0, "請在此輸入...")
@@ -7981,7 +8022,9 @@ def send_input(event=None):
         if process.stdin and not process.stdin.closed:
             process.stdin.write(user_input + '\n')
             process.stdin.flush()
-            display_input = user_input if user_input.strip() else "(空白或預設)"
+            display_input = ("●" * min(len(user_input), 8) + "（內容不顯示）") if (secret and user_input) else (
+                user_input if user_input.strip() else "(空白或預設)")
+            _recent_out.clear()
             update_message(f"[完成] 成功發送: {display_input}")
         else:
             stdin_status = "不存在" if not process.stdin else ("已關閉" if process.stdin.closed else "可用")
@@ -8272,6 +8315,9 @@ def _check_one_source(source):
     if not remote_tag:
         result['error'] = '無法解析 tag'
         return result
+    if not re.fullmatch(r"\d+(?:\.\d+)*[a-z]?", remote_tag):          # 🔒 版本號只能是 1.1.9g 這種格式
+        result['error'] = f'版本號格式不正確：{remote_tag[:20]}'
+        return result
 
     # 找對應的 asset
     assets = data.get('assets') or []
@@ -8282,8 +8328,13 @@ def _check_one_source(source):
         if source.get('release_tag') and name != f"{prefix}{remote_tag}{ext}":
             continue
         if name.startswith(prefix) and name.lower().endswith(ext.lower()):
+            if not re.fullmatch(r"[\w.\-]+", name) or not str(a.get('browser_download_url', '')).startswith("https://github.com/"):
+                continue                                                  # 🔒 檔名/下載來源不對就不用
             result['asset_url'] = a['browser_download_url']
             result['asset_name'] = name
+            result['asset_digest'] = (a.get('digest') or '')              # GitHub 記錄的 sha256(下載後比對)
+            _sig = next((x for x in assets if x.get('name') == name + '.sig'), None)
+            result['sig_url'] = _sig.get('browser_download_url', '') if _sig else ''   # 開發者簽章(下載後驗證)
             break
 
     # 比較版本
@@ -8547,7 +8598,38 @@ def _update_download_all(updates, temp_dir, exe_dir, prog):
                   log=f"⏬ [{idx}/{total_count}] 下載 {name} v{ver}…（進度在另一個小視窗）")
         dl_path = os.path.join(temp_dir, u['asset_name'])
         got = _download_resumable(u['asset_url'], dl_path, prog, name)
-        prog.post(pct=100, log=f"✅ [{idx}/{total_count}] {name} 下載完成（{_mb(got)}）")
+        _dg = u.get('asset_digest') or ''
+        if _dg.lower().startswith('sha256:'):                             # 🔒 跟 GitHub 記錄的雜湊比對，不符就不裝
+            import hashlib
+            _h = hashlib.sha256()
+            with open(dl_path, 'rb') as _f:
+                for _b in iter(lambda: _f.read(1 << 20), b''):
+                    _h.update(_b)
+            if _h.hexdigest().lower() != _dg.split(':', 1)[1].strip().lower():
+                try:
+                    os.remove(dl_path)                                    # 壞檔刪掉，下次重新下載
+                except OSError:
+                    pass
+                raise _UpdateError("檔案驗證不符", f"{name} 下載的檔案跟 GitHub 記錄的不一樣（可能下載不完整或被竄改）。\n\n"
+                                                 "這次沒有安裝任何東西，請稍後再按一次更新。")
+        # 🔒 開發者簽章：只有開發者電腦上的私鑰簽得出來，GitHub 帳號被盜也做不出假版本
+        _sig_ok = False
+        try:
+            import release_verify
+            _su = u.get('sig_url') or ''
+            if _su.startswith('https://github.com/'):
+                with _open_url_with_ssl_fallback(_su, timeout=30) as _r:
+                    _sig_ok = release_verify.verify_file(dl_path, u['asset_name'], _r.read(4096).decode('ascii', 'ignore'))
+        except Exception:
+            _sig_ok = False
+        if not _sig_ok:
+            try:
+                os.remove(dl_path)
+            except OSError:
+                pass
+            raise _UpdateError("簽章驗證不通過", f"{name} v{ver} 沒有開發者的簽章，或簽章對不上。\n\n"
+                                                "為了安全這次不安裝（原本的程式沒有被動到）。請跟開發者確認。")
+        prog.post(pct=100, log=f"✅ [{idx}/{total_count}] {name} 下載完成（{_mb(got)}，簽章驗證通過）")
 
         install_type = source['install_type']
         if install_type == 'zip_replace':
@@ -8883,11 +8965,13 @@ def restore_previous_version():
 
 
 def _capture_screen_png_bytes():
-    """擷取整個螢幕，回傳 PNG bytes；失敗回 None。"""
+    """🔒 只擷取「本程式主視窗」(以前是整個螢幕，會拍到 LINE、Email、別的謄本)，回傳 PNG bytes；失敗回 None。"""
     try:
         from PIL import ImageGrab
         import io
-        img = ImageGrab.grab()
+        root.update_idletasks()
+        x, y = root.winfo_rootx(), root.winfo_rooty()
+        img = ImageGrab.grab(bbox=(x, y, x + root.winfo_width(), y + root.winfo_height()))
         buf = io.BytesIO()
         img.save(buf, format='PNG')
         return buf.getvalue()
@@ -9018,13 +9102,13 @@ def open_feedback_dialog():
                               font=("Microsoft JhengHei", 10), padx=8, pady=4)
     img_frame.pack(fill="x", pady=(10, 0), **pad)
 
-    tk.Label(img_frame, text="送出時會自動截取您目前的螢幕畫面；也可改用自己的截圖或圖片。",
+    tk.Label(img_frame, text="可以附上本程式視窗的畫面（不含其他視窗）；也可改用自己的截圖或圖片。",
              font=("Microsoft JhengHei", 9), fg="#555", justify="left").pack(anchor="w")
 
-    shot_var = tk.BooleanVar(value=bool(png))
+    shot_var = tk.BooleanVar(value=False)          # 🔒 預設不附，要附自己勾(畫面上可能有客戶資料)
     auto_chk = tk.Checkbutton(
         img_frame,
-        text=("自動附上『目前螢幕畫面』" if png else "自動截圖這次失敗，請改用下方自選圖片"),
+        text=("附上『本程式視窗』畫面" if png else "自動截圖這次失敗，請改用下方自選圖片"),
         variable=shot_var, font=("Microsoft JhengHei", 10),
         state=("normal" if png else "disabled"))
     auto_chk.pack(anchor="w", pady=(2, 0))
@@ -9562,6 +9646,38 @@ root.after(100, show_startup_reminder)
 root.after(400, lambda: _sync_data_json_ui() and update_title_from_data_json())   # 兩份 data.json 不一致 → 用較新的同步
 root.after(500, check_and_warn_data_consistency)  # 在提醒訊息之後執行
 root.after(2000, _bg_check_update)  # 🔥 啟動 2 秒後背景檢查 GitHub 是否有新版（不擋主介面）
+
+
+def _harden_install_dir():
+    """🔒 安裝在 D:\\ 或 C:\\ 根目錄下時，Windows 預設讓同一台電腦「所有登入的帳號」都能修改這個資料夾
+    (別的帳號可以換掉程式、偷看案件)。第一次執行就把資料夾權限收成：只有自己＋系統管理員＋SYSTEM。
+    只改最上層、不加 /T：子資料夾/檔案會自動繼承新權限(加 /T 會讓檔案變成沒有任何權限)。每個安裝位置只做一次。"""
+    if not getattr(sys, 'frozen', False):
+        return
+    try:
+        import hashlib
+        exe_dir = os.path.dirname(os.path.abspath(sys.executable))
+        prof = os.path.normcase(os.path.abspath(os.path.expanduser("~")))
+        if os.path.normcase(exe_dir).startswith(prof + os.sep):
+            return                                   # 放在自己的使用者資料夾裡：本來就只有自己能改
+        flag_dir = os.path.join(os.environ.get("APPDATA") or prof, "地籍資料查詢系統")
+        flag = os.path.join(flag_dir, "acl_" + hashlib.md5(os.path.normcase(exe_dir).encode("utf-8")).hexdigest()[:12])
+        if os.path.exists(flag):
+            return
+        icacls = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe")
+        r = subprocess.run([icacls, exe_dir, "/inheritance:r", "/grant:r", "*S-1-5-32-544:(OI)(CI)F",
+                            "*S-1-5-18:(OI)(CI)F", f"{os.environ.get('USERNAME', '')}:(OI)(CI)F", "/Q"],
+                           capture_output=True, timeout=120, creationflags=0x08000000)
+        os.makedirs(flag_dir, exist_ok=True)
+        with open(flag, "w", encoding="utf-8") as f:
+            f.write(f"{exe_dir}\nrc={r.returncode}\n")
+        if r.returncode == 0:
+            root.after(0, lambda: update_message("🔒 已把程式資料夾設成只有你自己（和系統管理員）能修改"))
+    except Exception:
+        pass
+
+
+threading.Thread(target=_harden_install_dir, daemon=True).start()
 root.after(1200, show_quick_intro)  # 🆕 萬用查詢欄新功能介紹(勾「不再顯示」後就不跳)
 
 # 🔥 如果啟動時已載入 JSON，更新狀態列顯示
