@@ -1064,6 +1064,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     ui.button(btns, "■ 停止", stop, "ghost").pack(side=tk.LEFT, padx=(0, 8))
     run_btn = ui.button(btns, "▶ 開始", lambda: start(), "primary")
     win._start = start                              # 給測試/其他程式直接開始指定項目
+    win._merge = do_merge                           # 新版主頁「合併列印」直接接這個
     run_btn.pack(side=tk.LEFT)
     win.after(300, pump)
     return win

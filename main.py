@@ -83,7 +83,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9j"
+VERSION = "1.1.9k"
 BUILD_DATE = "2026-10-30"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -4558,7 +4558,7 @@ def toggle_continuous_mode():
     # 新版：案件附件(背景逐項跑、看資料夾判斷有沒有、全國土地使用分區最後單獨跑)；謄本/土增稅那段走舊版
     try:
         import case_attach
-        case_attach.open_window(root,                                   # 舊版連續模式按鈕已拿掉(使用者 10-26)
+        return case_attach.open_window(root,                            # 舊版連續模式按鈕已拿掉(使用者 10-26)
                                 on_line=update_message,          # 每項的過程提示也顯示在訊息欄
                                 tax_check=_structured_problem,   # 土增稅前跟按鈕一樣檢查結構化是不是這個案件
                                 json_path=lambda: selected_json_path,
@@ -9849,5 +9849,332 @@ try:
         root.bind_class("Toplevel", "<Map>", _reg_toplevel, add="+")
 except Exception as _e:
     print(f"[拖曳] 未啟用：{_e}")
+
+
+# ===================== 新版介面(試用)：案件進度表(case_flow)取代上方按鈕區，訊息框/輸入框照舊 =====================
+# 目前只給管理者試用(右上 ✨ 切換)；按鈕都接回舊版同一顆按鈕/函式，行為跟舊版一樣
+_UI_PREF = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "地籍資料查詢系統", "ui_pref.json")
+_cfw = {"flow": None, "on": False, "sig": None, "acct": None, "attach": None}
+
+
+def _ui_pref(key=None, value=None):
+    try:
+        with open(_UI_PREF, encoding="utf-8") as f:
+            d = json.load(f)
+    except Exception:
+        d = {}
+    if key is None:
+        return d
+    d[key] = value
+    try:
+        os.makedirs(os.path.dirname(_UI_PREF), exist_ok=True)
+        with open(_UI_PREF, "w", encoding="utf-8") as f:
+            json.dump(d, f, ensure_ascii=False)
+    except Exception:
+        pass
+
+
+def _cf_case():
+    """目前案件 → case_flow 要的 dict；沒有案件回 None"""
+    try:
+        with open(get_data_json_path(), 'r', encoding='utf-8') as f:
+            d0 = json.load(f)[0]
+    except Exception:
+        return None
+    folder, name = _current_case_folder()
+    if not folder or not d0.get("lot_number"):
+        return None
+    why = _structured_problem()
+    return dict(city=d0.get("city", ""), area=d0.get("area", ""), section=d0.get("section", ""),
+                lot=str(d0.get("lot_number", "")), folder=folder, door=d0.get("door", "") or "",
+                deal=_lvr_case_deal() or "", title=name, struct_ok=not why, struct_why=why)
+
+
+def _cf_stage_path(case):
+    return os.path.join(case["folder"], "4.其他相關", "case_stage.json")
+
+
+def _cf_stage(case):
+    try:
+        with open(_cf_stage_path(case), encoding="utf-8") as f:
+            s = json.load(f).get("stage")
+        return s if s in ("委託", "開發") else "委託"
+    except Exception:
+        return "委託"
+
+
+def _cf_set_stage(s):
+    case = _cf_case()
+    if not case:
+        return
+    try:
+        os.makedirs(os.path.dirname(_cf_stage_path(case)), exist_ok=True)
+        with open(_cf_stage_path(case), "w", encoding="utf-8") as f:
+            json.dump({"stage": s}, f, ensure_ascii=False)
+    except Exception as e:
+        update_message(f"[新版介面] 存「{s}」失敗：{e}")
+
+
+def _cf_open_attach(then=None):
+    """連續模式視窗(附件查詢、合併列印)；已經開著就拿來用"""
+    w = _cfw["attach"]
+    try:
+        if w is not None and w.winfo_exists():
+            w.deiconify()
+            w.lift()
+        else:
+            w = _cfw["attach"] = toggle_continuous_mode()
+    except Exception:
+        w = _cfw["attach"] = toggle_continuous_mode()
+    if w is not None and then:
+        root.after(300, lambda: then(w))
+    return w
+
+
+def _cf_map(kind):
+    if not _cfw["acct"]:
+        return _cf_login()
+    case = _cf_case()
+    if not case:
+        return
+    import urllib.parse
+    q = f"{case['city']}{case['area']}{case['section']}{case['lot']}地號"
+    web_open("https://map.windsky-sky.com/?" + urllib.parse.urlencode({"q": q, "mode": "sect"}))
+    update_message({"lm_view": "🗺 已在阿生地圖打開這個地號",
+                    "lm_near": "🗺 已在阿生地圖打開這個地號：點地號卡的「周邊實價／在售・出租」看行情",
+                    "lm_avm": "🗺 已在阿生地圖打開這個地號：點地號卡的「💰行情推估」"}[kind])
+
+
+def _cf_login():
+    try:
+        import landmap_login
+        landmap_login.login(root, on_done=lambda *a: (_cf_refresh_acct(), _cf_refresh(force=True)))
+    except Exception as e:
+        show_large_message("Google 登入", f"無法開啟登入：{e}")
+
+
+def _cf_refresh_acct(remote=False):
+    try:
+        import landmap_login
+        _cfw["acct"] = landmap_login.account(refresh=remote)
+    except Exception:
+        _cfw["acct"] = None
+
+
+def _cf_account():
+    a = _cfw["acct"] or {}
+    if show_large_yesno("阿生地圖帳號", f"目前登入：{a.get('name', '')}（{a.get('email', '')}）\n\n要登出嗎？"):
+        try:
+            import landmap_login
+            landmap_login.logout()
+        except Exception:
+            pass
+        _cfw["acct"] = None
+        _cf_refresh(force=True)
+
+
+def _cf_editor_then(msg):
+    data_editor.open_data_editor()
+    update_message(msg)
+
+
+# 動作 → 舊版同一顆按鈕(會跑子程式的，跟按舊版按鈕完全一樣) 或函式
+_CF_BTN = {
+    "epaper": hinet_button, "telereport": qpt_hinet_button,
+    "struct_e": structured_transcript_button, "struct_t": telereport_structured_button,
+    "tax_fin": finance_button, "tax_kh": kaohsiung_tax_button,
+    "land_manual": land_manual_button, "land_old": land_auto_old_button, "land_new": land_auto_new_button,
+    "lic_kh": building_license_kh_button, "lic_pt": building_license_pt_button, "lic_tn": building_license_tn_button,
+    "nlsc": land_use_nlscmaps_button, "urbangis": land_use_urbangis_button, "luz": land_use_luz_button,
+    "tcdmap": start_land_partition_button, "gbmap": start_important_facility_button,
+    "geology": start_mapping_button, "v523": start_V523_button,
+    "price_moi": interior_button, "price_104": price104_button,
+}
+_CF_FN = {
+    "import": lambda: _cf_import(),
+    "lm_view": lambda: _cf_map("lm_view"), "lm_near": lambda: _cf_map("lm_near"), "lm_avm": lambda: _cf_map("lm_avm"),
+    "query_run": lambda: _cf_open_attach(lambda w: w._start()),
+    "query_list": lambda: _cf_open_attach(),
+    "struct": lambda: _offer_structuring("把謄本轉成資料（面積、持分、前次移轉現值…）"),
+    "cadastral": launch_cadastral_map_tool,
+    "editor": lambda: data_editor.open_data_editor(),
+    "doc_survey": lambda: _cf_editor_then("📝 物件編輯器已打開：填好後按下方「生成物件調查表」"),
+    "doc_deck": lambda: data_editor.open_marketing_deck(),
+    "doc_perf": lambda: data_editor.open_perf_report(),
+    "doc_rent": lambda: data_editor.open_rent_report(),
+    "merge": lambda: _cf_open_attach(lambda w: w._merge()),
+    "owner_pack": lambda: (update_message("📑 給屋主的行情資料：目前先用合併列印，勾 3.行情 和要給屋主看的基本資料"),
+                           _cf_open_attach(lambda w: w._merge())),
+    "folder": open_work_folder,
+    "login": _cf_login, "account": _cf_account,
+    "toolbox": lambda: _cf_toolbox(),
+    "classic_ui": lambda: _cf_switch(False),
+    "refresh": lambda: _cf_refresh(force=True),
+}
+
+
+def _cf_action(key):
+    btn = _CF_BTN.get(key)
+    if btn is not None:
+        if is_running and btn is not current_running_button:
+            run = (current_running_button.cget("text").replace("關閉 ", "") if current_running_button else "另一個功能")
+            show_large_message("請稍等", f"「{run}」還在執行中。\n請先把它做完或關掉（舊版按鈕上的「關閉」），再開下一個。")
+            return
+        btn.invoke()
+    elif key in _CF_FN:
+        try:
+            _CF_FN[key]()
+        except Exception as e:
+            update_message(f"[新版介面] {key} 失敗：{e}")
+    root.after(800, lambda: _cf_refresh(force=True))
+
+
+def _cf_toolbox():
+    import case_flow as CF
+    CF.open_toolbox(root, _cf_action, root.winfo_rootx() + M.px(40), root.winfo_rooty() + M.px(120), account=_cfw["acct"])
+
+
+def _cf_import():
+    case = _cf_case()
+    if not case:
+        show_large_message("整理資料夾", "請先建立案件，再把自己的資料夾整理進來。")
+        return
+    src = filedialog.askdirectory(title="選要整理的資料夾（裡面的檔案會複製到目前案件，原檔不動）")
+    if not src:
+        return
+    import case_attach
+    import case_import_ui
+    update_message(f"📥 阿生在看「{os.path.basename(src)}」裡的檔案…（檔案多要等一下）")
+
+    def work():
+        # 讀 PDF 內容要 PyMuPDF(只裝在 python_embedded)，所以另開子程式判斷，結果寫成暫存 JSON
+        import tempfile
+        _exe, internal, py, env = case_attach._paths()
+        out = os.path.join(tempfile.gettempdir(), f"case_import_{os.getpid()}.json")
+        try:
+            p = subprocess.Popen([py, "-u", os.path.join(internal, "case_import.py"), src, out, "--no-ocr"], cwd=internal,
+                                 env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, creationflags=0x08000000)
+            last = 0
+            for b in iter(p.stdout.readline, b""):
+                t = b.decode("utf-8", "replace").strip()
+                m = re.match(r"__PROGRESS__ (\d+)/(\d+)", t)
+                if m and (int(m.group(1)) - last >= 20 or m.group(1) == m.group(2)):
+                    last = int(m.group(1))
+                    root.after(0, lambda t=f"📥 已看 {m.group(1)}/{m.group(2)} 個檔案": update_message(t))
+            p.wait(timeout=1800)
+            with open(out, encoding="utf-8") as f:
+                res = json.load(f)
+            os.remove(out)
+        except Exception as e:
+            root.after(0, lambda: update_message(f"[整理資料夾] 讀取失敗：{e}"))
+            return
+
+        def go(files, move):
+            n, errs = case_import_ui.copy_into(files, case["folder"], move=move)
+            update_message(f"📥 已整理 {n} 個檔案到「{case['title']}」" + (f"（{len(errs)} 個失敗）" if errs else ""))
+            if errs:
+                show_large_message("整理資料夾", "有些檔案沒有放進去：\n" + "\n".join(errs[:8]))
+            _cf_refresh(force=True)
+        root.after(0, lambda: case_import_ui.open_preview(root, src, res, case["title"], on_go=go))
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _cf_refresh(force=False):
+    """看案件資料夾重算進度；有變才重畫(不然滑鼠說明一直被洗掉)"""
+    f = _cfw["flow"]
+    if not _cfw["on"] or f is None:
+        return
+    try:
+        busy = None
+        if is_running and current_running_button is not None:
+            busy = current_running_button.cget("text").replace("關閉 ", "")
+        case = _cf_case()
+        if not case:
+            sig = ("empty", bool(_cfw["acct"]), busy)
+            if force or sig != _cfw["sig"]:
+                _cfw["sig"] = sig
+                f.busy = busy
+                f.show_empty("先建立案件：在最下面輸入框打地址、門牌或「地段 地號」按 Enter～",
+                             "📋 打開查詢選單建立案件", open_quick_panel, account=_cfw["acct"])
+            return
+        import case_flow as CF
+        stage = _cf_stage(case)
+        steps = CF.scan(case, stage, account=_cfw["acct"])
+        sig = (case["folder"], stage, busy, repr(_cfw["acct"]), repr(steps), f.page)
+        if force or sig != _cfw["sig"]:
+            _cfw["sig"] = sig
+            f.busy = busy
+            f.show(steps, stage, _cfw["acct"])
+    except Exception as e:
+        print(f"[新版介面] 更新失敗：{e}")
+
+
+def _cf_tick():
+    _cf_refresh()
+    root.after(2500, _cf_tick)
+
+
+def _cf_switch(on, announce=True):
+    """切換新版/舊版介面(記住選擇)；announce＝在訊息框說一聲(啟動時自動切就不說)"""
+    _ui_pref("ui", "new" if on else "classic")
+    _cfw["on"] = on
+    if on:
+        if _cfw["flow"] is None:
+            try:
+                import case_flow as CF
+                _cfw["flow"] = CF.CaseFlow(frame_top, get_resource_path("landmap_cat.png"), on_action=_cf_action,
+                                           on_stage=_cf_set_stage)
+            except Exception as e:
+                _cfw["on"] = False
+                _ui_pref("ui", "classic")
+                show_large_message("新版介面", f"新版介面打不開，先用舊版：\n{e}")
+                return
+        _show_main_orig()
+        for fr in (left_button_frame, middle_button_frame, right_button_frame):
+            fr.pack_forget()
+        _cfw["flow"].pack(fill=tk.X, padx=M.px(5))
+        _cfw["sig"] = None
+        _cf_refresh(force=True)
+        if announce:
+            update_message("✨ 已切到新版介面（右上 🧰 工具箱最下面，或再按一次 ✨，可以切回舊版）")
+    else:
+        if _cfw["flow"] is not None:
+            _cfw["flow"].pack_forget()
+        _show_main_orig()
+        if announce:
+            update_message("已切回舊版介面（右上 ✨ 可以再試用新版）")
+
+
+# 新版開著時，舊版流程裡的「切到某分頁」不要把舊按鈕又擺出來
+_show_main_orig = show_main_page
+
+
+def _cf_guard(fn):
+    def w(*a, **k):
+        if _cfw["on"]:
+            return None
+        return fn(*a, **k)
+    return w
+
+
+for _n in ("show_main_page", "show_transcript_page", "show_land_page", "show_utility_page", "show_land_use_page",
+           "show_building_license_page", "show_real_estate_price_page"):
+    globals()[_n] = _cf_guard(globals()[_n])
+
+if has_contacts_admin():
+    _cf_btn = M.IconButton(_cc_icons, "✨", lambda: _cf_switch(not _cfw["on"]), "#E07A1F", size=_icon_size)
+    _cf_btn.pack(side=tk.LEFT, padx=(M.px(4), 0), before=help_button)
+    try:
+        import case_flow as _CFm
+        _CFm.Tip(_cf_btn, lambda: "切回舊版介面（原本的按鈕畫面）" if _cfw["on"] else
+                 "✨ 試用新版介面：照辦案順序的四個大方塊＋「下一步」\n（目前只有管理者看得到；隨時可以切回來）")
+    except Exception:
+        pass
+    _cf_refresh_acct()
+    threading.Thread(target=lambda: (_cf_refresh_acct(remote=True), root.after(0, lambda: _cf_refresh(force=True))),
+                     daemon=True).start()
+    if _ui_pref().get("ui") == "new":
+        root.after(600, lambda: _cf_switch(True, announce=False))
+    root.after(3000, _cf_tick)
 
 root.mainloop()
