@@ -126,10 +126,12 @@ def _fallback_load_contacts_from_excel(file_path='通訊錄.xlsx'):
         if not os.path.isabs(file_path):
             base_dir = get_base_dir()
 
-            # 🔥 在打包環境下，通訊錄放在 _internal 目錄中
+            # 🔥 打包環境：「更新通訊錄」下載到程式資料夾(base_dir)；舊版安裝的放在 _internal。
+            #    兩份都有就用比較新的(以前只讀 _internal → 更新成功也讀不到、新安裝的找不到檔案)
             if getattr(sys, 'frozen', False):
-                # 打包環境：通訊錄在 _internal 子目錄
-                file_path = os.path.join(base_dir, '_internal', file_path)
+                cands = [p for p in (os.path.join(base_dir, file_path), os.path.join(base_dir, '_internal', file_path))
+                         if os.path.exists(p)]
+                file_path = max(cands, key=os.path.getmtime) if cands else os.path.join(base_dir, file_path)
             else:
                 # 開發環境：通訊錄在 base_dir 根目錄
                 file_path = os.path.join(base_dir, file_path)
@@ -138,7 +140,8 @@ def _fallback_load_contacts_from_excel(file_path='通訊錄.xlsx'):
 
         # 檢查檔案是否存在
         if not os.path.exists(file_path):
-            error_msg = f"找不到通訊錄檔案：{file_path}"
+            error_msg = (f"這台電腦還沒有通訊錄：{file_path}\n\n"
+                         "請按物件編輯器「承辦人」下面的「🔄 更新通訊錄」下載（要先 Google 登入一次）。")
             log_error(f"錯誤：{error_msg}")
             # 嘗試顯示錯誤訊息框（如果可用）
             try:
@@ -8902,7 +8905,9 @@ def open_data_editor():
     write_log(f"  總聯絡人數：{total_contacts}")
 
     # 如果沒有載入任何資料，顯示警告
-    if not stores_list or total_contacts == 0:
+    _bd = BASE_DIR
+    _has_file = any(os.path.exists(p) for p in (os.path.join(_bd, '通訊錄.xlsx'), os.path.join(_bd, '_internal', '通訊錄.xlsx')))
+    if (not stores_list or total_contacts == 0) and _has_file:     # 沒檔案的話上面已經提示過怎麼下載
         write_log("警告：通訊錄沒有載入任何資料！")
         import tkinter.messagebox as messagebox
         messagebox.showwarning("通訊錄警告",

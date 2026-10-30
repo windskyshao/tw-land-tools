@@ -99,11 +99,11 @@ def scan(case, stage="委託", running=None, account=None):
         det = f"阿生查詢中 {running.get('done', len(have))}/{running.get('total', len(items))}"
         if running.get("wait"):
             det += f"・{running['wait']}"
-        acts = [("停止", "query_stop", False), ("清單", "query_list", False)]
+        acts = [("停止", "query_stop", False), ("📋 清單", "query_list", False)]
     else:
         st = "done" if items and not miss else "todo"
         det = f"已有 {len(have)}/{len(items)}" + (f"　缺：{'、'.join(miss[:3])}{'…' if len(miss) > 3 else ''}" if miss else "")
-        acts = [("▶ 查缺的", "query_run", True), ("清單", "query_list", False)] if miss else [("清單", "query_list", False)]
+        acts = [("▶ 查缺的", "query_run", True), ("📋 清單", "query_list", False)] if miss else [("📋 清單", "query_list", False)]
     add("query", "查", "附件查詢", st, det, acts,
         tip="使用執照、重要設施、V523、地籍便民、國土測繪、都市計畫、國土分區、地質雲、"
             "內政部／104 實價，免費、不用謄本。\n按「▶ 查缺的」會打開連續模式，一項一項自動查，已經有的不重查。\n"
@@ -163,6 +163,7 @@ def scan(case, stage="委託", running=None, account=None):
     pics = [p for p in _glob(f, "2.照片/*") if p.lower().endswith((".jpg", ".jpeg", ".png", ".heic", ".webp"))]
     add("photo", "做", "現場照片", "done" if pics else ("skip" if dev else "todo"),
         f"{len(pics)} 張" if pics else (later if dev else "拍完直接拖進主程式"),
+        [("📂 打開照片資料夾", "folder_photo", True)],
         tip="把照片拖進主程式視窗，選「2.照片」就會放進案件資料夾；行銷簡報會用到。")
     fin = _glob(f, "4.其他相關/data_final.json")
     add("editor", "做", "物件資料", "done" if fin else ("skip" if dev else "todo"),
@@ -265,8 +266,8 @@ class Tip:
 class Pill(tk.Canvas):
     """小圓角按鈕：primary＝橘底白字(下一步)，否則淺底深字"""
 
-    def __init__(self, parent, text, command=None, primary=False, dim=False):
-        self.font = tkfont.Font(family=FAM, size=11, weight="bold")
+    def __init__(self, parent, text, command=None, primary=False, dim=False, size=11):
+        self.font = tkfont.Font(family=FAM, size=size, weight="bold")
         w = self.font.measure(text) + M.px(20)
         h = self.font.metrics("linespace") + M.px(8)
         super().__init__(parent, width=w, height=h, bg=parent.cget("bg"), highlightthickness=0, cursor="hand2")
@@ -683,10 +684,11 @@ class CaseFlow(tk.Frame):
 class BigButton(tk.Canvas):
     """主頁最大的那顆橘色按鈕(下一步)；問答卡的按鈕也用它"""
 
-    def __init__(self, parent, text, command, height=None, width=None, color=None):
+    def __init__(self, parent, text, command, height=None, width=None, color=None, size=17, fg="white"):
         super().__init__(parent, height=height or M.px(56), bg=parent.cget("bg"), highlightthickness=0, cursor="hand2")
         if width:
             self.configure(width=width)
+        self.size, self.fg = size, fg
         self.color = color or ORANGE
         self.text, self.command, self.hover = text, command, False
         self.bind("<Configure>", lambda e: self._draw())
@@ -705,19 +707,15 @@ class BigButton(tk.Canvas):
             return
         M.round_rect(self, 2, 2, w - 2, h - 2, M.px(14), fill=M.mix(self.color, "#000000", 0.18) if self.hover else self.color,
                      outline="")
-        self.create_text(w / 2, h / 2, text=self.text, font=(FAM, 17, "bold"), fill="white")
+        self.create_text(w / 2, h / 2, text=self.text, font=(FAM, self.size, "bold"), fill=self.fg, width=w - M.px(16),
+                         justify="center")
 
 
-TOOLBOX = [
-    ("謄本", [("全國地政電子謄本", "epaper"), ("電傳資訊系統(光特)", "telereport"), ("電子謄本結構化", "struct_e"),
-              ("電傳謄本結構化", "struct_t"), ("地籍圖處理工具", "cadastral")]),
-    ("土增稅", [("財政部土增稅", "tax_fin"), ("高雄土增稅估算", "tax_kh")]),
-    ("地籍便民", [("手動建立", "land_manual"), ("自動截圖・舊版", "land_old"), ("自動截圖・新版", "land_new")]),
-    ("使用執照", [("高雄市", "lic_kh"), ("屏東縣", "lic_pt"), ("台南市", "lic_tn")]),
-    ("分區・環境", [("國土測繪圖資", "nlsc"), ("高雄都市計畫", "urbangis"), ("全國土地使用分區", "luz"),
-                ("國土分區查詢", "tcdmap"), ("重要設施查詢", "gbmap"), ("地質雲查詢", "geology"), ("V523 系統", "v523")]),
-    ("實價登錄", [("內政部", "price_moi"), ("104實價網", "price_104")]),
-    ("物件", [("編輯物件資料", "editor"), ("開啟案件資料夾", "folder")]),
+TOOLBOX = [   # 只放「步驟」裡沒有的：各項查詢在第 2 步「清單」(連續模式)可以單跑，謄本/土增稅/物件編輯器在各步驟
+    ("建立案件", [("萬用查詢（打地址/地號）", "quick"), ("地籍便民系統-手動", "land_manual"), ("地籍便民-舊版截圖", "land_old")]),
+    ("案件檔案", [("載入案件 data.json", "load_case"), ("讀取結構化JSON", "read_json"), ("匯入封存", "import_arc"),
+              ("匯出封存", "export_arc"), ("開啟工作資料夾", "folder")]),
+    ("設定", [("修改帳密", "cred"), ("Chrome 縮放設定", "zoom")]),
     ("阿生地圖（Google 登入）", [("在地圖看", "lm_view"), ("周邊行情・在售", "lm_near"), ("行情推估🔒", "lm_avm")]),
 ]
 
@@ -727,20 +725,26 @@ def open_toolbox(parent, on_pick, x=None, y=None, account=None):
     tw = tk.Toplevel(parent)
     tw.title("工具箱")
     tw.configure(bg="#FFFFFF")
-    tk.Label(tw, text="🧰 工具箱　想自己一項一項操作時用", font=(FAM, 13, "bold"), bg="#FFFFFF", fg=INK,
-             anchor="w").pack(fill=tk.X, padx=M.px(14), pady=(M.px(12), M.px(4)))
+    tk.Label(tw, text="🧰 其他功能", font=(FAM, 15, "bold"), bg="#FFFFFF", fg=INK,
+             anchor="w").pack(fill=tk.X, padx=M.px(14), pady=(M.px(12), 0))
+    tk.Label(tw, text="各項查詢（使照、分區、實價…）在第 2 步按「清單」可以一項一項單獨跑。", font=(FAM, 12),
+             bg="#FFFFFF", fg=INK2, anchor="w", justify="left").pack(fill=tk.X, padx=M.px(14), pady=(0, M.px(6)))
+    acc = tk.Frame(tw, bg="#FFFFFF")
+    acc.pack(fill=tk.X, padx=M.px(14), pady=(0, M.px(6)))
+    Pill(acc, (f"👤 {account.get('name', '')}（點一下登出）" if account else "🔑 Google 登入阿生地圖"),
+         (lambda: (tw.destroy(), on_pick("account" if account else "login")))).pack(anchor="w")
     grid = tk.Frame(tw, bg="#FFFFFF")
     grid.pack(fill=tk.BOTH, padx=M.px(14), pady=(0, M.px(12)))
     for gi, (gname, tools) in enumerate(TOOLBOX):
         col = tk.Frame(grid, bg="#FFFFFF")
         col.grid(row=gi // 2, column=gi % 2, sticky="nw", padx=(0, M.px(16)), pady=M.px(4))
-        tk.Label(col, text=gname, font=(FAM, 11, "bold"), fg=ORANGE_DK, bg="#FFFFFF").pack(anchor="w")
+        tk.Label(col, text=gname, font=(FAM, 13, "bold"), fg=ORANGE_DK, bg="#FFFFFF").pack(anchor="w")
         wrap = tk.Frame(col, bg="#FFFFFF")
         wrap.pack(anchor="w")
         for name, key in tools:
             if key == "lm_avm" and avm_ok(account):
                 name = name.replace("🔒", "")
-            Pill(wrap, name,(lambda k=key: (tw.destroy(), on_pick(k)))).pack(anchor="w", pady=1)
+            Pill(wrap, name, (lambda k=key: (tw.destroy(), on_pick(k))), size=13).pack(anchor="w", pady=2)
     back = tk.Label(tw, text="↩ 切回舊版介面（原本的按鈕畫面）", font=(FAM, 11, "underline"), fg="#1F5FAF",
                     bg="#FFFFFF", cursor="hand2")
     back.pack(anchor="w", padx=M.px(14), pady=(0, M.px(12)))
@@ -830,3 +834,256 @@ class LogStrip(tk.Frame):
         last = last if len(last) <= 26 else last[:25] + "…"
         self.lbl.configure(text=f"📜 {last}　　▸ 看全部", fg="white" if error else INK2,
                            bg=RED if error else "#F2EFEA")
+
+
+# ───────────────────────── 帶路版主頁：一次只做一件事(使用者 10-30：四方塊版看不懂、字太小) ─────────────────────────
+GUIDE_HELP = {
+    "case": "在最下面的輸入框打地址、門牌或「地段 地號」，按 Enter 就會建好案件資料夾。",
+    "query": "免費：使照、分區、地籍便民、實價…自動一項一項查。",
+    "trans": "要付費：調土地、建物謄本和地籍圖。",
+    "struct": "把謄本 PDF 轉成資料，土增稅和物件資料會用到。",
+    "tax": "用結構化資料自動算土地增值稅。",
+    "map": "在地籍圖標出邊長、臨路路名和路寬。",
+    "photo": "照片放進「2.照片」：直接拖進主程式視窗也可以。",
+    "editor": "物件編輯器：補上售價、格局、車位（謄本資料已自動帶入）。",
+    "docs": "一鍵產生物調表、行銷簡報、業績分配表。",
+    "deliver": "把做好的檔案合成一份 PDF。",
+}
+
+
+def _autowrap(lbl):
+    lbl.bind("<Configure>", lambda e: lbl.configure(wraplength=max(100, e.width - 6)), add="+")
+    return lbl
+
+
+class Guide(tk.Frame):
+    """主頁(帶路版)：上面一張大卡片＝現在這一步(說明＋大按鈕)；下面大字清單＝全部步驟，點一行可以跳過去。
+    on_action(key)；on_stage(stage)；on_skip(key, True/False)＝這步不用做/取消不用做"""
+
+    def __init__(self, parent, img_path, on_action=None, on_stage=None, on_skip=None):
+        super().__init__(parent, bg=M.BG)
+        self.on_action = on_action or (lambda k: None)
+        self.on_stage, self.on_skip = on_stage or (lambda s: None), on_skip or (lambda k, v: None)
+        self.card = M.Card(self, fill="#FFFFFF", edge="#E3C9A8")
+        self.card.pack(fill=tk.X)
+        inner = self.card.inner
+        self.img_path = img_path
+        self.cat = None                    # 阿生放在大卡片標題旁(每次重畫重建)
+        self.cur = tk.Frame(inner, bg="#FFFFFF")
+        self.cur.pack(fill=tk.X)
+        self.lst = tk.Frame(inner, bg="#FFFFFF")
+        self.lst.pack(fill=tk.X, pady=(M.px(8), 0))
+        self.foot = tk.Frame(inner, bg="#FFFFFF")
+        self.foot.pack(fill=tk.X, pady=(M.px(8), 0))
+        self.steps, self.stage, self.account, self.skipped = [], "委託", None, set()
+        self.pick, self.busy, self.note, self._prev_done, self._last = None, None, None, None, None
+        self.page = None                   # 相容 CaseFlow(主程式拿來判斷要不要重畫)
+        self.list_open = True              # 全部步驟清單展開/收起(主程式記住)
+
+    def show(self, steps, stage, account=None, skipped=()):
+        self._last = (steps, stage, account, set(skipped))
+        self.steps, self.stage, self.account, self.skipped = [dict(s) for s in steps], stage, account, set(skipped)
+        main = [s for s in self.steps if s["state"] != "extra"]
+        for s in main:
+            if s["state"] == "next":
+                s["state"] = "todo"
+            if s["state"] != "done" and s["key"] in self.skipped:
+                s["state"] = "skipped"
+        todo = [s for s in main if s["state"] in ("todo", "run", "wait")]
+        auto = todo[0] if todo else None
+        cur = next((s for s in main if s["key"] == self.pick), None) or auto
+        done = {s["key"] for s in main if s["state"] == "done"}
+        if self._prev_done is not None and auto:
+            new = [s for s in main if s["key"] in done - self._prev_done]
+            if new:                         # 剛做好一步 → 打勾、自動換到下一步
+                self.note = f"✓ {new[-1]['title']} 做好了！接下來：第 {main.index(auto) + 1} 步 {auto['title']}"
+                self.pick = None
+                cur = auto
+        self._prev_done = done
+        for fr in (self.cur, self.lst, self.foot):
+            for w in fr.winfo_children():
+                w.destroy()
+        self.lst.configure(height=1)
+        self._draw_cur(main, cur, auto)
+        if self.busy:                       # 程式執行中：收起清單，讓訊息框大一點(子程式的提問在那裡)
+            tk.Label(self.lst, text="（程式執行中，步驟清單先收起來）",
+                     font=(FAM, 12), bg="#FFFFFF", fg=INK2, anchor="w").pack(fill=tk.X, padx=M.px(4))
+        else:
+            self._draw_list(main, cur)
+        self._draw_foot()
+        self.card._fit()
+        if self.cat:
+            self.cat.set_mode("work" if self.busy else ("done" if self.note or not auto else "idle"))
+
+    def _redraw(self):
+        if self._last:
+            self.note = None
+            self.show(*self._last)
+
+    def _goto(self, key):
+        self.pick = key
+        self._redraw()
+
+    def _head(self, box, title, color=ORANGE_DK):
+        """大卡片標題列：阿生＋「第 N 步 XXX」；下面一行阿生說的話(剛做好／執行中)"""
+        hd = tk.Frame(box, bg=ORANGE_BG)
+        hd.pack(fill=tk.X, padx=M.px(10), pady=(M.px(6), 0))
+        self.cat = Asheng(hd, self.img_path, size=M.px(40))
+        self.cat.pack(side=tk.LEFT)
+        tk.Label(hd, text=title, font=(FAM, 21, "bold"), bg=ORANGE_BG, fg=color, anchor="w").pack(
+            side=tk.LEFT, fill=tk.X, expand=True, padx=(M.px(6), 0))
+        say = (f"「{self.busy}」正在做，做完我會自動打勾、接下一步" if self.busy else self.note)
+        if say:
+            _autowrap(tk.Label(box, text=say, font=(FAM, 14, "bold"), bg=ORANGE_BG, anchor="w", justify="left",
+                               fg=ORANGE_DK if self.busy else GREEN)).pack(fill=tk.X, padx=M.px(14), pady=(M.px(2), 0))
+
+    def _draw_cur(self, main, cur, auto):
+        box = tk.Frame(self.cur, bg=ORANGE_BG, highlightbackground=ORANGE, highlightthickness=2)
+        box.pack(fill=tk.X, padx=M.px(2))
+        pad = dict(padx=M.px(14))
+        if not cur:
+            self._head(box, "🎉 全部做好了", GREEN)
+            tk.Label(box, text="想重做哪一步，點下面清單那一行就好。", font=(FAM, 14), bg=ORANGE_BG, fg=INK2).pack(
+                anchor="w", pady=(M.px(4), M.px(10)), **pad)
+            BigButton(box, "📂 打開案件資料夾", lambda: self.on_action("folder"), height=M.px(54), size=17).pack(
+                fill=tk.X, pady=(0, M.px(12)), **pad)
+            return
+        self._head(box, f"第 {main.index(cur) + 1} 步　{cur['title']}")
+        st = cur["state"]
+        if st == "done":
+            msg, col = "✓ 這步已經做好了。要重做可以再按下面的按鈕。", GREEN
+        elif st in ("skipped", "skip"):
+            msg, col = "這步目前不用做。要做的話按下面的按鈕。", INK2
+        elif st == "lock":
+            msg, col = f"還不能做：{cur['detail']}", RED
+        else:
+            msg, col = GUIDE_HELP.get(cur["key"], cur.get("tip", "")), INK
+        _autowrap(tk.Label(box, text=msg, font=(FAM, 14), bg=ORANGE_BG, fg=col, anchor="w", justify="left")).pack(
+            fill=tk.X, pady=(M.px(2), 0), **pad)
+        if cur["detail"] and st != "lock":
+            _autowrap(tk.Label(box, text=f"目前：{cur['detail']}", font=(FAM, 13), bg=ORANGE_BG, fg=INK2, anchor="w",
+                               justify="left")).pack(fill=tk.X, **pad)
+        acts = [a for a in cur["actions"] if a[1] != "query_stop"]
+        big, small = acts[:2], acts[2:]
+        if big:
+            row = tk.Frame(box, bg=ORANGE_BG)
+            row.pack(fill=tk.X, pady=(M.px(8), 0), **pad)
+            for i, a in enumerate(big):
+                label = a[0] if i or a[0].startswith(("▶", "📂", "📑", "📥")) else f"▶ {a[0]}"
+                b = BigButton(row, label, (lambda k=a[1]: self.on_action(k)), height=M.px(50), size=18 if i == 0 else 16,
+                              color=ORANGE if i == 0 else "#2F7D63")
+                row.columnconfigure(i, weight=2 if i == 0 else 1, uniform="b")
+                b.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else M.px(8), 0))
+                if len(a) > 3 and a[3]:
+                    Tip(b, a[3])
+        if small:
+            row2 = tk.Frame(box, bg=ORANGE_BG)
+            row2.pack(fill=tk.X, pady=(M.px(6), 0), **pad)
+            for j, a in enumerate(small):
+                row2.columnconfigure(j, weight=1, uniform="s")
+                BigButton(row2, a[0], (lambda k=a[1]: self.on_action(k)), height=M.px(42), size=14,
+                          color="#E9E2D8", fg=INK).grid(row=0, column=j, sticky="ew", padx=(0, M.px(6)))
+        low = tk.Frame(box, bg=ORANGE_BG)
+        low.pack(fill=tk.X, pady=(M.px(6), M.px(8)), **pad)
+
+        def link(text, cmd):
+            lb = tk.Label(low, text=text, font=(FAM, 13, "underline"), bg=ORANGE_BG, fg="#1F5FAF", cursor="hand2")
+            lb.pack(side=tk.LEFT, padx=(0, M.px(18)))
+            lb.bind("<Button-1>", lambda e: cmd())
+        if st in ("todo", "lock"):
+            link("這步不用做，跳下一步", lambda k=cur["key"]: (self.on_skip(k, True), self._goto(None)))
+        elif st == "skipped":
+            link("改回要做", lambda k=cur["key"]: (self.on_skip(k, False), self._redraw()))
+        if auto and cur is not auto:
+            link(f"回到現在該做的（第 {main.index(auto) + 1} 步）", lambda: self._goto(None))
+
+    def _draw_list(self, main, cur):
+        n_done = sum(s["state"] == "done" for s in main)
+        hd = tk.Label(self.lst, text=(f"▾ 全部步驟　已做好 {n_done}/{len(main)}（點這裡收起來）"
+                                      if self.list_open else f"▸ 全部步驟　已做好 {n_done}/{len(main)}（點這裡展開）"),
+                      font=(FAM, 13, "bold"), bg="#FFFFFF", fg="#1F5FAF", anchor="w", cursor="hand2")
+        hd.pack(fill=tk.X, padx=M.px(4))
+        hd.bind("<Button-1>", lambda e: self.on_action("list_toggle"))
+        if not self.list_open:
+            return
+        grid = tk.Frame(self.lst, bg="#FFFFFF")
+        grid.pack(fill=tk.X)
+        half = (len(main) + 1) // 2
+        for c in (0, 1):
+            grid.columnconfigure(c, weight=1, uniform="l")
+        for i, s in enumerate(main):
+            st = s["state"]
+            on = s is cur
+            bg = ORANGE_BG if on else "#FFFFFF"
+            row = tk.Frame(grid, bg=bg, cursor="hand2")
+            row.grid(row=i % half, column=i // half, sticky="ew", padx=M.px(2), pady=1)
+            icon, icol = {"done": ("✓", GREEN), "skipped": ("—", DIM), "skip": ("—", DIM), "lock": ("○", DIM),
+                          "run": ("…", ORANGE_DK), "wait": ("!", RED)}.get(st, ("○", INK2))
+            if on:
+                icon, icol = "▶", ORANGE
+            ws = [tk.Label(row, text=icon, font=(FAM, 14, "bold"), bg=bg, fg=icol, width=2),
+                  tk.Label(row, text=f"{i + 1}. {s['title']}", font=(FAM, 14, "bold" if on else "normal"), bg=bg,
+                           fg=DIM if st in ("skipped", "skip", "lock") else INK, anchor="w")]
+            ws[0].pack(side=tk.LEFT)
+            ws[1].pack(side=tk.LEFT, fill=tk.X, expand=True)
+            for w in [row] + ws:
+                w.bind("<Button-1>", lambda e, k=s["key"]: self._goto(k))
+            Tip(row, {"done": "做好了", "skipped": "設成不用做", "skip": "委託後再做", "lock": "還不能做：" + s["detail"]}.get(st, "還沒做"))
+
+    def _draw_foot(self, stage=True):
+        if stage:
+            self._draw_stage()
+        self._draw_tools()
+
+    def _draw_stage(self):
+        tk.Label(self.foot, text="這件是：", font=(FAM, 14), bg="#FFFFFF", fg=INK2).pack(side=tk.LEFT, padx=(M.px(4), 0))
+        for s, tip in (("委託", "已經委託：全部做完，合併列印交給公司。"),
+                       ("開發", "還在開發：先免費查詢，有希望再調謄本；物件資料委託後再做。")):
+            on = s == self.stage
+            b = tk.Label(self.foot, text=s, font=(FAM, 14, "bold"), padx=M.px(14), pady=M.px(3), cursor="hand2",
+                         fg="white" if on else INK2, bg=ORANGE if on else "#F2EFEA")
+            b.pack(side=tk.LEFT, padx=(0, 2))
+            b.bind("<Button-1>", lambda e, s=s: self._set_stage(s))
+            Tip(b, tip)
+
+    def _draw_tools(self):
+        q = tk.Label(self.foot, text="🔍 查詢新案件", font=(FAM, 14, "bold"), padx=M.px(12), pady=M.px(3), cursor="hand2",
+                     fg="white", bg="#2F7D63")
+        q.pack(side=tk.RIGHT, padx=(M.px(6), 0))
+        q.bind("<Button-1>", lambda e: self.on_action("quick"))
+        Tip(q, "打開左邊的萬用查詢面板：打地址、門牌或地段地號，查好就建立新案件。")
+        tb = tk.Label(self.foot, text="🧰 其他功能", font=(FAM, 14, "bold"), padx=M.px(12), pady=M.px(3), cursor="hand2",
+                      fg=INK, bg="#F2EFEA")
+        tb.pack(side=tk.RIGHT)
+        tb.bind("<Button-1>", lambda e: self.on_action("toolbox"))
+        Tip(tb, "所有個別功能（想自己一項一項操作時用），最下面可以切回舊版介面。")
+        if not self.account:                # 登入後就不佔位置(登出在「其他功能」裡)
+            lg = tk.Label(self.foot, text="🔑 登入", font=(FAM, 13), padx=M.px(10), pady=M.px(3), cursor="hand2",
+                          fg=INK, bg="#F2EFEA")
+            lg.pack(side=tk.RIGHT, padx=(0, M.px(6)))
+            lg.bind("<Button-1>", lambda e: self.on_action("login"))
+            Tip(lg, "用 Google 帳號登入阿生地圖（周邊行情、行情推估要登入）。")
+
+    def _set_stage(self, s):
+        if s != self.stage:
+            self.stage = s
+            self.on_stage(s)
+            self.on_action("refresh")
+
+    def show_empty(self, text, btn_text, command, account=None):
+        """還沒有案件：第 1 步 建立案件"""
+        self.account, self._prev_done, self.pick, self._last = account, None, None, None
+        for fr in (self.cur, self.lst, self.foot):
+            for w in fr.winfo_children():
+                w.destroy()
+        self.lst.configure(height=1)        # 清空的 Frame 不會自己縮回去
+        box = tk.Frame(self.cur, bg=ORANGE_BG, highlightbackground=ORANGE, highlightthickness=2)
+        box.pack(fill=tk.X, padx=M.px(2))
+        self.note = None
+        self._head(box, "第 1 步　建立案件")
+        _autowrap(tk.Label(box, text=GUIDE_HELP["case"], font=(FAM, 14), bg=ORANGE_BG, fg=INK, anchor="w",
+                           justify="left")).pack(fill=tk.X, padx=M.px(14), pady=(M.px(4), 0))
+        BigButton(box, btn_text, command, height=M.px(58), size=18).pack(fill=tk.X, padx=M.px(14),
+                                                                          pady=(M.px(10), M.px(12)))
+        self._draw_foot(stage=False)
+        self.card._fit()

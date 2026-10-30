@@ -83,7 +83,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9k"
+VERSION = "1.1.9l"
 BUILD_DATE = "2026-10-30"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -8758,6 +8758,20 @@ def _finish_multi_update(updates, download_results, temp_dir, exe_dir, current_e
         'taskkill /F /IM 地籍資料查詢系統.exe 2>nul',
         'timeout /t 2 /nobreak > nul',
         '',
+        # 🔥 程式資料夾寫不進去(權限被收緊、裝在別的帳號建的資料夾…)→ 跳 UAC 用系統管理員身分重跑這個 bat
+        #    路徑放環境變數傳給 PowerShell，中文路徑不用再跳脫引號
+        'set "UPD_BAT=%~f0"',
+        'if /i not "%~1"=="elev" (',
+        f'    copy /Y nul "{exe_dir}\\_internal\\_wtest.tmp" >nul 2>&1',
+        f'    if not exist "{exe_dir}\\_internal\\_wtest.tmp" (',
+        '        echo No permission to write the program folder - asking for administrator rights...',
+        '        powershell -NoProfile -ExecutionPolicy Bypass -Command "Start-Process -FilePath $env:ComSpec '
+        '-ArgumentList (\'/c \\"\' + $env:UPD_BAT + \'\\" elev\') -Verb RunAs"',
+        '        exit /b 0',
+        '    )',
+        f'    del /Q "{exe_dir}\\_internal\\_wtest.tmp" >nul 2>&1',
+        ')',
+        '',
     ]
 
     total_steps = len(download_results) + 1  # +1 for restart
@@ -8879,7 +8893,12 @@ def _finish_multi_update(updates, download_results, temp_dir, exe_dir, current_e
     # 重啟主程式
     bat_lines.extend([
         f'echo [{total_steps}/{total_steps}] Starting new version...',
-        f'start "" "{current_exe}"',
+        # 系統管理員身分重跑的：用 explorer 開回一般身分(不然檔案總管拖不進來)
+        'if /i "%~1"=="elev" (',
+        f'    explorer.exe "{current_exe}"',
+        ') else (',
+        f'    start "" "{current_exe}"',
+        ')',
         '',
         'timeout /t 1 /nobreak > nul',
         # 同一行執行：bat 本身就在 temp_dir 裡，分兩行的話刪掉自己後 cmd 讀不到下一行 →
@@ -9715,18 +9734,40 @@ def _harden_install_dir():
         prof = os.path.normcase(os.path.abspath(os.path.expanduser("~")))
         if os.path.normcase(exe_dir).startswith(prof + os.sep):
             return                                   # 放在自己的使用者資料夾裡：本來就只有自己能改
+        low = exe_dir.lower()
+        if any(k in low for k in ("dropbox", "onedrive", "google drive", "googledrive", "我的雲端硬碟")):
+            return                                   # 雲端同步資料夾：權限由同步程式管，動了反而更新失敗
         flag_dir = os.path.join(os.environ.get("APPDATA") or prof, "地籍資料查詢系統")
         flag = os.path.join(flag_dir, "acl_" + hashlib.md5(os.path.normcase(exe_dir).encode("utf-8")).hexdigest()[:12])
         if os.path.exists(flag):
             return
         icacls = os.path.join(os.environ.get("SystemRoot", r"C:\Windows"), "System32", "icacls.exe")
+        me = f"{os.environ.get('USERNAME', '')}"
+        try:                                         # 用帳號 SID 比用名稱可靠(改過名、微軟帳號、中文名)
+            out = subprocess.run([os.path.join(os.path.dirname(icacls), "whoami.exe"), "/user", "/fo", "csv", "/nh"],
+                                 capture_output=True, timeout=20,
+                                 creationflags=0x08000000).stdout.decode("mbcs", "replace")
+            sid = out.strip().split(",")[-1].strip('"')
+            if sid.startswith("S-1-"):
+                me = "*" + sid
+        except Exception:
+            pass
         r = subprocess.run([icacls, exe_dir, "/inheritance:r", "/grant:r", "*S-1-5-32-544:(OI)(CI)F",
-                            "*S-1-5-18:(OI)(CI)F", f"{os.environ.get('USERNAME', '')}:(OI)(CI)F", "/Q"],
+                            "*S-1-5-18:(OI)(CI)F", f"{me}:(OI)(CI)F", "/Q"],
                            capture_output=True, timeout=120, creationflags=0x08000000)
+        ok = True
+        test = os.path.join(exe_dir, "_internal", "_acl_test.tmp")
+        try:                                         # 收完自己還寫得進去嗎？寫不進去就還原(不然之後更新會失敗)
+            with open(test, "w") as f:
+                f.write("ok")
+            os.remove(test)
+        except OSError:
+            ok = False
+            subprocess.run([icacls, exe_dir, "/reset", "/Q"], capture_output=True, timeout=120, creationflags=0x08000000)
         os.makedirs(flag_dir, exist_ok=True)
         with open(flag, "w", encoding="utf-8") as f:
-            f.write(f"{exe_dir}\nrc={r.returncode}\n")
-        if r.returncode == 0:
+            f.write(f"{exe_dir}\nrc={r.returncode}\nwritable={ok}\n")
+        if r.returncode == 0 and ok:
             root.after(0, lambda: update_message("🔒 已把程式資料夾設成只有你自己（和系統管理員）能修改"))
     except Exception:
         pass
@@ -9894,25 +9935,54 @@ def _cf_stage_path(case):
     return os.path.join(case["folder"], "4.其他相關", "case_stage.json")
 
 
-def _cf_stage(case):
+def _cf_state(case):
+    """這個案件的 {stage: 委託/開發, skip: [不用做的步驟]}"""
     try:
         with open(_cf_stage_path(case), encoding="utf-8") as f:
-            s = json.load(f).get("stage")
-        return s if s in ("委託", "開發") else "委託"
+            d = json.load(f)
     except Exception:
-        return "委託"
+        d = {}
+    if d.get("stage") not in ("委託", "開發"):
+        d["stage"] = "委託"
+    d["skip"] = list(d.get("skip") or [])
+    return d
 
 
-def _cf_set_stage(s):
+def _cf_save_state(**kw):
     case = _cf_case()
     if not case:
         return
+    d = _cf_state(case)
+    d.update(kw)
     try:
         os.makedirs(os.path.dirname(_cf_stage_path(case)), exist_ok=True)
         with open(_cf_stage_path(case), "w", encoding="utf-8") as f:
-            json.dump({"stage": s}, f, ensure_ascii=False)
+            json.dump(d, f, ensure_ascii=False)
     except Exception as e:
-        update_message(f"[新版介面] 存「{s}」失敗：{e}")
+        update_message(f"[新版介面] 存檔失敗：{e}")
+
+
+def _cf_set_stage(s):
+    _cf_save_state(stage=s)
+
+
+def _cf_skip(key, on):
+    case = _cf_case()
+    if not case:
+        return
+    sk = set(_cf_state(case)["skip"])
+    (sk.add if on else sk.discard)(key)
+    _cf_save_state(skip=sorted(sk))
+
+
+def _cf_open_photos():
+    case = _cf_case()
+    if not case:
+        return
+    d = os.path.join(case["folder"], "2.照片")
+    os.makedirs(d, exist_ok=True)
+    os.startfile(d)
+    update_message("📂 已打開「2.照片」：把現場照片複製進來（或直接拖進主程式視窗），我會自動打勾")
 
 
 def _cf_open_attach(then=None):
@@ -10006,6 +10076,13 @@ _CF_FN = {
     "owner_pack": lambda: (update_message("📑 給屋主的行情資料：目前先用合併列印，勾 3.行情 和要給屋主看的基本資料"),
                            _cf_open_attach(lambda w: w._merge())),
     "folder": open_work_folder,
+    "folder_photo": _cf_open_photos,
+    "quick": lambda: show_quick_intro(force=True),
+    "load_case": lambda: utility_load_data_button.invoke(), "read_json": lambda: read_json_button.invoke(),
+    "import_arc": lambda: utility_import_archive_button.invoke(),
+    "export_arc": lambda: utility_export_archive_button.invoke(),
+    "cred": lambda: utility_credential_button.invoke(), "zoom": lambda: utility_zoom_button.invoke(),
+    "list_toggle": lambda: _cf_list_toggle(),
     "login": _cf_login, "account": _cf_account,
     "toolbox": lambda: _cf_toolbox(),
     "classic_ui": lambda: _cf_switch(False),
@@ -10027,6 +10104,13 @@ def _cf_action(key):
         except Exception as e:
             update_message(f"[新版介面] {key} 失敗：{e}")
     root.after(800, lambda: _cf_refresh(force=True))
+
+
+def _cf_list_toggle():
+    f = _cfw["flow"]
+    f.list_open = not f.list_open
+    _ui_pref("list_open", f.list_open)
+    f._redraw()
 
 
 def _cf_toolbox():
@@ -10098,13 +10182,16 @@ def _cf_refresh(force=False):
                              "📋 打開查詢選單建立案件", open_quick_panel, account=_cfw["acct"])
             return
         import case_flow as CF
-        stage = _cf_stage(case)
+        st = _cf_state(case)
+        stage = st["stage"]
         steps = CF.scan(case, stage, account=_cfw["acct"])
-        sig = (case["folder"], stage, busy, repr(_cfw["acct"]), repr(steps), f.page)
+        sig = (case["folder"], stage, busy, repr(_cfw["acct"]), repr(steps), tuple(st["skip"]))
         if force or sig != _cfw["sig"]:
+            if _cfw["sig"] and _cfw["sig"][0] != case["folder"]:
+                f._prev_done, f.pick = None, None            # 換了案件：不要說「剛做好」
             _cfw["sig"] = sig
             f.busy = busy
-            f.show(steps, stage, _cfw["acct"])
+            f.show(steps, stage, _cfw["acct"], st["skip"])
     except Exception as e:
         print(f"[新版介面] 更新失敗：{e}")
 
@@ -10122,8 +10209,9 @@ def _cf_switch(on, announce=True):
         if _cfw["flow"] is None:
             try:
                 import case_flow as CF
-                _cfw["flow"] = CF.CaseFlow(frame_top, get_resource_path("landmap_cat.png"), on_action=_cf_action,
-                                           on_stage=_cf_set_stage)
+                _cfw["flow"] = CF.Guide(frame_top, get_resource_path("landmap_cat.png"), on_action=_cf_action,
+                                        on_stage=_cf_set_stage, on_skip=_cf_skip)
+                _cfw["flow"].list_open = _ui_pref().get("list_open", True)
             except Exception as e:
                 _cfw["on"] = False
                 _ui_pref("ui", "classic")
@@ -10137,6 +10225,7 @@ def _cf_switch(on, announce=True):
         _cf_refresh(force=True)
         if announce:
             update_message("✨ 已切到新版介面（右上 🧰 工具箱最下面，或再按一次 ✨，可以切回舊版）")
+            root.after(300, show_quick_intro)      # 按 ✨ 會順手關掉萬用查詢面板 → 叫回來(它是開始的地方)
     else:
         if _cfw["flow"] is not None:
             _cfw["flow"].pack_forget()
