@@ -9147,14 +9147,78 @@ def open_data_editor():
             fn = globals().get('upload_contacts_to_cloud', None)
             if fn is None:
                 return
+            _d = _roster_diff.get("d")
+            _warn = ""
+            if _d:
+                import contacts_diff as _cd
+                if _cd.count(_d):
+                    _warn = f"\n\n⚠ 跟公司名冊還有 {_cd.count(_d)} 處不同（{_cd.summary(_d)}），可以先按「🔍 對照公司名冊」看清單。"
             if not show_large_yesno("上傳通訊錄",
-                                    "確定把『本機的通訊錄』上傳到雲端、覆蓋大家的版本嗎？"):
+                                    "確定把『本機的通訊錄』上傳到雲端、覆蓋大家的版本嗎？" + _warn):
                 return
             ok, msg = fn()
             show_large_message("上傳通訊錄", ("OK " if ok else "失敗：") + msg)
+            if ok:
+                _th.Thread(target=_roster_diff_bg, daemon=True).start()
         tk.Button(contacts_sync_row, text="⬆️ 上傳通訊錄(管理者)", command=_on_upload_contacts,
                   font=("Microsoft JhengHei", 10),
                   bg='#1976D2', fg='white').pack(side=tk.LEFT, padx=5)
+
+        # 🔍 通訊錄 ↔ 公司名冊(阿生地圖每晚從公司後台抓的現職員工)：列出新到職/離職/改名/換電話，照著改 Excel
+        _roster_diff = {"d": None}
+
+        def _roster_xlsx():
+            try:
+                from base_dir_helper import get_base_dir
+                return os.path.join(get_base_dir(), '通訊錄.xlsx')
+            except Exception:
+                return '通訊錄.xlsx'
+
+        def _roster_diff_bg():
+            try:
+                import contacts_diff as _cd
+                ro = _cd.fetch_roster()
+                if ro is None:
+                    return
+                d = _cd.compare(_cd.load_contacts(_roster_xlsx()), ro)
+            except Exception:
+                return
+            _roster_diff["d"] = d
+
+            def _mark():
+                try:
+                    n = _cd.count(d)
+                    roster_btn.config(text=(f"🔍 名冊有 {n} 處不同" if n else "🔍 名冊一致 ✓"),
+                                      bg=("#e58135" if n else "#E8F5E9"), fg=("#1C1C1E" if n else "#1B5E20"))
+                except Exception:
+                    pass
+            try:
+                editor_window.after(0, _mark)
+            except Exception:
+                pass
+
+        def _on_roster_diff():
+            try:
+                import contacts_diff as _cd
+                ro = _cd.fetch_roster()
+            except Exception as e:
+                show_large_message("對照公司名冊", f"讀不到公司名冊：{e}")
+                return
+            if ro is None:
+                show_large_message("對照公司名冊", "要先按「🔑 Google 登入」用管理者帳號登入阿生地圖，才讀得到公司名冊。")
+                return
+            try:
+                d = _cd.compare(_cd.load_contacts(_roster_xlsx()), ro)
+            except Exception as e:
+                show_large_message("對照公司名冊", f"讀通訊錄.xlsx 失敗：{e}")
+                return
+            _roster_diff["d"] = d
+            _cd.show_window(contacts_sync_row.winfo_toplevel(), d, _roster_xlsx())
+
+        roster_btn = tk.Button(contacts_sync_row, text="🔍 對照公司名冊", command=_on_roster_diff,
+                               font=("Microsoft JhengHei", 10, "bold"), relief="groove")
+        roster_btn.pack(side=tk.LEFT, padx=5)
+        _th.Thread(target=_roster_diff_bg, daemon=True).start()
 
     # 🔥 儲存預設承辦人的函數
     def save_default_agent():
