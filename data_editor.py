@@ -18,6 +18,7 @@ import tkinter.simpledialog as simpledialog
 import re
 import ctypes
 from ctypes import wintypes
+import unicodedata
 import os
 import time
 import json
@@ -91,6 +92,32 @@ load_final_data = None
 save_final_data = None
 load_contacts_from_excel = None
 load_urban_planning_data = None
+
+
+def _door_keys(data):
+    """舊資料的「一層（122）」→「一層(130號)」：建號依序對建物門牌；對不上就只把括號改半形"""
+    doors = re.findall("[0-9]+(?:之[0-9]+)?號", unicodedata.normalize("NFKC", str(data.get("建物門牌", ""))))
+    for field in ("主建物", "附屬建物"):
+        d = data.get(field)
+        if not isinstance(d, dict):
+            continue
+        nums = sorted({m for k in d for m in re.findall("（([0-9-]+)", k)}, key=lambda x: float(x.split("-")[0]))
+        tag = dict(zip(nums, doors)) if len(nums) == len(doors) else {}
+        data[field] = {re.sub("（([0-9-]+)", lambda m: "(" + tag.get(m.group(1), m.group(1)), k).replace("（", "(").replace("）", ")"): v
+                       for k, v in d.items()}
+    return data
+
+
+def _attach_short(d):
+    """附屬建物同類型合併：{"陽台(130號)": 2.45, "陽台(132號)": 2.45} → 「陽台4.9坪、平台1.4坪」(物調表放不下逐項明細)"""
+    sums = {}
+    for k, v in (d or {}).items():
+        name = re.split("[(（]", k)[0].strip()
+        try:
+            sums[name] = sums.get(name, 0) + float(v)
+        except (TypeError, ValueError):
+            sums.setdefault(name, 0)
+    return "、".join(f"{n}{round(v, 2):g}坪" for n, v in sums.items())
 get_city_from_district = None
 extract_district_from_address = None
 calculate_total_land_area = None
@@ -2260,6 +2287,7 @@ def generate_word_report_buy(output_path, data, report_date):
 
         table.rows[5].cells[0].merge(table.rows[13].cells[0]).text = '主\n建\n物'
 
+        _door_keys(data)
         主建物 = data.get('主建物', {})
         主建物列表 = list(主建物.items())
 
@@ -2472,8 +2500,7 @@ def generate_word_report_buy(output_path, data, report_date):
                 附屬總計 = f"{附屬建物坪數}坪" if 附屬建物坪數 else "坪"
 
             # 各項明細
-            附屬明細 = '、'.join([f"{類型}：{坪數}坪" for 類型, 坪數 in 附屬建物.items()])
-            附屬文字 = f"附屬建物：{附屬總計}\n(含{附屬明細})"
+            附屬文字 = f"附屬建物：{附屬總計}(含{_attach_short(附屬建物)})"
         else:
             附屬文字 = f"附屬建物：{附屬建物坪數}坪"
 
@@ -3225,14 +3252,15 @@ def generate_word_report_rent(output_path, data, report_date):
         # ========================================
         # 第 7 列：樓層（所有樓層資料在同一列）
         # ========================================
+        _door_keys(data)
         主建物明細 = data.get('主建物', {})
         附屬建物明細 = data.get('附屬建物', {})
 
         樓層文字列表 = []
         for 樓層名, 坪數 in 主建物明細.items():
             樓層文字列表.append(f"{樓層名}：{坪數}坪")
-        for 類型, 坪數 in 附屬建物明細.items():
-            樓層文字列表.append(f"{類型}：{坪數}坪")
+        if 附屬建物明細:
+            樓層文字列表.append(_attach_short(附屬建物明細))
 
         樓層文字 = "樓層：" + "， ".join(樓層文字列表) if 樓層文字列表 else "樓層："
         table.rows[6].cells[0].merge(table.rows[6].cells[13]).text = 樓層文字
@@ -3884,6 +3912,10 @@ def open_data_editor():
     # 🔥 先建立視窗，再檢查資料
     editor_window = tk.Toplevel(root)
     editor_window.title("物件資料編輯器")
+    try:
+        editor_window.iconbitmap(get_resource_path("icon_editor.ico"))
+    except Exception:
+        pass
 
     # 🔥 防呆：捲動表單時，滑鼠滾輪若滑過下拉選單(Combobox)會誤改它的選項值
     #    （例：履約保證 同意→不同意、空白→是），存檔後就跑掉了。
@@ -4821,6 +4853,7 @@ def open_data_editor():
              font=("Microsoft JhengHei", 9), fg='#666666').pack(side=tk.LEFT)
 
     floor_entries = []
+    _door_keys(data)
     主建物資料 = data.get("主建物", {})
 
     for i in range(9):
@@ -7118,6 +7151,17 @@ def open_data_editor():
     # create_field(land_use_frame, "使用分區：", "使用分區", data, width=30)
     create_field(land_use_frame, "建蔽率（%）：", "建蔽率", data, width=20)
     create_field(land_use_frame, "容積率（%）：", "容積率", data, width=20)
+    if "屏東" in f'{data.get("土地標示", "")}{data.get("建物門牌", "")}':
+        def _open_zone_table():
+            import zone_table
+
+            def _fill(bcr, far):
+                for k, v in (("建蔽率", bcr), ("容積率", far)):
+                    entries[k].delete(0, tk.END)
+                    entries[k].insert(0, v)
+            zone_table.open_viewer(land_use_frame.winfo_toplevel(), on_pick=_fill)
+        tk.Button(land_use_frame, text="📋 查屏東縣建蔽率、容積率對照表", command=_open_zone_table, font=label_font,
+                  bg="#BFE5D3", fg="#1C1C1E", relief=tk.FLAT, cursor="hand2").pack(anchor="w", padx=(40, 0), pady=3)
     create_field(land_use_frame, "面臨道路（米）：", "面臨道路", data, width=20)
     create_field(land_use_frame, "面寬（米）：", "面寬", data, width=20)
     create_field(land_use_frame, "深度（米）：", "深度", data, width=20)

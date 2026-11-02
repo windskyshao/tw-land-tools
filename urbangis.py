@@ -1277,6 +1277,16 @@ def query_urban_planning_details(driver, area, section, lot_number, png_dir, png
             if current_entry and current_entry.get('MAPKEY'):
                 all_urban_plan_entries.append(current_entry)
 
+            # 🔥 只留跟分區查詢相符的街廓：先前點錯(鄰區)的彈窗可能還留在網頁上，
+            #    整頁文字會把它也讀進來 → 建蔽容積混進鄰區的(例：住5 60/420 混進文教區 40/240)
+            if all_urban_plan_entries and expected_zone:
+                _good = [e for e in all_urban_plan_entries
+                         if e.get('使用分區完整名稱') and _zone_match(expected_zone, e['使用分區完整名稱'])]
+                if _good and len(_good) < len(all_urban_plan_entries):
+                    _drop = [e.get('使用分區完整名稱', '') for e in all_urban_plan_entries if e not in _good]
+                    print(f"   [過濾] 丟掉不是「{expected_zone}」的街廓資訊：{'、'.join(_drop)}（點錯的鄰區彈窗）", flush=True)
+                    all_urban_plan_entries = _good
+
             # 🔥 回傳所有街廓資訊（列表形式）
             if all_urban_plan_entries:
                 print(f"✓ 已擷取 {len(all_urban_plan_entries)} 筆都市計畫圖街廓資訊", flush=True)

@@ -19,6 +19,7 @@ from tkinter import font, scrolledtext, filedialog, messagebox, ttk
 import tkinter.simpledialog as simpledialog
 import re
 from ctypes import wintypes
+import unicodedata
 import os
 import time
 import json
@@ -26,8 +27,18 @@ from datetime import datetime
 
 # 🔥 提前建立 root 並顯示 splash，讓使用者啟動瞬間就看到視窗（避免「黑屏 3 秒沒反應」感）
 # 後續所有 widget / 函式定義照常建在這個 root 上
+# 工作列圖示：視窗圖示設成安裝程式那個「地」字圖示(exe 本身也內嵌同一個)。
+# 不設 AppUserModelID：設了之後「釘選在工作列」會跟 exe 對不起來，釘選留不住、顯示舊圖
 root = tk.Tk()
 root.title("地籍資料查詢系統 - 載入中...")
+for _ico_dir in (getattr(__import__("sys"), "_MEIPASS", ""), os.path.dirname(os.path.abspath(__import__("sys").argv[0])),
+                 os.path.dirname(os.path.abspath(__file__)), os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer", "art")):
+    if _ico_dir and os.path.exists(os.path.join(_ico_dir, "app.ico")):
+        try:
+            root.iconbitmap(default=os.path.join(_ico_dir, "app.ico"))   # default＝之後開的子視窗也用同一個圖示
+        except Exception:
+            pass
+        break
 try:
     import tk_textmenu
     tk_textmenu.install(root)          # 所有輸入框/文字區(含物件編輯器等子視窗)：右鍵 剪下/複製/貼上/全選
@@ -83,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9l"
-BUILD_DATE = "2026-10-30"
+VERSION = "1.1.9m"
+BUILD_DATE = "2026-11-02"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -796,7 +807,7 @@ def _load_luz_zone_fallback(target_lots=None):
        （luz 的全國 API 只有使用分區，沒有建蔽率/容積率，故那兩項留空。）"""
     import glob
     try:
-        luz_files = []
+        luz_files, bf, d0 = [], "", {}
         if os.path.exists('data.json'):
             with open('data.json', 'r', encoding='utf-8') as f:
                 dl = json.load(f)
@@ -806,8 +817,6 @@ def _load_luz_zone_fallback(target_lots=None):
                 luz_files.extend(glob.glob(os.path.join(bf, "4.其他相關", "全國土地使用分區資料-*.json")))
         if not luz_files and not target_lots:
             luz_files = glob.glob(os.path.join("*", "4.其他相關", "全國土地使用分區資料-*.json"))
-        if not luz_files:
-            return None
         zones = set()
         details = []
         for lf in luz_files:
@@ -826,13 +835,52 @@ def _load_luz_zone_fallback(target_lots=None):
                         '計畫區名稱': qr.get('計畫區名稱', ''),
                         '來源': '全國土地使用分區(備用)',
                     })
-        if not zones:
+        # V523 有建蔽率/容積率(高雄、屏東)：補上 luz 沒有的兩項；非都市土地(有使用地類別)不算
+        bcr, far, nonurban = [], [], False
+        for vf in sorted(glob.glob(os.path.join(bf, "4.其他相關", "V523資料-*.json"))) if bf else []:
+            try:
+                t = json.load(open(vf, encoding='utf-8')).get('表格資料') or {}
+            except Exception:
+                continue
+            if str(t.get('使用地類別') or '').strip():
+                nonurban = True
+                continue
+            b, f_ = str(t.get('建蔽率') or '').strip(), str(t.get('容積率') or '').strip()
+            if b and b not in bcr:
+                bcr.append(b)
+            if f_ and f_ not in far:
+                far.append(f_)
+            use = next((str(v).strip() for k, v in t.items() if k.endswith('用分區') and str(v).strip()), '')
+            if use and not zones:
+                zones.add(use)
+            if b or f_:
+                details.append({'使用分區': use, '建蔽率': b, '容積率': f_, '地號': os.path.basename(vf), '來源': 'V523'})
+        # 屏東縣：查縣府的建蔽容積對照表。表上同一格有多個值(住一/住二等)而 V523 已查到這筆的值時，用 V523
+        if '屏東' in str(d0.get('city', '')) and not nonurban:
+            import zone_table
+            plan = next((x.get('計畫區名稱') for x in details if x.get('計畫區名稱')), '')
+            if not plan:
+                try:
+                    import landmap_api
+                    la, lo = str(d0.get('coordinates', '')).split(',')[:2]
+                    j = landmap_api._get("/api/luzzone", timeout=10, lat=la.strip(), lng=lo.strip())
+                    plan = j.get('plan') or ''
+                    if j.get('zone') and not zones:
+                        zones.add(j['zone'])
+                except Exception as e:
+                    print(f"[提示] 查都市計畫名稱失敗：{e}")
+            hit = next((h for h in (zone_table.lookup(plan, z) for z in sorted(zones)) if h), None)
+            if hit and (not bcr or not far or (len(hit['bcr']) == 1 and len(hit['far']) == 1)):
+                bcr, far = hit['bcr'], hit['far']
+                details.append({'使用分區': hit['zone'], '建蔽率': '、'.join(bcr), '容積率': '、'.join(far),
+                                '計畫區名稱': hit['plan'], '來源': zone_table.SOURCE})
+        if not zones and not bcr and not far:
             return None
-        print(f"[OK] 高雄都市計畫無彙整檔 → 改用全國土地使用分區(luz)備用：使用分區={sorted(zones)}")
+        print(f"[OK] 高雄都市計畫無彙整檔 → 改用備用資料：使用分區={sorted(zones)} 建蔽率={bcr} 容積率={far}")
         return {
             'zones': sorted(zones),
-            'building_coverage_ratios': [],
-            'floor_area_ratios': [],
+            'building_coverage_ratios': bcr,
+            'floor_area_ratios': far,
             'details': details,
         }
     except Exception as e:
@@ -1028,6 +1076,24 @@ def load_urban_planning_data(target_lots=None):
                 # 沒有提供目標地段地號，載入所有資料
                 print(f"[提示] 未提供目標地段地號，載入所有資料")
                 matched_data = all_data
+
+        # 🔥 同一筆地號：街廓資訊有跟分區查詢「同名」的，就丟掉其他(點錯的鄰區彈窗被一起讀進來，
+        #    例：住5 60/420 混進文教區 40/240)。沒有同名的就全留(交給人工核對)
+        _lot_zone = {}
+        for d in matched_data:
+            if d.get('使用分區') and 'MAPKEY' not in d:
+                _lot_zone.setdefault(f"{d.get('地段', '')}{normalize_lot_number(d.get('地號', ''))}", set()).add(d['使用分區'])
+        _keep = []
+        for d in matched_data:
+            k = f"{d.get('地段', '')}{normalize_lot_number(d.get('地號', ''))}"
+            full = d.get('使用分區完整名稱', '')
+            if 'MAPKEY' in d and full and full not in _lot_zone.get(k, {full}) and any(
+                    x.get('使用分區完整名稱') in _lot_zone.get(k, set()) for x in matched_data
+                    if 'MAPKEY' in x and f"{x.get('地段', '')}{normalize_lot_number(x.get('地號', ''))}" == k):
+                print(f"     [略過] {k} 街廓資訊「{full}」跟分區查詢「{'、'.join(_lot_zone[k])}」不同(點到鄰區)")
+                continue
+            _keep.append(d)
+        matched_data = _keep
 
         # 處理匹配的資料
         for data_dict in matched_data:
@@ -2378,8 +2444,8 @@ case_name_label = tk.Label(_cc_text, text="尚未建立案件", font=("Microsoft
 case_name_label.pack(anchor="w", fill=tk.X)
 # 謄本結構化狀態(原本的 json_status_label，綠/橘小標籤)
 json_status_label = M.StatusChip(_cc, font=("Microsoft JhengHei", max(9, message_font_size - 3), "bold"))
-json_status_label.pack(in_=_cc_text, anchor="w", pady=(M.px(4), 0))
-_cc_text.bind("<Configure>", lambda e: json_status_label.configure(wraplength=max(120, e.width - M.px(10))), add="+")
+json_status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(M.px(4), 0), before=_cc_icons)    # 排在小圓鈕下面，佔滿整張卡的寬
+_cc.bind("<Configure>", lambda e: json_status_label.configure(wraplength=max(120, e.width - M.px(20))), add="+")
 # 案件名稱跟著視窗標題走：各處更新標題(含地號)時，案件卡一起更新
 _root_title_orig = root.title
 
@@ -4291,6 +4357,9 @@ def convert_transcript_to_final_data(transcript_json_path):
                 building_id_full = building_data.get("基本資訊", {}).get("地號建號", "")
                 bld_num = _simplify_bld_id(building_id_full)
                 標示部 = building_data.get("標示部", {}) or {}
+                # 兩棟以上：樓層、附屬建物依門牌分(130號)，沒有門牌才用建號
+                _m_door = _re_b.search(r"[0-9]+(?:之[0-9]+)?號", unicodedata.normalize("NFKC", 標示部.get("建物門牌", "") or ""))
+                bld_tag = _m_door.group(0) if _m_door else bld_num
 
                 # === 建物門牌 ===
                 address = 標示部.get("建物門牌", "")
@@ -4327,7 +4396,7 @@ def convert_transcript_to_final_data(transcript_json_path):
                         try:
                             area_m2 = float(floor_area.replace(",", "").replace("平方公尺", ""))
                             area_ping = area_m2 * 0.3025
-                            key = f"{floor_name}（{bld_num}）" if multi_bld else floor_name
+                            key = f"{floor_name}({bld_tag})" if multi_bld else floor_name
                             floor_data[key] = f"{area_ping:.2f}"
                             main_building_total += area_ping
                         except (ValueError, TypeError):
@@ -4343,7 +4412,7 @@ def convert_transcript_to_final_data(transcript_json_path):
                         try:
                             area_m2 = float(附屬面積.replace(",", "").replace("平方公尺", ""))
                             area_ping = area_m2 * 0.3025
-                            key = f"{附屬類型}（{bld_num}）" if multi_bld else 附屬類型
+                            key = f"{附屬類型}({bld_tag})" if multi_bld else 附屬類型
                             附屬建物明細[key] = f"{area_ping:.2f}"
                             附屬總坪數 += area_ping
                         except (ValueError, TypeError):
@@ -4370,7 +4439,7 @@ def convert_transcript_to_final_data(transcript_json_path):
                                         pass
                             公設坪數 = area_m2 * ratio * 0.3025
                             base_key = 共有建號 if 共有建號 else "公共設施"
-                            key = f"{base_key}（{bld_num}持分）" if multi_bld else base_key
+                            key = f"{base_key}({bld_tag}持分)" if multi_bld else base_key
                             共有部分明細[key] = {
                                 "面積": f"{公設坪數:.2f}",
                                 "權利範圍": 權利範圍
@@ -6998,208 +7067,129 @@ def update_message(message):
             pass  # 如果發生錯誤（例如視窗已關閉），靜默忽略
 
 # 🔥🔥🔥 在這裡加入新函數 🔥🔥🔥
+def _big_dialog(title, message, buttons, enter=None, escape=None, keys=None, wait=True, heading=False, bind_enter=True):
+    """共用大字對話框(所有 show_large_* 都走這裡)：
+    寬度用「英吋」算(125%/150%/200% 縮放的電腦看起來一樣大)、高度照實際內容量，最多螢幕 85%；
+    內容太長只有文字區捲動，按鈕永遠固定在最下面(不會被切掉)；按鈕一排放不下自動換行。
+    buttons＝[(文字, 底色, 回傳值)]；enter/escape＝按 Enter/Esc(關視窗也算 Esc)的回傳值；keys＝{按鍵: 回傳值}"""
+    import math
+    from tkinter import font as tkfont
+    result = [escape]
+    dlg = tk.Toplevel(root)
+    dlg.withdraw()
+    dlg.title(title)
+    try:
+        dlg.transient(root)
+    except Exception:
+        pass
+    inch = dlg.winfo_fpixels('1i')
+    sw, sh = dlg.winfo_screenwidth(), dlg.winfo_screenheight()
+    f_msg = tkfont.Font(family="Microsoft JhengHei", size=16)
+    f_btn = tkfont.Font(family="Microsoft JhengHei", size=14, weight="bold")
+    pad = int(0.2 * inch)
+
+    def done(v):
+        result[0] = v
+        dlg.destroy()
+
+    # 按鈕先做好量寬度(中文字寬不等於字數，用實際量的)
+    btn_frame = tk.Frame(dlg)
+    btns = [tk.Button(btn_frame, text=t_, font=f_btn, bg=c_, fg='white', activebackground=c_, activeforeground='white',
+                      relief=tk.FLAT, cursor="hand2", padx=int(0.18 * inch), pady=int(0.08 * inch),
+                      command=lambda v=v_: done(v)) for t_, c_, v_ in buttons]
+    dlg.update_idletasks()
+    bw = max([b.winfo_reqwidth() for b in btns] or [0])
+    bh = max([b.winfo_reqheight() for b in btns] or [0])
+    gap = int(0.12 * inch)
+    longest = max([f_msg.measure(ln) for ln in message.split('\n')] or [0])
+    width = max(int(6.5 * inch), min(longest + pad * 2 + int(0.5 * inch), int(9 * inch)),
+                len(btns) * (bw + gap) + pad * 2)
+    width = min(width, int(sw * 0.92))
+    per_row = max(1, min(len(btns), (width - pad * 2) // (bw + gap)))
+    for i, b in enumerate(btns):
+        b.grid(row=i // per_row, column=i % per_row, padx=gap // 2, pady=gap // 2, sticky='nsew')
+        b.configure(width=0)
+    for c in range(per_row):
+        btn_frame.grid_columnconfigure(c, minsize=bw, uniform='b')
+    btn_frame.pack(side=tk.BOTTOM, pady=(int(0.08 * inch), int(0.16 * inch)))
+    btn_h = math.ceil(len(btns) / per_row) * (bh + gap) + int(0.24 * inch)
+
+    head_h = 0
+    if heading:
+        hl = tk.Label(dlg, text=title, font=("Microsoft JhengHei", 20, "bold"), fg="#1976D2")
+        hl.pack(side=tk.TOP, pady=(int(0.12 * inch), 0))
+        dlg.update_idletasks()
+        head_h = hl.winfo_reqheight() + int(0.12 * inch)
+
+    # 文字區：先算換行後有幾行(逐字換行，跟 Text 的 wrap=char 一樣)
+    text_w = width - pad * 2 - int(0.35 * inch)
+    msg = message.replace('<HR>', '\n' + '─' * 20 + '\n')
+    lines = 0
+    for ln in msg.split('\n'):
+        lines += max(1, math.ceil(f_msg.measure(ln) / max(1, text_w)))
+    line_px = f_msg.metrics('linespace') + 2
+    need = lines * line_px + int(0.3 * inch)
+    avail = int(sh * 0.85) - btn_h - head_h - int(0.6 * inch)
+    text_h = max(line_px * 2, min(need, avail))
+    box = tk.Frame(dlg, width=width - pad * 2, height=text_h)
+    box.pack_propagate(False)
+    box.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=pad, pady=(pad, 0))
+    txt = tk.Text(box, font=f_msg, wrap=tk.CHAR, relief=tk.FLAT, borderwidth=0, highlightthickness=0,
+                  bg=dlg.cget('bg'), padx=int(0.08 * inch), pady=int(0.08 * inch), cursor='arrow')
+    if need > avail:                                    # 太長才出現捲軸
+        sb = tk.Scrollbar(box, command=txt.yview)
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+        txt.configure(yscrollcommand=sb.set)
+    txt.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    txt.insert('1.0', msg)
+    txt.configure(state=tk.DISABLED)
+
+    height = min(text_h + btn_h + head_h + pad + int(0.1 * inch), int(sh * 0.9))
+    x = max(0, (sw - width) // 2)
+    y = max(0, (sh - height) // 2 - int(0.2 * inch))
+    dlg.geometry(f"{width}x{height}+{x}+{y}")
+    dlg.minsize(min(width, int(4 * inch)), min(height, int(2.5 * inch)))
+    dlg.resizable(True, True)
+    for k_, v_ in (keys or {}).items():
+        dlg.bind(k_, lambda e, v=v_: done(v))
+    if bind_enter:
+        dlg.bind('<Return>', lambda e: done(enter))
+    dlg.bind('<Escape>', lambda e: done(escape))
+    dlg.protocol("WM_DELETE_WINDOW", lambda: done(escape))
+    dlg.deiconify()
+    dlg.lift()
+    dlg.focus_force()
+    if wait:
+        dlg.grab_set()
+        dlg.wait_window()
+    return result[0]
+
+
 def show_large_message(title, message):
-    """顯示大型訊息對話框（支援捲動）"""
-    msg_window = tk.Toplevel()
-    msg_window.title(title)
+    """顯示大型訊息對話框(不等使用者按，直接回去)"""
+    _big_dialog(title, message, [("確定", '#4CAF50', None)], wait=False, heading=True)
 
-    # 🔥 根據 DPI 動態調整視窗尺寸
-    width = int(700 / dpi_scale * 1.2)
-
-    # 🔥 根據內容行數自適應高度，設定合理的上下限
-    # 公式變項：
-    #   每行 50 px（考慮中文長行折行 + 字級間距）
-    #   chrome（標題 + 按鈕區 + 兩側 padding）240 px
-    #   長檔名（>30 chars）多算 0.7 行折行緩衝
-    raw_lines = message.split('\n')
-    line_count = len(raw_lines)
-    # 估算因長行折行多出的視覺行數（每多 30 字算多 1 行）
-    extra_wrap_lines = sum(max(0, len(ln) - 30) // 30 for ln in raw_lines)
-    effective_lines = line_count + extra_wrap_lines
-
-    estimated_height = int((effective_lines * 32 + 240) / dpi_scale * 1.2)
-    min_height = int(300 / dpi_scale * 1.2)
-    max_height = int(900 / dpi_scale * 1.2)
-    height = max(min_height, min(estimated_height, max_height))
-
-    msg_window.geometry(f"{width}x{height}")
-    msg_window.resizable(True, True)  # 🔥 允許調整大小
-    msg_window.transient(root)  # 🔥 修復：指定父視窗
-    msg_window.grab_set()
-
-    # 🔥 置中顯示
-    msg_window.update_idletasks()
-    x = (msg_window.winfo_screenwidth() - width) // 2
-    y = (msg_window.winfo_screenheight() - height) // 2
-    msg_window.geometry(f"{width}x{height}+{x}+{y}")
-
-    # 🔥 標題（根據 DPI 調整字體）
-    title_font_size = max(14, int(22 / dpi_scale * 1.2))
-    title_label = tk.Label(msg_window, text=title,
-                          font=("Microsoft JhengHei", title_font_size, "bold"),
-                          fg="#1976D2",
-                          pady=20)
-    title_label.pack()
-
-    # 🔥 先放按鈕框架在底部（確保按鈕一定顯示）
-    button_frame = tk.Frame(msg_window)
-    button_frame.pack(side=tk.BOTTOM, pady=20)
-
-    button_font_size = max(12, int(14 / dpi_scale * 1.2))
-    ok_btn = tk.Button(button_frame,
-                      text="確定",
-                      command=msg_window.destroy,
-                      font=("Microsoft JhengHei", button_font_size, "bold"),
-                      bg='#4CAF50',
-                      fg='white',
-                      width=15,
-                      height=2,
-                      cursor="hand2")
-    ok_btn.pack()
-
-    # 🔥 訊息內容（使用 ScrolledText 支援捲動）- 填充剩餘空間
-    content_frame = tk.Frame(msg_window)
-    content_frame.pack(fill=tk.BOTH, expand=True, padx=20, pady=(0, 10))
-
-    # 🔥 使用 ScrolledText 取代 Label，根據 DPI 調整字體
-    content_font_size = max(11, int(13 / dpi_scale * 1.2))
-    text_widget = scrolledtext.ScrolledText(
-        content_frame,
-        font=("Microsoft JhengHei", content_font_size),
-        wrap=tk.CHAR,  # 🔥 逐字換行，中文不在空白處亂折
-        bg="#F5F5F5",
-        relief=tk.FLAT,
-        padx=15,  # 🔥 從 10 改為 15
-        pady=15   # 🔥 從 10 改為 15
-    )
-    text_widget.pack(fill=tk.BOTH, expand=True)
-    text_widget.insert("1.0", message)
-    text_widget.config(state=tk.DISABLED)  # 設為唯讀
-
-    # 🔥 讓按鈕可以用 Enter 鍵關閉
-    msg_window.bind('<Return>', lambda e: msg_window.destroy())
-    msg_window.bind('<Escape>', lambda e: msg_window.destroy())
-
-    msg_window.focus()
 
 def show_large_yesno(title, message):
-    """顯示大字體的是/否對話框
+    """大字是/否：回 True(是)/False(否)；Enter＝是、Esc＝否"""
+    return bool(_big_dialog(title, message, [("是(Y)", '#4CAF50', True), ("否(N)", '#F44336', False)],
+                            enter=True, escape=False, keys={'y': True, 'Y': True, 'n': False, 'N': False}))
 
-    參數:
-        title: 視窗標題
-        message: 訊息內容
 
-    回傳:
-        True: 使用者點選「是」
-        False: 使用者點選「否」
-    """
-    result = [False]  # 用列表儲存結果，以便在內部函數修改
+def show_large_yesnocancel(title, message, yes_text="是(Y)", no_text="否(N)", cancel_text="取消(C)"):
+    """大字是/否/取消：回 True/False/None(取消、Esc、關視窗)；Enter＝是"""
+    return _big_dialog(title, message, [(yes_text, '#4CAF50', True), (no_text, '#F44336', False),
+                                        (cancel_text, '#9E9E9E', None)],
+                       enter=True, escape=None,
+                       keys={'y': True, 'Y': True, 'n': False, 'N': False, 'c': None, 'C': None})
 
-    dialog = tk.Toplevel(root)
-    dialog.title(title)
 
-    # 🔥 根據訊息長度動態調整視窗大小（不超過螢幕的 70%）
-    msg_lines = message.count('\n') + 1
-    base_height = 150
-    line_height = 30
-    button_height = 120  # 留給按鈕的固定區域
-    ideal_height = base_height + (msg_lines * line_height) + button_height
-
-    # 置中顯示
-    screen_width = dialog.winfo_screenwidth()
-    screen_height = dialog.winfo_screenheight()
-    max_height = int(screen_height * 0.7)
-    dialog_height = min(ideal_height, max_height)
-    needs_scrollbar = ideal_height > max_height  # 訊息太長要捲軸
-
-    x = (screen_width - 780) // 2
-    y = (screen_height - dialog_height) // 2
-    dialog.geometry(f"780x{dialog_height}+{x}+{y}")
-
-    dialog.transient(root)
-    dialog.grab_set()
-
-    # 🔥 按鈕區先 pack（side=BOTTOM 永遠保證在底部）
-    btn_frame = tk.Frame(dialog)
-    btn_frame.pack(side=tk.BOTTOM, pady=20)
-
-    # 🔥 訊息區
-    if needs_scrollbar:
-        # 訊息過長：用 Text + Scrollbar
-        msg_frame = tk.Frame(dialog)
-        msg_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=20, pady=10)
-
-        scrollbar = tk.Scrollbar(msg_frame)
-        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
-
-        text_widget = tk.Text(msg_frame,
-                              font=("Microsoft JhengHei", 14),
-                              wrap=tk.CHAR,  # 🔥 逐字換行，中文不在空白處亂折
-                              yscrollcommand=scrollbar.set,
-                              borderwidth=0,
-                              highlightthickness=0,
-                              bg=dialog.cget('bg'),
-                              padx=10, pady=10)
-        text_widget.insert('1.0', message)
-        text_widget.config(state='disabled')
-        text_widget.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
-        scrollbar.config(command=text_widget.yview)
-    elif '<HR>' in message:
-        # 支援 '<HR>' 標記插入真正的水平分隔線
-        parts = message.split('<HR>')
-        for i, part in enumerate(parts):
-            tk.Label(dialog, text=part.strip('\n'),
-                     font=("Microsoft JhengHei", 16),
-                     wraplength=750,
-                     justify=tk.LEFT,
-                     padx=20, pady=8).pack(fill=tk.X)
-            if i < len(parts) - 1:
-                tk.Frame(dialog, height=1, bg='#888').pack(fill=tk.X, padx=20, pady=4)
-    else:
-        # 短訊息：原本的 Label 即可
-        msg_label = tk.Label(dialog, text=message,
-                            font=("Microsoft JhengHei", 16),
-                            wraplength=750,
-                            justify=tk.LEFT,
-                            padx=20, pady=20)
-        msg_label.pack(side=tk.TOP, fill=tk.X)
-
-    def on_yes():
-        result[0] = True
-        dialog.destroy()
-
-    def on_no():
-        result[0] = False
-        dialog.destroy()
-    
-    # 是按鈕
-    yes_btn = tk.Button(btn_frame, text="是(Y)", 
-                       font=("Microsoft JhengHei", 14),
-                       command=on_yes,
-                       width=10, height=2,
-                       bg='#4CAF50', fg='white')
-    yes_btn.pack(side=tk.LEFT, padx=10)
-    
-    # 否按鈕
-    no_btn = tk.Button(btn_frame, text="否(N)", 
-                      font=("Microsoft JhengHei", 14),
-                      command=on_no,
-                      width=10, height=2,
-                      bg='#F44336', fg='white')
-    no_btn.pack(side=tk.LEFT, padx=10)
-    
-    # 鍵盤快捷鍵
-    dialog.bind('y', lambda e: on_yes())
-    dialog.bind('Y', lambda e: on_yes())
-    dialog.bind('n', lambda e: on_no())
-    dialog.bind('N', lambda e: on_no())
-    dialog.bind('<Return>', lambda e: on_yes())  # Enter = 是
-    dialog.bind('<Escape>', lambda e: on_no())   # Esc = 否
-    
-    dialog.focus_set()
-    dialog.wait_window()
-
-    return result[0]
+def show_large_choice(title, message, options):
+    """大字多按鈕。options＝[(按鈕文字, 底色), …]，最後一個當「取消」。
+    回傳按下的按鈕索引；按取消、Esc、關視窗回 None"""
+    n = len(options)
+    return _big_dialog(title, message, [(t_, c_, None if i == n - 1 else i) for i, (t_, c_) in enumerate(options)],
+                       escape=None, bind_enter=False)
 
 
 def show_record_filter_dialog(transcript_data):
@@ -7500,162 +7490,6 @@ def _apply_filter_and_convert(latest_json):
     except Exception:
         pass
     return True, f"已載入過濾後 {kept}/{total} 筆（檔案：{filtered_name}）"
-
-
-def show_large_yesnocancel(title, message, yes_text="是(Y)", no_text="否(N)", cancel_text="取消(C)"):
-    """顯示大字體的是/否/取消對話框
-
-    參數:
-        title: 視窗標題
-        message: 訊息內容
-        yes_text/no_text/cancel_text: 自訂按鈕文字（預設「是(Y)」「否(N)」「取消(C)」）
-
-    回傳:
-        True: 使用者點選「是」
-        False: 使用者點選「否」
-        None: 使用者點選「取消」
-    """
-    result = [None]  # 用列表儲存結果
-
-    dialog = tk.Toplevel(root)
-    dialog.title(title)
-
-    # 🔥 根據訊息長度動態調整視窗大小
-    msg_lines = message.count('\n') + 1
-    base_height = 150
-    line_height = 30
-    button_height = 100
-    dialog_height = min(base_height + (msg_lines * line_height) + button_height, 600)
-
-    # 置中顯示
-    screen_width = dialog.winfo_screenwidth()
-    screen_height = dialog.winfo_screenheight()
-    x = (screen_width - 780) // 2
-    y = (screen_height - dialog_height) // 2
-    dialog.geometry(f"780x{dialog_height}+{x}+{y}")
-    
-    dialog.transient(root)
-    dialog.grab_set()
-    
-    # 訊息文字（大字體）- 🔥 不使用 expand，固定高度
-    msg_label = tk.Label(dialog, text=message,
-                        font=("Microsoft JhengHei", 16),
-                        wraplength=750,
-                        justify=tk.LEFT,
-                        padx=20, pady=20)
-    msg_label.pack(fill=tk.X)
-
-    # 按鈕區 - 🔥 固定在底部
-    btn_frame = tk.Frame(dialog)
-    btn_frame.pack(side=tk.BOTTOM, pady=20)
-    
-    def on_yes():
-        result[0] = True
-        dialog.destroy()
-    
-    def on_no():
-        result[0] = False
-        dialog.destroy()
-    
-    def on_cancel():
-        result[0] = None
-        dialog.destroy()
-    
-    # 動態寬度：依按鈕文字長度估計（含 padding）
-    _btn_w = max(8, max(len(yes_text), len(no_text), len(cancel_text)) + 2)
-
-    # 是按鈕
-    yes_btn = tk.Button(btn_frame, text=yes_text,
-                       font=("Microsoft JhengHei", 14),
-                       command=on_yes,
-                       width=_btn_w, height=2,
-                       bg='#4CAF50', fg='white')
-    yes_btn.pack(side=tk.LEFT, padx=10)
-
-    # 否按鈕
-    no_btn = tk.Button(btn_frame, text=no_text,
-                      font=("Microsoft JhengHei", 14),
-                      command=on_no,
-                      width=_btn_w, height=2,
-                      bg='#F44336', fg='white')
-    no_btn.pack(side=tk.LEFT, padx=10)
-
-    # 取消按鈕
-    cancel_btn = tk.Button(btn_frame, text=cancel_text,
-                          font=("Microsoft JhengHei", 14),
-                          command=on_cancel,
-                          width=_btn_w, height=2,
-                          bg='#9E9E9E', fg='white')
-    cancel_btn.pack(side=tk.LEFT, padx=10)
-    
-    # 鍵盤快捷鍵
-    dialog.bind('y', lambda e: on_yes())
-    dialog.bind('Y', lambda e: on_yes())
-    dialog.bind('n', lambda e: on_no())
-    dialog.bind('N', lambda e: on_no())
-    dialog.bind('c', lambda e: on_cancel())
-    dialog.bind('C', lambda e: on_cancel())
-    dialog.bind('<Return>', lambda e: on_yes())    # Enter = 是
-    dialog.bind('<Escape>', lambda e: on_cancel()) # Esc = 取消
-    
-    # 點擊關閉視窗 = 取消
-    dialog.protocol("WM_DELETE_WINDOW", on_cancel)
-
-    dialog.focus_set()
-    dialog.wait_window()
-
-    return result[0]
-
-def show_large_choice(title, message, options):
-    """大字體多按鈕對話框。options＝[(按鈕文字, 底色), …]，最後一個當「取消」。
-    回傳按下的按鈕索引；按取消、Esc、關視窗回 None"""
-    result = [None]
-    dialog = tk.Toplevel(root)
-    dialog.title(title)
-    msg_lines = message.count('\n') + 1
-    k = max(1.0, dialog.winfo_fpixels('1i') / 96)       # 螢幕縮放倍率(125%/150%/250%…字會跟著變大)
-    sw_, sh_ = dialog.winfo_screenwidth(), dialog.winfo_screenheight()
-    dialog_height = int(min(150 + msg_lines * 30 + 100, 600) * k)
-    width = min(int(max(780, 190 * len(options) + 60) * k), sw_ - 40)
-    x = (dialog.winfo_screenwidth() - width) // 2
-    y = (dialog.winfo_screenheight() - dialog_height) // 2
-    dialog.geometry(f"{width}x{dialog_height}+{x}+{y}")
-    dialog.transient(root)
-    dialog.grab_set()
-    msg_lbl = tk.Label(dialog, text=message, font=("Microsoft JhengHei", 16), wraplength=width - 30,
-                       justify=tk.LEFT, padx=20, pady=20)
-    msg_lbl.pack(fill=tk.X)
-    btn_frame = tk.Frame(dialog)
-    btn_frame.pack(side=tk.BOTTOM, pady=20)
-
-    def pick(i):
-        result[0] = None if i == len(options) - 1 else i
-        dialog.destroy()
-    # 按鈕寬度依實際字寬(中文字一個佔兩格，用字數算 width 會把字切掉)，全部取最寬那顆
-    btns = [tk.Button(btn_frame, text=text, font=("Microsoft JhengHei", 14), command=lambda i=i: pick(i),
-                      padx=18, pady=12, bg=color, fg='white') for i, (text, color) in enumerate(options)]
-    dialog.update_idletasks()
-    bpx = max(b.winfo_reqwidth() for b in btns)
-    bpy = max(b.winfo_reqheight() for b in btns)
-    for b in btns:
-        cell = tk.Frame(btn_frame, width=bpx, height=bpy)
-        cell.pack_propagate(False)
-        cell.pack(side=tk.LEFT, padx=8)
-        b.pack(in_=cell, fill=tk.BOTH, expand=True)
-        b.lift(cell)
-    need_w = (bpx + 16) * len(btns) + 60
-    if need_w > width:                                # 按鈕排不下：視窗加寬
-        width = min(need_w, sw_ - 40)
-        msg_lbl.configure(wraplength=width - 30)
-    dialog.update_idletasks()
-    dialog_height = min(dialog.winfo_reqheight() + int(10 * k), sh_ - 80)   # 照實際內容高度，不留大片空白
-    dialog.geometry(f"{width}x{dialog_height}+{(dialog.winfo_screenwidth() - width) // 2}"
-                    f"+{(dialog.winfo_screenheight() - dialog_height) // 2}")
-    dialog.bind('<Escape>', lambda e: pick(len(options) - 1))
-    dialog.protocol("WM_DELETE_WINDOW", lambda: pick(len(options) - 1))
-    dialog.focus_set()
-    dialog.wait_window()
-    return result[0]
 
 
 def show_lot_selection_dialog(title, intro, entries):
@@ -8044,6 +7878,15 @@ def send_input(event=None):
     if not is_running:
         # 🔥 沒有子程式在跑：輸入欄當「萬用查詢欄」(地址/地號 → 建立案件)
         q = input_field.get().strip()
+        _ca = sys.modules.get("case_attach")
+        _r = _ca.ACTIVE[0] if _ca else None
+        if _r and (not q or q == "請在此輸入..."):      # 連續模式跑著：空白 Enter 是回應它，不是開查詢面板
+            if _r.waiting:
+                _r.send("")
+                update_message("[連續模式] 已收到，繼續")
+            else:
+                update_message("連續模式正在自動執行，不用按 Enter")
+            return
         if q in ("說明", "?", "？", "help"):
             input_field.delete(0, tk.END)
             show_quick_intro(force=True)
@@ -9571,7 +9414,9 @@ def check_and_warn_data_consistency():
         # 🔥 全部檢查跑完後再決定要不要秀診斷訊息：正常時靜默通過，「真的資料對不上」時才一次秀出。
         #    「找不到謄本結構化資料」(is_consistent=True，只是謄本沒結構化或段名造字抽不到) 不算問題→靜默，
         #    以免一堆技術訊息(PROGRAM_DIR/路徑…)每次啟動嚇到使用者。
-        if (not is_consistent) or (warning_msg and "找不到謄本結構化資料" not in warning_msg):
+        #    「data.json 不存在或為空」＝新電腦/還沒建立案件，是正常的第一次狀態，也靜默。
+        if (not is_consistent) or (warning_msg and "找不到謄本結構化資料" not in warning_msg
+                                   and "不存在或為空" not in warning_msg):
             for _ln in diag_lines:
                 update_message(_ln)
 
@@ -10091,6 +9936,8 @@ _CF_FN = {
 
 
 def _cf_action(key):
+    if key != "quick":                  # 新版大按鈕沒經過 ON_PRESS：一樣要收掉萬用查詢面板與箭頭
+        _close_quick_panel()
     btn = _CF_BTN.get(key)
     if btn is not None:
         if is_running and btn is not current_running_button:

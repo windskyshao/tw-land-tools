@@ -81,6 +81,13 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
     root = tk.Tk()
     ui.apply(root)
     root.title("行銷簡報")
+    try:
+        _ico = os.path.join(getattr(sys, "_MEIPASS", os.path.dirname(os.path.abspath(__file__))), "icon_deck.ico")
+        if not os.path.exists(_ico):
+            _ico = os.path.join(os.path.dirname(os.path.abspath(__file__)), "installer", "art", "icon_deck.ico")
+        root.iconbitmap(default=_ico)
+    except Exception:
+        pass
     sc = max(1.0, root.winfo_fpixels("1i") / 96)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     W, H = min(int(1180 * sc), sw - 60), min(int(900 * sc), sh - 90)
@@ -207,6 +214,9 @@ def _step_template(root, facts, state, suggest, sc, W):
             ui.message(root, "製作中", f"「{TEMPLATES[key][1]}」版型還在製作中，做好會在這裡開放。\n目前先用「大樓・華廈」版。")
             return
         state["template"] = key
+        if key == "factory" and state.get("theme") == "fzt":     # 工業版預設工業咖啡；還是可以在下面換色系
+            state["theme"] = "ind"
+            paint_themes()
         paint_cards()
 
     for i, (key, (icon, name, fits, pages, ok)) in enumerate(TEMPLATES.items()):
@@ -691,6 +701,50 @@ def _preview(root, path, title):
     top.after(80, fit)
 
 
+def _factory_extra(root, sec, on):
+    """工業版：分割方案(最多 4 區)、應注意事項。存在案件資料夾，下次打開帶回"""
+    import marketing_deck_factory as mf
+    data = mf.load_extra(sec["case_dir"])
+    dlg = tk.Toplevel(root)
+    dlg.title("工業版資料")
+    dlg.configure(bg="white")
+    dlg.transient(root)
+    box = tk.Frame(dlg, bg="white", padx=20, pady=16)
+    box.pack(fill=tk.BOTH, expand=True)
+    tk.Label(box, text="分割銷售方案（不分割就留空）", font=(FAM, 16, "bold"), fg=INK, bg="white").grid(row=0, column=0, columnspan=4, sticky="w")
+    for c, tx in enumerate(("區塊名稱", "坪數", "單價(萬/坪)", "說明(例：面寬63米)")):
+        tk.Label(box, text=tx, font=(FAM, 14, "bold"), fg=INK2, bg="white").grid(row=1, column=c, sticky="w", padx=4, pady=(8, 2))
+    old = data.get("split") or []
+    rows = []
+    for i in range(4):
+        r = old[i] if i < len(old) else {}
+        vs = [tk.StringVar(master=root, value=str(r.get(k, "") or ("ABCD"[i] if k == "name" and i < len(old) else ""))) for k in ("name", "area", "unit", "note")]
+        for c, (v, w) in enumerate(zip(vs, (10, 10, 10, 26))):
+            tk.Entry(box, textvariable=v, font=(FAM, 15), width=w, relief="solid", bd=1).grid(row=2 + i, column=c, padx=4, pady=3, sticky="we")
+        rows.append(vs)
+    tk.Label(box, text="應注意事項（一行一點，例：地質敏感地區、集水區）", font=(FAM, 16, "bold"), fg=INK, bg="white").grid(row=6, column=0, columnspan=4, sticky="w", pady=(14, 4))
+    txt = tk.Text(box, font=(FAM, 15), width=60, height=5, relief="solid", bd=1)
+    txt.grid(row=7, column=0, columnspan=4, sticky="we")
+    txt.insert("1.0", data.get("notes") or "")
+
+    def save():
+        split = [dict(zip(("name", "area", "unit", "note"), [v.get().strip() for v in vs])) for vs in rows]
+        data["split"] = [r for r in split if r["area"] or r["unit"]]
+        data["notes"] = txt.get("1.0", "end").strip()
+        mf.save_extra(sec["case_dir"], data)
+        if data["split"] and sec["key"] == "split":
+            on.set(True)
+        dlg.destroy()
+    btn = tk.Frame(box, bg="white")
+    btn.grid(row=8, column=0, columnspan=4, sticky="e", pady=(14, 0))
+    ui.button(btn, "取消", dlg.destroy, "ghost").pack(side=tk.LEFT, padx=(0, 8))
+    ui.button(btn, "存檔", save, "primary").pack(side=tk.LEFT)
+    dlg.update_idletasks()
+    dlg.geometry(f"+{root.winfo_rootx() + 80}+{root.winfo_rooty() + 60}")
+    dlg.grab_set()
+    root.wait_window(dlg)
+
+
 def _step_sections(root, state, facts, sc, W):
     """每個單元一張卡：大勾選＝要不要這頁；有好幾份資料的列出縮圖(點縮圖放大預覽)，勾選要用哪幾份"""
     from marketing_deck import PAGES, TEMPLATES
@@ -737,6 +791,8 @@ def _step_sections(root, state, facts, sc, W):
             paint()
         on.trace_add("write", on_toggle)
         paint()
+        if sec.get("editor"):
+            ui.button(head, "填寫", lambda sec=sec, on=on: _factory_extra(root, sec, on), "ghost").pack(side=tk.RIGHT)
         if not sec["cands"]:
             continue
         grid = tk.Frame(card, bg="white")
@@ -808,7 +864,7 @@ def _step_sections(root, state, facts, sc, W):
     alive["on"] = False
     for sec in state["sections"]:
         sec.pop("_vars", None)
-        if sec["cands"] and sec["on"] and not sec["pick"]:      # 勾了單元卻一份都沒選 → 當作不要這頁
+        if sec["cands"] and sec["on"] and not sec["pick"] and not sec.get("cands_optional"):      # 勾了單元卻一份都沒選 → 當作不要這頁
             sec["on"] = False
     r = done.get()
     try:
@@ -827,6 +883,8 @@ def _step_arrange(root, photos, facts, state, sc, W):
     from marketing_deck import CATS, CAT_MENU, CAT_SEP, LAYOUT_CAT, PAGES, TEMPLATES, PHOTO_PAGES, STREET_PHOTO_PAGES, caption_of, guess_cat, ordered, split_pages
     if state.get("template") == "villa":                # 透天・店面版的照片頁分法不同(外觀街景在前)
         PHOTO_PAGES = STREET_PHOTO_PAGES
+    elif state.get("template") == "factory":
+        from marketing_deck import FACTORY_PHOTO_PAGES as PHOTO_PAGES
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)

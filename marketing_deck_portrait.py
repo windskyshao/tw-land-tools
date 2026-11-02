@@ -56,7 +56,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     for r in roots:
         hits = sorted(glob.glob(os.path.join(r, "0.謄本", "*建物測量成果圖*.pdf")))
         if hits:
-            plans = hits[:1]
+            plans = hits
             break
     if not plans:
         for r in roots:
@@ -65,7 +65,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
             if hits:
                 plans = hits[:3]
                 break
-    plans = M.sel_paths(sel, "plan", plans)
+    plans = M.plan_pages(M.sel_paths(sel, "plan", plans))
     cad = first(os.path.join("0.謄本", "*地籍圖*標註*.pdf")) or first(os.path.join("0.謄本", "*地籍圖*.pdf"))
     cad_pages = M.sel_paths(sel, "cadastral", [cad] if cad else [])
     layouts = [p["path"] for p in by[M.LAYOUT_CAT]]
@@ -202,12 +202,13 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
         M.log("製作：樓層配置")
         s = new("樓層配置")
         fl = sorted(f["floors"], key=lambda x: M._floor_order(x[0]), reverse=True)
+        fl.sort(key=lambda x: M._floor_tag(x[0]))
         vmax = max(v for _, v in fl)
         rh = min(Inches(1.35), Inches(6.2) // len(fl))
         for i, (k, v) in enumerate(fl):
             yy = TOP + Inches(0.1) + rh * i
             M.box(s, L, yy + Inches(0.08), Inches(1.6), rh - Inches(0.16), M.PANEL, M.SKY)
-            M.text(s, L, yy + Inches(0.08), Inches(1.6), rh - Inches(0.16), k, 20, True, M.SKY_DK, M.PP_ALIGN.CENTER,
+            M.text(s, L, yy + Inches(0.08), Inches(1.6), rh - Inches(0.16), k, 15 if M._floor_tag(k) else 20, True, M.SKY_DK, M.PP_ALIGN.CENTER,
                    M.MSO_ANCHOR.MIDDLE)
             bw = int((CW - Inches(3.4)) * v / vmax)
             M.box(s, L + Inches(1.75), yy + Inches(0.2), max(bw, Inches(0.2)), rh - Inches(0.4), M.SKY)
@@ -393,8 +394,8 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
 
 def _short_dims(s):
     s = re.sub(r"[（(].*?[）)]", "", str(s or "")).replace(" ", "")
-    m = re.search(r"([\d.]+)\D+([\d.]+)", s)
-    return f"{m.group(1)}／{m.group(2)} 米" if m else s
+    n = re.findall(r"\d+(?:\.\d+)?", s)            # 只填面寬時只有一個數字，小數點不能當分隔
+    return "／".join(n[:2]) + " 米" if n else s
 
 
 def _grid_rows(M, s, rows, x, y, w, bottom):

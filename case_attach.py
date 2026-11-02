@@ -25,24 +25,24 @@ GREEN, ORANGE, RED, BLUE = "#15803D", "#B45309", "#B91C1C", "#0A6CDB"
 
 # key, 名稱, 子程式, 參數方式, 預排答案, 逾時秒, 縣市限制, 檔案(相對案件資料夾), 說明
 ITEMS = [
-    dict(key="nlma", name="02 使用執照（高雄市）", script="case_nlma.py", wrap="base", timeout=600, only="高雄市",
+    dict(key="nlma", name="02 使用執照（高雄市）", script="case_nlma.py", wrap="base", timeout=900, only="高雄市",
          files=["1.基本資料/02_使用執照*"], note="同地號有好幾張使照會全部存"),
-    dict(key="nbupic", name="02 使用執照（屏東、台南…）", script="nlma_nbupic.py", answers=["1", "a", "1"], timeout=420,
+    dict(key="nbupic", name="02 使用執照（屏東、台南…）", script="nlma_nbupic.py", extra=["--until-found"], answers=["1", "a", "1"], timeout=900,
          skip="高雄市", city_arg=True, files=["1.基本資料/02_使用執照*"]),
-    dict(key="gbmap", name="03 重要設施", script="gbmap.py", answers=[""], timeout=180, files=["1.基本資料/03_重要設施*"]),
+    dict(key="gbmap", name="03 重要設施", script="gbmap.py", answers=["1"], timeout=180, files=["1.基本資料/03_重要設施*"]),
     dict(key="v523", name="04 V523 地籍資料", script="V523.py", answers=["", "n", ""], timeout=300, idle=20,
          only="高雄市|屏東縣", files=["1.基本資料/04_V523*"], note="自動登入（帳密在這台電腦）"),
     dict(key="easymap", name="05 地籍便民（新版自動截圖）", script="land_auto.py", extra=["--ver", "new"], answers=[""],
          timeout=420, files=["1.基本資料/05_地籍便民*"]),
-    dict(key="nlsc", name="06 國土測繪圖", script="nlscmaps.py", answers=[""], timeout=300, files=["1.基本資料/06_國土測繪*"]),
+    dict(key="nlsc", name="06 國土測繪圖", script="nlscmaps.py", extra=["--no-batch"], answers=[""], timeout=300, files=["1.基本資料/06_國土測繪*"]),
     dict(key="urbangis", name="07 高雄都市計畫", script="urbangis.py", answers=["", ""], timeout=360, only="高雄市",
          files=["1.基本資料/07_都市計畫*"]),
     dict(key="tcdmap", name="08 國土功能分區", script="case_tcdmap.py", wrap="info", timeout=180,
          files=["1.基本資料/08_國土分區*"]),
-    dict(key="geology", name="09 地質雲", script="geologycloud.py", answers=[""], timeout=300, files=["1.基本資料/09_地質雲*"]),
+    dict(key="geology", name="09 地質雲", script="geologycloud.py", answers=["1"], timeout=300, files=["1.基本資料/09_地質雲*"]),
     dict(key="price", name="內政部實價登錄", script="interior_price.py", answers=["q"], timeout=420, idle=45, deal=True,
          files=["3.行情/內政部實價登錄*"]),
-    dict(key="price104", name="104 實價網行情", script="price104.py", answers=["q"], timeout=420, idle=30, deal=True,
+    dict(key="price104", name="104 實價網行情", script="price104.py", answers=["q"], timeout=420, idle=30, deal=True, home="高雄市",
          files=["3.行情/104實價登錄*"], note="自動登入（帳密在這台電腦）"),
 ]
 # 土地增值稅：用目前選用的謄本結構化 JSON(--json)；跑之前先檢查結構化資料是不是這個案件(跟主程式按鈕一樣)
@@ -55,7 +55,7 @@ TAX = [
          files=["1.基本資料/01-1_土地增值稅_高雄市版*", "1.基本資料/01-1.1_土地增值稅_高雄市版*"],
          note="高雄市稅捐處網站，驗證碼自動辨識"),
 ]
-LUZ = dict(key="luz", name="07 全國土地使用分區", script="luz.py", timeout=900, files=["1.基本資料/07_全國土地使用分區*"],
+LUZ = dict(key="luz", name="07 全國土地使用分區", script="luz.py", extra=["--all"], timeout=1800, files=["1.基本資料/07_全國土地使用分區*"],
            note="網站有真人驗證，要你在瀏覽器點一下")
 
 
@@ -147,11 +147,29 @@ def applicable(item, city):
     return True
 
 
+def limited(item, city):
+    """會員地區以外：網站有限制(如 104 只有當月免費區查得到)，可以跑但不算必做"""
+    return bool(item.get("home")) and (city or "").replace("臺", "台") != item["home"]
+
+
 def found_files(item, case):
     out = []
     for pat in item["files"]:
         out += [p for p in glob.glob(os.path.join(case["folder"], pat)) if p.lower().endswith((".pdf", ".png", ".xlsx"))]
     return out
+
+
+def nodata_at(item, case):
+    """上次連續模式查過、官方查無資料的時間；沒查過/查到了回 None(看每項留下的紀錄檔，舊案件也適用)"""
+    p = os.path.join(case["folder"], "4.其他相關", "連續模式紀錄", item["key"] + ".txt")
+    if found_files(item, case) or not os.path.exists(p):
+        return None
+    try:
+        with open(p, encoding="utf-8") as f:
+            txt = f.read()
+    except Exception:
+        return None
+    return os.path.getmtime(p) if "NODATA" in txt or "查無" in txt[-800:] else None
 
 
 def _kill_child_chrome(pid):
@@ -170,6 +188,10 @@ def _kill_child_chrome(pid):
 _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 
+# 子程式單獨執行時給人看的鍵盤提示；連續模式是程式自動回答，秀出來會讓人以為要自己按(紀錄檔仍保留)
+_KEY_PROMPT = re.compile(r"退出程式|按\s*ENTER|\[ENTER\]|\[q\]|選擇操作|手動調整網頁|請輸入選項", re.I)
+
+
 class Runner:
     """在背景執行緒逐項跑；訊息丟進 q 給畫面"""
 
@@ -178,6 +200,7 @@ class Runner:
         self.json_path = json_path
         self.stop = False
         self.proc = None
+        self.waiting = False                 # 這一項要等使用者操作(按繼續或主程式輸入欄 Enter)
 
     def send(self, text):
         try:
@@ -193,7 +216,8 @@ class Runner:
         c = self.case
         script = os.path.join(internal, item["script"])
         if item.get("wrap") == "base":                       # case_nlma：輸出到案件資料夾(它自己再加 1.基本資料)
-            args = [py, "-u", script, c["city"], c["area"], c["section"], c["lot"], c["folder"]]
+            args = [py, "-u", script, c["city"], c["area"], c["section"], c["lot"], c["folder"],
+                    "--data", os.path.join(exe_dir, "data.json")]
         elif item.get("wrap") == "info":                     # case_tcdmap：輸出到 1.基本資料
             os.makedirs(os.path.join(c["folder"], "1.基本資料"), exist_ok=True)
             args = [py, "-u", script, c["city"], c["area"], c["section"], c["lot"], os.path.join(c["folder"], "1.基本資料")]
@@ -212,6 +236,7 @@ class Runner:
         t0 = time.time()
         before = {p: os.path.getmtime(p) for p in found_files(item, c)}
         lines, last = [], [time.time()]
+        self.waiting = interactive
         self.proc = p = subprocess.Popen(args, cwd=internal, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
 
@@ -221,20 +246,24 @@ class Runner:
                 if t and not t.startswith(("__PROGRESS__", "__GUI_PREFILL__")):
                     lines.append(t)
                     last[0] = time.time()
-                    if not t.startswith("[DEBUG]"):
+                    if not t.startswith("[DEBUG]") and (interactive or not _KEY_PROMPT.search(t)):
                         self.q.put(("line", item["key"], t))
         threading.Thread(target=rd, daemon=True).start()
-        answers, sent = list(item.get("answers") or []), 0
+        answers, sent, hushed = list(item.get("answers") or []), 0, False
         while p.poll() is None and time.time() - t0 < item["timeout"] and not self.stop:
             time.sleep(1)
             self.q.put(("tick", item["key"], int(time.time() - t0)))
             if interactive:                                  # 全國土地使用分區：使用者在畫面按「繼續」才送 Enter
                 continue
+            if not interactive and not hushed and time.time() - last[0] > 90:
+                hushed = True
+                self.q.put(("line", item["key"], "這項已經 90 秒沒有新進度，可能在等網站回應；超過時間會自動中止，換下一項"))
             if not item.get("wrap") and time.time() - last[0] > item.get("idle", 12) and sent < item.get("max_send", 8):
                 ans = answers.pop(0) if answers else item.get("default", "q")
                 self.send(ans)
                 last[0] = time.time()
                 sent += 1
+        self.waiting = False
         timed_out = p.poll() is None
         if timed_out:
             subprocess.run(["taskkill", "/PID", str(p.pid), "/T", "/F"], capture_output=True, creationflags=NO_WINDOW)
@@ -282,6 +311,9 @@ class Runner:
                 st, msg, sec = "failed", str(e)[:60], 0
             self.q.put(("end", item["key"], st, msg, sec))
         self.q.put(("alldone",))
+
+
+ACTIVE = [None]                              # 正在跑的 Runner(主程式輸入欄按 Enter 要轉給它)
 
 
 def open_folder(path):
@@ -606,14 +638,20 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         if fs:
             t = max(os.path.getmtime(x) for x in fs)
             return f"✓ 已有（{time.strftime('%m/%d %H:%M', time.localtime(t))}）", GREEN
-        return "○ 還沒有", ORANGE
+        t = nodata_at(item, case)
+        if t:
+            return f"— 查無資料（{time.strftime('%m/%d %H:%M', time.localtime(t))}）", INK2
+        return "□ 還沒查", ORANGE
 
     def add_row(parent, item, warn=False, default=None):
         ok = applicable(item, case["city"])
+        locked = bool(item.get("json") and ok and tax_reason)      # 土增稅沒有這案的結構化資料：不能選
+        ok = ok and not locked
         fr = tk.Frame(parent, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=6)
         fr.pack(fill=tk.X, pady=3)
         st, col = status_text(item)
-        dv = ok and not found_files(item, case) and not warn
+        over = limited(item, case["city"])
+        dv = ok and not found_files(item, case) and not nodata_at(item, case) and not warn and not over
         if default is not None:
             dv = dv and default
         v = tk.BooleanVar(master=win, value=dv)
@@ -626,9 +664,12 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         tk.Label(nm, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg="white", anchor="w").pack(side=tk.LEFT)
         if ok:
             tk.Label(nm, text=f"　⏱ 約 {fmt_sec(est_sec(item['key']))}", font=(FAM, 11), fg=INK2, bg="white").pack(side=tk.LEFT)
+        if over:
+            tk.Label(mid, text=f"{item['home']}以外有查詢限制，只有當月免費區查得到；要查請自己勾", font=(FAM, 11),
+                     fg=ORANGE, bg="white", anchor="w").pack(anchor="w")
         if item.get("note"):
             tk.Label(mid, text=item["note"], font=(FAM, 11), fg=ORANGE if warn else INK2, bg="white", anchor="w").pack(anchor="w")
-        if item.get("json") and ok and tax_reason:
+        if locked:
             tk.Label(mid, text="⚠ " + tax_reason, font=(FAM, 12, "bold"), fg=RED, bg="white", anchor="w", justify="left",
                      wraplength=max(300, W - 380)).pack(anchor="w")
         sl = tk.Label(fr, text=st, font=(FAM, 13, "bold"), fg=col, bg="white", width=22, anchor="e")
@@ -636,7 +677,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         b = ui.button(fr, "單跑", lambda it=item: start([it]), "ghost", padx=10, pady=2)
         if ok:
             b.pack(side=tk.LEFT)
-        rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item)
+        rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item, ok=ok)
         v.trace_add("write", lambda *_: upd_total())
         if ok and item["key"] != "luz":
             v.trace_add("write", lambda *_: sync_all())
@@ -656,7 +697,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     _sync = [False]
 
     def _pickable():
-        return [r for k, r in rows.items() if k != "luz" and applicable(r["item"], case["city"])]
+        return [r for k, r in rows.items() if k != "luz" and r["ok"]]
 
     def on_all(*_):
         if _sync[0]:
@@ -679,15 +720,23 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     total_lbl = tk.Label(all_row, text="", font=(FAM, 13, "bold"), fg=BLUE, bg=bg)
     total_lbl.pack(side=tk.RIGHT)
 
+    run_box = [None]
+
+    def refresh_run():
+        """「開始」：執行中或沒勾任何項目時變灰"""
+        if run_box[0] is not None:
+            run_box[0].set_enabled(not runner_box[0] and any(r["var"].get() for r in rows.values()))
+
     def upd_total():
         ks = [k for k, r in rows.items() if r["var"].get() and applicable(r["item"], case["city"])]
+        refresh_run()
         try:
             total_lbl.configure(text=f"勾了 {len(ks)} 項，預估約 {fmt_sec(sum(est_sec(k) for k in ks))}" if ks else "")
         except tk.TclError:
             pass
     all_var.trace_add("write", on_all)
 
-    tax_reason = tax_problem()
+    tax_reason = tax_problem() or ("" if cur_json() else "要先調謄本、做完謄本結構化才能試算")
     tk.Label(body, text="土地增值稅（用謄本結構化資料計算）", font=(FAM, 16, "bold"), fg=BLUE, bg=bg, anchor="w").pack(
         fill=tk.X, pady=(6, 2))
     lst0 = tk.Frame(body, bg=bg)
@@ -718,7 +767,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     bar_all.pack(fill=tk.X, pady=(2, 4))
     line_lbl = tk.Label(prog, text="", font=(FAM, 11), fg=INK2, bg="#EEF4FF", anchor="w", justify="left", wraplength=W - 80)
     line_lbl.pack(fill=tk.X)
-    cont_btn = ui.button(prog, "我完成驗證了，繼續 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary")
+    cont_btn = ui.button(prog, "畫面好了，截圖 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary")
     float_box = [None]
 
     def show_float(name):
@@ -734,14 +783,14 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         f.attributes("-topmost", True)
         f.configure(bg="#FFF4E5", highlightthickness=2, highlightbackground="#E58135")
         tk.Label(f, text=f"🖐 {name}", font=(FAM, 16, "bold"), fg="#7C2D12", bg="#FFF4E5").pack(anchor="w", padx=16, pady=(12, 4))
-        tk.Label(f, text="1. 在瀏覽器上完成「真人驗證」（點一下勾選框）\n"
-                         "2. 等網頁出現查詢結果（地號定位、分區圖）\n"
-                         "3. 再按下面的「我完成驗證了，繼續」",
+        tk.Label(f, text="1. 在瀏覽器按左邊【定位】（有驗證就點一下勾選框）\n"
+                         "2. 按工具列【查詢】，在地圖紅色錨點上點一下\n"
+                         "3. 左邊出現分區資訊、畫面調好，再按下面的按鈕（多筆會一筆一筆來）",
                  font=(FAM, 13), fg="#1C1917", bg="#FFF4E5", justify="left").pack(anchor="w", padx=16)
         f._line = tk.Label(f, text="", font=(FAM, 11), fg="#57534E", bg="#FFF4E5", wraplength=380, justify="left",
                            height=2, anchor="nw")      # 固定兩行高：訊息再長也不會把按鈕擠出框外
         f._line.pack(anchor="w", padx=16, pady=(6, 0))
-        ui.button(f, "我完成驗證了，繼續 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary").pack(
+        ui.button(f, "畫面好了，截圖 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary").pack(
             anchor="e", padx=16, pady=12)
         f.update_idletasks()
         w, h = max(f.winfo_reqwidth(), 420), f.winfo_reqheight()
@@ -803,7 +852,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         prog.pack(fill=tk.X, side=tk.BOTTOM, before=foot)
         bar_all.configure(maximum=len(items), value=0)
         r = Runner(case, items, show_var.get(), deal_var.get(), q, json_path=jp)
-        runner_box[0] = r
+        runner_box[0] = ACTIVE[0] = r
+        refresh_run()
         threading.Thread(target=r.run, daemon=True).start()
 
     def stop():
@@ -833,8 +883,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     say(f"[連續模式] 第 {n}/{total} 項：{rows[key]['item']['name']} 開始")
                     if inter:
                         cont_btn.pack(anchor="w", pady=(6, 0))
-                        line_lbl.configure(text="已開啟瀏覽器：請完成真人驗證，網頁出現查詢結果後按「繼續」")
-                        say("  🖐 需要你操作：在瀏覽器完成真人驗證，網頁出現查詢結果後，按右下角提示框的「我完成驗證了，繼續」")
+                        line_lbl.configure(text="已開啟瀏覽器：請完成查詢，分區資訊出現、畫面調好後按「畫面好了，截圖」")
+                        say("  🖐 需要你操作：在瀏覽器完成查詢，分區資訊出現、畫面調好後，按右下角提示框的「畫面好了，截圖」")
                         show_float(rows[key]['item']['name'])
                 elif kind == "tick":
                     _, key, sec = m
@@ -868,7 +918,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                         rows[key]["status"].configure(text=f"✓ 完成（{sec} 秒）" + (" ⚠" if msg else ""), fg=GREEN)
                         rows[key]["var"].set(False)
                     elif st == "nodata":
-                        rows[key]["status"].configure(text="— 官方查無資料", fg=MUTED)
+                        rows[key]["status"].configure(text="— 官方查無資料", fg=INK2)
+                        rows[key]["var"].set(False)
                     else:
                         rows[key]["status"].configure(text=f"✗ {msg[:18]}", fg=RED)
                     state["results"].append((rows[key]["item"]["name"], st, msg))
@@ -877,7 +928,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                 elif kind == "merged":
                     merged(*m[1:])
                 elif kind == "alldone":
-                    runner_box[0] = None
+                    runner_box[0] = ACTIVE[0] = None
+                    refresh_run()
                     bar_item.stop()
                     ok = sum(1 for _, s, _m in state["results"] if s == "done")
                     bad = [(n_, m_) for n_, s, m_ in state["results"] if s not in ("done", "nodata")]
@@ -1062,7 +1114,8 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     merge_btn.pack(side=tk.LEFT)
     ui.button(btns, "關閉", on_close, "ghost").pack(side=tk.LEFT, padx=(0, 8))
     ui.button(btns, "■ 停止", stop, "ghost").pack(side=tk.LEFT, padx=(0, 8))
-    run_btn = ui.button(btns, "▶ 開始", lambda: start(), "primary")
+    run_btn = run_box[0] = ui.button(btns, "▶ 開始", lambda: start(), "primary")
+    refresh_run()
     win._start = start                              # 給測試/其他程式直接開始指定項目
     win._merge = do_merge                           # 新版主頁「合併列印」直接接這個
     run_btn.pack(side=tk.LEFT)

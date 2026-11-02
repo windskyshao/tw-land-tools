@@ -117,6 +117,7 @@ def parse_args():
     parser.add_argument('--city', type=str, default=None,
                         help='指定縣市名稱（例 臺南市、屏東縣）；省略則用 data.json 第 1 筆的 city')
     parser.add_argument('--base-dir', type=str, default=None)
+    parser.add_argument('--until-found', action='store_true', help='多筆地號：查到執照就停(連續模式用)')
     args, unknown = parser.parse_known_args()
     return args
 
@@ -1615,6 +1616,10 @@ def main():
                 time.sleep(0.5)
 
             print(f"\n\033[92m✓ 此筆完成：成功下載 {success_count}/{len(choices)} 筆\033[0m", flush=True)
+
+            if success_count and args.until_found:
+                print("已查到執照，其餘地號不再查", flush=True)
+                break
 
         # 多筆地號處理完所有結束訊息
         if len(selected_entries) > 1:

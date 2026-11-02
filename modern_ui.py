@@ -530,13 +530,13 @@ class StatusChip(tk.Label):
                 self._raw = text
             done = "已做謄本結構化" in self._raw
             if "不符" in self._raw:                   # 謄本與目前案件不符：紅底白字，最醒目
-                super().configure(text=f"⚠ {self._raw}", fg="#FFFFFF", bg="#D93025")
+                super().configure(text=f"⚠ {self._raw}", fg="#FFFFFF", bg="#D93025")   # 不換行空白：⚠ 不會自己獨佔一行
             elif done:
                 lot = self._raw.replace("←已做謄本結構化", "").strip()
                 shown = f"✓ 已做謄本結構化：{lot}" if lot else "✓ 已做謄本結構化"
                 super().configure(text=shown, fg="#1B7F3B", bg="#E3F5E8")
             else:
-                super().configure(text=f"○ {self._raw}", fg="#B35400", bg="#FFEBD6")
+                super().configure(text=f"□ {self._raw}", fg="#B35400", bg="#FFEBD6")
         if kw:
             super().configure(**kw)
 

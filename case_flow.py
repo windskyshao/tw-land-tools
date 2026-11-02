@@ -39,14 +39,29 @@ def _glob(folder, *pats):
     return [x for x in out if not os.path.basename(x).startswith("~$")]
 
 
+def _tr_kinds(name):
+    """謄本資料夾的檔名 → (土地, 建物, 建物測量成果圖, 地籍圖)；同一份可能兼有土地和建物"""
+    n = name.replace("騰本", "謄本")
+    if "成果圖" in n or "建測" in n:
+        return False, False, True, False
+    if "地籍" in n or "畫線" in n:
+        return False, False, False, True
+    if "異動索引" in n:
+        return False, False, False, False
+    bldg = "建號" in n or "建物" in n
+    land = "地號" in n or "土地" in n or ("謄" in n and not bldg)
+    return land, bldg, False, False
+
+
 def _attach_items(case):
-    """這個縣市適用的附件項目 [(名稱, 有沒有檔)]（跟連續模式同一份清單）"""
+    """這個縣市適用的附件項目 [(名稱, 有沒有檔, 查過但官方查無)]（跟連續模式同一份清單）"""
     if not CA:
         return []
     out = []
     for it in CA.ITEMS + [CA.LUZ]:
-        if CA.applicable(it, case.get("city", "")):
-            out.append((it["name"].split(" ", 1)[-1], bool(CA.found_files(it, case))))
+        have = bool(CA.found_files(it, case))
+        if CA.applicable(it, case.get("city", "")) and (have or not CA.limited(it, case.get("city", ""))):
+            out.append((it["name"].split(" ", 1)[-1], bool(CA.found_files(it, case)), bool(CA.nodata_at(it, case))))
     return out
 
 
@@ -92,8 +107,9 @@ def scan(case, stage="委託", running=None, account=None):
 
     # ② 附件查詢(免費、自動)
     items = _attach_items(case)
-    have = [n for n, ok in items if ok]
-    miss = [n for n, ok in items if not ok]
+    have = [n for n, ok, no in items if ok or no]
+    none = sum(no for n, ok, no in items)
+    miss = [n for n, ok, no in items if not ok and not no]
     if running and running.get("key") == "query":
         st = "wait" if running.get("wait") else "run"
         det = f"阿生查詢中 {running.get('done', len(have))}/{running.get('total', len(items))}"
@@ -102,7 +118,7 @@ def scan(case, stage="委託", running=None, account=None):
         acts = [("停止", "query_stop", False), ("📋 清單", "query_list", False)]
     else:
         st = "done" if items and not miss else "todo"
-        det = f"已有 {len(have)}/{len(items)}" + (f"　缺：{'、'.join(miss[:3])}{'…' if len(miss) > 3 else ''}" if miss else "")
+        det = f"已查\u00a0{len(have)}/{len(items)}" + (f"（查無 {none}）" if none else "") + (f"　缺：{miss[0]}" + (f" 等 {len(miss)} 項" if len(miss) > 1 else "") if miss else "")
         acts = [("▶ 查缺的", "query_run", True), ("📋 清單", "query_list", False)] if miss else [("📋 清單", "query_list", False)]
     add("query", "查", "附件查詢", st, det, acts,
         tip="使用執照、重要設施、V523、地籍便民、國土測繪、都市計畫、國土分區、地質雲、"
@@ -111,16 +127,22 @@ def scan(case, stage="委託", running=None, account=None):
 
     # ③ 調閱謄本(付費)
     tr = _glob(f, "0.謄本/*.pdf")
-    land = any("地號" in os.path.basename(p) and "謄本" in os.path.basename(p) for p in tr)
-    bldg = any("建號" in os.path.basename(p) and "謄本" in os.path.basename(p) and "成果圖" not in os.path.basename(p) for p in tr)
-    cad = [p for p in tr if any(k in os.path.basename(p) for k in ("地籍圖", "畫線"))]
-    got = land or bldg or cad
-    det = "　".join(f"{n} {'✓' if ok else '—'}" for n, ok in (("土地", land), ("建物", bldg), ("地籍圖", bool(cad))))
-    if not got:
+    kinds = [_tr_kinds(os.path.basename(p)) for p in tr]
+    land, bldg, survey = (any(k[i] for k in kinds) for i in range(3))
+    cad = [p for p, k in zip(tr, kinds) if k[3]]
+    got = land or bldg                      # 土地、建物至少要有一種；成果圖有建物才需要
+    full = got and cad and (survey or not bldg)
+    marks = [("土地", "✓" if land else "—" if bldg else "□"), ("建物", "✓" if bldg else "—" if land else "□"),
+             ("地籍圖", "✓" if cad else "□")] + ([("成果圖", "✓" if survey else "□")] if bldg else [])
+    det = "　".join(f"{n} {m}" for n, m in marks)
+    if not got and not cad:
         det = "還沒調閱" + ("（有希望再調）" if dev else "")
-    add("trans", "調", "調閱謄本", "done" if got else ("opt" if dev else "todo"), det,
-        [("電子謄本", "epaper", not got), ("電傳", "telereport", False)],
-        tip="要付費：電子謄本（全國地政）或電傳資訊系統。\n調好後會問你要不要接著做謄本結構化。")
+    elif not got:
+        det += "　還缺土地或建物謄本"
+    add("trans", "調", "調閱謄本", "done" if full else ("opt" if dev else "todo"), det,
+        [("電子謄本", "epaper", not full), ("電傳", "telereport", False)],
+        tip="要付費：電子謄本（全國地政）或電傳資訊系統。\n調好後會問你要不要接著做謄本結構化。\n"
+            "✓＝已有　□＝還沒有　—＝可不用（土地、建物有一種就好；成果圖有建物才要）")
 
     # ④ 謄本結構化
     js = _glob(f, "4.其他相關/trans_*.json")
@@ -166,21 +188,19 @@ def scan(case, stage="委託", running=None, account=None):
         [("📂 打開照片資料夾", "folder_photo", True)],
         tip="把照片拖進主程式視窗，選「2.照片」就會放進案件資料夾；行銷簡報會用到。")
     fin = _glob(f, "4.其他相關/data_final.json")
-    add("editor", "做", "物件資料", "done" if fin else ("skip" if dev else "todo"),
-        "已填寫" if fin else (later if dev else "開物件編輯器填寫"),
-        [("物件編輯器", "editor", not fin and not dev)],
-        tip="物件編輯器：謄本、分區、使照的資料會自動帶進來，補上售價、格局、車位等。")
     rent = "租" in str(case.get("deal", ""))
-    docs = [("物調表", bool(_glob(f, "物件個案調查表*.docx", "物件個案調查表*.pdf")), "doc_survey"),
+    docs = [("物件資料", bool(fin), "editor"),
+            ("物調表", bool(_glob(f, "物件個案調查表*.docx", "物件個案調查表*.pdf")), "doc_survey"),
             ("簡報", bool(_glob(f, "*不動產行銷報告*.pptx", "*不動產行銷報告*.pdf")), "doc_deck"),
             ("業績分配表", bool(_glob(f, "**/業績分配表_*.pdf")), "doc_perf")]
     if rent:
         docs.append(("申報書", bool(_glob(f, "**/實價登錄申報書*.pdf")), "doc_rent"))
     done_n = sum(ok for _, ok, _ in docs)
-    add("docs", "做", "物調表・簡報・業績", "done" if done_n == len(docs) else ("skip" if dev and not done_n else "todo"),
-        "　".join(f"{n} {'✓' if ok else '○'}" for n, ok, _ in docs) if (done_n or not dev) else later,
-        [(n, k, False) for n, ok, k in docs if not ok][:3],
-        tip="都從物件編輯器的資料產生；做好的檔案放在案件資料夾。")
+    add("editor", "做", "物件資料與文件", "done" if done_n == len(docs) else ("skip" if dev and not done_n else "todo"),
+        "　".join(f"{n}\u00a0{'✓' if ok else '□'}" for n, ok, _ in docs) if (done_n or not dev) else later,
+        [("物件編輯器", "editor", not fin and not dev)],
+        tip="物件編輯器：謄本、分區、使照的資料會自動帶進來，補上售價、格局、車位等。\n"
+            "物調表、簡報、業績分配表都在物件編輯器裡產生，這裡只顯示做好了沒。")
 
     # ⑩ 交件
     merged = _glob(f, "1.基本資料/00_合併列印_*.pdf")
@@ -839,14 +859,13 @@ class LogStrip(tk.Frame):
 # ───────────────────────── 帶路版主頁：一次只做一件事(使用者 10-30：四方塊版看不懂、字太小) ─────────────────────────
 GUIDE_HELP = {
     "case": "在最下面的輸入框打地址、門牌或「地段 地號」，按 Enter 就會建好案件資料夾。",
-    "query": "免費：使照、分區、地籍便民、實價…自動一項一項查。",
+    "query": "免費項目，自動一項一項查。",
     "trans": "要付費：調土地、建物謄本和地籍圖。",
     "struct": "把謄本 PDF 轉成資料，土增稅和物件資料會用到。",
     "tax": "用結構化資料自動算土地增值稅。",
     "map": "在地籍圖標出邊長、臨路路名和路寬。",
     "photo": "照片放進「2.照片」：直接拖進主程式視窗也可以。",
-    "editor": "物件編輯器：補上售價、格局、車位（謄本資料已自動帶入）。",
-    "docs": "一鍵產生物調表、行銷簡報、業績分配表。",
+    "editor": "在物件編輯器補上售價、格局、車位，物調表、簡報、業績表也在裡面產生。",
     "deliver": "把做好的檔案合成一份 PDF。",
 }
 
@@ -924,13 +943,21 @@ class Guide(tk.Frame):
         self.pick = key
         self._redraw()
 
-    def _head(self, box, title, color=ORANGE_DK):
-        """大卡片標題列：阿生＋「第 N 步 XXX」；下面一行阿生說的話(剛做好／執行中)"""
+    def _head(self, box, title, color=ORANGE_DK, links=()):
+        """大卡片標題列：阿生＋「第 N 步 XXX」＋右邊小連結；下面一行阿生說的話(剛做好／執行中)"""
         hd = tk.Frame(box, bg=ORANGE_BG)
-        hd.pack(fill=tk.X, padx=M.px(10), pady=(M.px(6), 0))
-        self.cat = Asheng(hd, self.img_path, size=M.px(40))
+        hd.pack(fill=tk.X, padx=M.px(10), pady=(M.px(4), 0))
+        self.cat = Asheng(hd, self.img_path, size=M.px(34))
         self.cat.pack(side=tk.LEFT)
-        tk.Label(hd, text=title, font=(FAM, 21, "bold"), bg=ORANGE_BG, fg=color, anchor="w").pack(
+        host = hd
+        if len(title) > 12:                 # 標題太長(如 物調表・簡報・業績)：連結放下一行，不要跟標題搶位置
+            host = tk.Frame(box, bg=ORANGE_BG)
+            host.pack(fill=tk.X, padx=M.px(14))
+        for text, cmd in reversed(links):
+            lb = tk.Label(host, text=text, font=(FAM, 13, "underline"), bg=ORANGE_BG, fg="#1F5FAF", cursor="hand2")
+            lb.pack(side=tk.RIGHT, padx=(M.px(10), 0))
+            lb.bind("<Button-1>", lambda e, c=cmd: c())
+        tk.Label(hd, text=title, font=(FAM, 19, "bold"), bg=ORANGE_BG, fg=color, anchor="w").pack(
             side=tk.LEFT, fill=tk.X, expand=True, padx=(M.px(6), 0))
         say = (f"「{self.busy}」正在做，做完我會自動打勾、接下一步" if self.busy else self.note)
         if say:
@@ -948,10 +975,19 @@ class Guide(tk.Frame):
             BigButton(box, "📂 打開案件資料夾", lambda: self.on_action("folder"), height=M.px(54), size=17).pack(
                 fill=tk.X, pady=(0, M.px(12)), **pad)
             return
-        self._head(box, f"第 {main.index(cur) + 1} 步　{cur['title']}")
         st = cur["state"]
+        links = []
+        if st in ("todo", "lock"):
+            links.append(("跳過這步", lambda k=cur["key"]: (self.on_skip(k, True), self._goto(None))))
+        elif st == "skipped":
+            links.append(("改回要做", lambda k=cur["key"]: (self.on_skip(k, False), self._redraw())))
+        if auto and cur is not auto:
+            links.append((f"回第 {main.index(auto) + 1} 步", lambda: self._goto(None)))
+        self._head(box, f"第 {main.index(cur) + 1} 步　{cur['title']}", links=links)
         if st == "done":
-            msg, col = "✓ 這步已經做好了。要重做可以再按下面的按鈕。", GREEN
+            msg, col = "✓ 已做好（要重做再按一次）", GREEN
+            if cur["detail"]:                 # 跟「目前」併成一行，省下高度給訊息框
+                msg += f"　{cur['detail']}"
         elif st in ("skipped", "skip"):
             msg, col = "這步目前不用做。要做的話按下面的按鈕。", INK2
         elif st == "lock":
@@ -960,18 +996,18 @@ class Guide(tk.Frame):
             msg, col = GUIDE_HELP.get(cur["key"], cur.get("tip", "")), INK
         _autowrap(tk.Label(box, text=msg, font=(FAM, 14), bg=ORANGE_BG, fg=col, anchor="w", justify="left")).pack(
             fill=tk.X, pady=(M.px(2), 0), **pad)
-        if cur["detail"] and st != "lock":
-            _autowrap(tk.Label(box, text=f"目前：{cur['detail']}", font=(FAM, 13), bg=ORANGE_BG, fg=INK2, anchor="w",
+        if cur["detail"] and st not in ("lock", "done"):
+            _autowrap(tk.Label(box, text=cur["detail"], font=(FAM, 13), bg=ORANGE_BG, fg=INK2, anchor="w",
                                justify="left")).pack(fill=tk.X, **pad)
         acts = [a for a in cur["actions"] if a[1] != "query_stop"]
         big, small = acts[:2], acts[2:]
         if big:
             row = tk.Frame(box, bg=ORANGE_BG)
-            row.pack(fill=tk.X, pady=(M.px(8), 0), **pad)
+            row.pack(fill=tk.X, pady=(M.px(5), 0), **pad)
             for i, a in enumerate(big):
                 label = a[0] if i or a[0].startswith(("▶", "📂", "📑", "📥")) else f"▶ {a[0]}"
-                b = BigButton(row, label, (lambda k=a[1]: self.on_action(k)), height=M.px(50), size=18 if i == 0 else 16,
-                              color=ORANGE if i == 0 else "#2F7D63")
+                b = BigButton(row, label, (lambda k=a[1]: self.on_action(k)), height=M.px(38), size=16 if i == 0 else 15,
+                              color="#F6C08A" if i == 0 else "#A8DCC6", fg=INK)
                 row.columnconfigure(i, weight=2 if i == 0 else 1, uniform="b")
                 b.grid(row=0, column=i, sticky="ew", padx=(0 if i == 0 else M.px(8), 0))
                 if len(a) > 3 and a[3]:
@@ -983,19 +1019,7 @@ class Guide(tk.Frame):
                 row2.columnconfigure(j, weight=1, uniform="s")
                 BigButton(row2, a[0], (lambda k=a[1]: self.on_action(k)), height=M.px(42), size=14,
                           color="#E9E2D8", fg=INK).grid(row=0, column=j, sticky="ew", padx=(0, M.px(6)))
-        low = tk.Frame(box, bg=ORANGE_BG)
-        low.pack(fill=tk.X, pady=(M.px(6), M.px(8)), **pad)
-
-        def link(text, cmd):
-            lb = tk.Label(low, text=text, font=(FAM, 13, "underline"), bg=ORANGE_BG, fg="#1F5FAF", cursor="hand2")
-            lb.pack(side=tk.LEFT, padx=(0, M.px(18)))
-            lb.bind("<Button-1>", lambda e: cmd())
-        if st in ("todo", "lock"):
-            link("這步不用做，跳下一步", lambda k=cur["key"]: (self.on_skip(k, True), self._goto(None)))
-        elif st == "skipped":
-            link("改回要做", lambda k=cur["key"]: (self.on_skip(k, False), self._redraw()))
-        if auto and cur is not auto:
-            link(f"回到現在該做的（第 {main.index(auto) + 1} 步）", lambda: self._goto(None))
+        tk.Frame(box, bg=ORANGE_BG, height=M.px(6)).pack(fill=tk.X)
 
     def _draw_list(self, main, cur):
         n_done = sum(s["state"] == "done" for s in main)
@@ -1017,8 +1041,8 @@ class Guide(tk.Frame):
             bg = ORANGE_BG if on else "#FFFFFF"
             row = tk.Frame(grid, bg=bg, cursor="hand2")
             row.grid(row=i % half, column=i // half, sticky="ew", padx=M.px(2), pady=1)
-            icon, icol = {"done": ("✓", GREEN), "skipped": ("—", DIM), "skip": ("—", DIM), "lock": ("○", DIM),
-                          "run": ("…", ORANGE_DK), "wait": ("!", RED)}.get(st, ("○", INK2))
+            icon, icol = {"done": ("✓", GREEN), "skipped": ("—", DIM), "skip": ("—", DIM), "lock": ("□", DIM),
+                          "run": ("…", ORANGE_DK), "wait": ("!", RED)}.get(st, ("□", INK2))
             if on:
                 icon, icol = "▶", ORANGE
             ws = [tk.Label(row, text=icon, font=(FAM, 14, "bold"), bg=bg, fg=icol, width=2),

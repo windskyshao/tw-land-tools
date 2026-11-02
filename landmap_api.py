@@ -5,6 +5,7 @@
 import json
 import re
 import ssl
+import time
 import urllib.parse
 import urllib.request
 import urllib.error
@@ -26,7 +27,22 @@ class LandmapError(Exception):
     pass
 
 
+class LandmapBusy(LandmapError):
+    pass
+
+
 def _get(path, timeout=25, **params):
+    """查詢；主機或通道一時失敗(HTTP 502/503/504)等一下重試，不要因為一次失敗就放棄整件工作"""
+    for wait in (2, 5, None):
+        try:
+            return _get_once(path, timeout, params)
+        except LandmapBusy:
+            if wait is None:
+                raise
+            time.sleep(wait)
+
+
+def _get_once(path, timeout, params):
     url = BASE + path + ("?" + urllib.parse.urlencode(params) if params else "")
     req = urllib.request.Request(url, headers={"User-Agent": _UA, "Accept": "application/json"})
     ctxs = [None]
@@ -41,6 +57,8 @@ def _get(path, timeout=25, **params):
             with urllib.request.urlopen(req, timeout=timeout, context=ctx) as r:
                 return json.loads(r.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
+            if e.code in (502, 503, 504):
+                raise LandmapBusy(f"阿生地圖暫時忙線（HTTP {e.code}），等一下再試一次")
             raise LandmapError(f"阿生地圖回應錯誤（HTTP {e.code}）")
         except urllib.error.URLError as e:
             last = e

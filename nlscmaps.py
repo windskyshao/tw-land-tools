@@ -139,6 +139,7 @@ import argparse as _argparse
 _arg_parser = _argparse.ArgumentParser(add_help=False)
 _arg_parser.add_argument('--batch-lots', default=None,
                          help='comma-separated lot numbers (subprocess mode)')
+_arg_parser.add_argument('--no-batch', action='store_true', help='不問分批，全部一起(連續模式無人回答彈窗)')
 _args, _ = _arg_parser.parse_known_args()
 
 _is_child_batch = bool(_args.batch_lots)
@@ -248,6 +249,8 @@ def ask_user_for_batching(data_list):
 if _is_child_batch:
     _batches = [data_list]
     print(f"[子批次模式] 跳過分批對話框", flush=True)
+elif _args.no_batch:
+    _batches = [data_list]
 else:
     _batches = ask_user_for_batching(data_list)
     if len(_batches) > 1:

@@ -16,8 +16,12 @@ def enable(root):
     if key in _ok:
         return _ok[key]
     try:
+        import tkinter
         from tkinterdnd2 import TkinterDnD
         TkinterDnD._require(root)
+        # tkinterdnd2 只把拖放功能裝到子元件和 Toplevel，一般 tk.Tk() 主視窗沒有，要自己補上
+        if TkinterDnD.DnDWrapper not in tkinter.Tk.__mro__:
+            tkinter.Tk.__bases__ += (TkinterDnD.DnDWrapper,)
         _ok[key] = True
     except Exception as e:
         print(f"[拖曳] 無法啟用檔案拖曳：{e}")

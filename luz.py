@@ -865,6 +865,13 @@ def process_entry(driver, entry, idx, total):
     #    直接「抓分區文字 + 截圖 + 存檔」，跳過所有會弄亂畫面的自動步驟(縮回/放大/平移/倒數)，本筆結束。
     if LUZ_MANUAL_ALL:
         zone = _luz_extract_zone(driver)
+        if not zone:
+            print("⚠ 還沒看到分區資訊，這筆先不截圖。請查好後再按一次；只要地圖的話，直接再按一次也會截圖", flush=True)
+            try:
+                input()
+            except (EOFError, OSError):
+                pass
+            zone = _luz_extract_zone(driver)
         _luz_save_zone(target_city, target_area, target_section, target_lot, zone)
         base_filename = f"07_全國土地使用分區-{target_area}{target_section}-{target_lot}"
         return _luz_shot_and_pdf(driver, base_directory, base_filename)

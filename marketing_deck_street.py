@@ -42,7 +42,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     for r in roots:
         hits = sorted(glob.glob(os.path.join(r, "0.謄本", "*建物測量成果圖*.pdf")))
         if hits:
-            plans = hits[:1]
+            plans = hits
             break
     if not plans:
         for r in roots:
@@ -51,14 +51,14 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
             if hits:
                 plans = hits[:3]
                 break
-    plans = M.sel_paths(sel, "plan", plans)
+    plans = M.plan_pages(M.sel_paths(sel, "plan", plans))
     cad_pdf = first(os.path.join("0.謄本", "*地籍圖*標註*.pdf")) or first(os.path.join("0.謄本", "*地籍圖*.pdf"))
     cad_pages = M.sel_paths(sel, "cadastral", [cad_pdf] if cad_pdf else [])
     if cad_pages:
         cad_pdf = cad_pages[0]
     fac = first(os.path.join("1.基本資料", "*重要設施*.pdf"))
     fac_pages = M.sel_paths(sel, "facility", [fac] if fac else [])
-    zon = first(os.path.join("1.基本資料", "png", "*都市計畫圖*.png"))
+    zon = first(os.path.join("1.基本資料", "png", "*都市計畫圖*.png")) or first(os.path.join("1.基本資料", "*全國土地使用分區*.pdf"))
     zone_pages = M.sel_paths(sel, "zoning", [zon] if zon else [])
 
     # 面寬/深度：物件編輯器 → 成果圖 → 地籍圖(土地)
@@ -241,8 +241,8 @@ def cover_slide(M, deck, C, f, cover, phones, show_agents):
 
 def _short_dims(s):
     s = re.sub(r"[（(].*?[）)]", "", str(s or "")).replace(" ", "")
-    m = re.search(r"([\d.]+)\D+([\d.]+)", s)
-    return f"{m.group(1)}／{m.group(2)} 米" if m else s
+    n = re.findall(r"\d+(?:\.\d+)?", s)            # 只填面寬時只有一個數字，小數點不能當分隔
+    return "／".join(n[:2]) + " 米" if n else s
 
 
 # ---------------------------------------------------------------- 物件亮點：數字方塊＋訴求重點
@@ -324,11 +324,17 @@ def floors_slide(M, deck, C, f):
     if f.get("below") and not any("地下" in k for k, _ in fl):
         rows.append(("地下層", 0, False))
     rows.sort(key=lambda r: M._floor_order(r[0]), reverse=True)        # 高樓層在上，像一棟樓
+    rows.sort(key=lambda r: M._floor_tag(r[0]))                        # 兩棟一起賣：同一門牌排在一起
     lx, lw = Inches(0.5), Inches(8.3)
     top = Inches(1.35)
     avail = M.FOOTER_Y - Inches(0.9) - top
     if missing or f.get("below"):
         avail -= Inches(0.7)                                             # 留給下方「不在本建號」的說明
+    if f.get("attach_by"):
+        avail -= Inches(0.6)                                             # 留給附屬建物那一行
+    tagged = any(M._floor_tag(r[0]) for r in rows)                       # 標籤有門牌：框加寬、字收小，才不會折行
+    lbw = Inches(2.0) if tagged else Inches(1.6)
+    bx = lx + lbw + Inches(0.15)
     # 樓層少(透天兩層)時每層拉高、整欄疊滿，像一棟樓；長條本身最粗 0.9 吋，字跟著放大
     rh = min(Inches(2.6), avail // max(1, len(rows)))
     big = rh / Inches(0.85)
@@ -337,15 +343,15 @@ def floors_slide(M, deck, C, f):
     vmax = max([v for _, v, _ in rows] + [0])
     for i, (k, v, ok) in enumerate(rows):
         y = top + rh * i
-        M.box(s, lx, y + Inches(0.06), Inches(1.6), rh - Inches(0.12), C["panel"] if ok else C["white"], C["amber"] if ok else C["line"])
-        M.text(s, lx, y + Inches(0.06), Inches(1.6), rh - Inches(0.12), k, fs, True, C["amber_dk"] if ok else C["light"],
+        M.box(s, lx, y + Inches(0.06), lbw, rh - Inches(0.12), C["panel"] if ok else C["white"], C["amber"] if ok else C["line"])
+        M.text(s, lx, y + Inches(0.06), lbw, rh - Inches(0.12), k, min(fs, 15) if tagged else fs, True, C["amber_dk"] if ok else C["light"],
                PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
         if not ok:
-            M.text(s, lx + Inches(1.75), y, lw - Inches(1.9), rh, "不在本建號登記範圍", 14, True, C["grey"], anchor=MSO_ANCHOR.MIDDLE)
+            M.text(s, bx, y, lw - Inches(1.9), rh, "不在本建號登記範圍", 14, True, C["grey"], anchor=MSO_ANCHOR.MIDDLE)
             continue
-        bw = int((lw - Inches(3.4)) * (v / vmax)) if vmax else 0
-        M.box(s, lx + Inches(1.75), y + (rh - bh) // 2, max(bw, Inches(0.2)), bh, C["amber"])
-        M.text(s, lx + Inches(1.75) + bw + Inches(0.15), y, Inches(1.6), rh, f"{v:g} 坪", fs, True, C["char"],
+        bw = int((lw - lbw - Inches(1.8)) * (v / vmax)) if vmax else 0
+        M.box(s, bx, y + (rh - bh) // 2, max(bw, Inches(0.2)), bh, C["amber"])
+        M.text(s, bx + bw + Inches(0.15), y, Inches(1.6), rh, f"{v:g} 坪", fs, True, C["char"],
                anchor=MSO_ANCHOR.MIDDLE)
     note = []
     if missing:
@@ -355,6 +361,9 @@ def floors_slide(M, deck, C, f):
             note.append(f"地下 {f['below']} 層不在本建號登記範圍")
     if note:
         M.text(s, lx, M.FOOTER_Y - Inches(0.75), lw, Inches(0.6), "※ " + "；".join(note) + "（以謄本、現況為準）", 13, True,
+               C["amber_dk"], anchor=MSO_ANCHOR.MIDDLE)
+    if f.get("attach_by"):
+        M.text(s, lx, M.FOOTER_Y - Inches(1.35 if note else 0.75), lw, Inches(0.6), "附屬建物　" + f["attach_by"], 14, True,
                C["amber_dk"], anchor=MSO_ANCHOR.MIDDLE)
     # 右欄：合計
     rx, rw = Inches(9.2), SW - Inches(9.7)
@@ -445,10 +454,18 @@ def zoning(M, deck, C, f, png):
     from PIL import Image
     from pptx.util import Inches
     from pptx.enum.text import MSO_ANCHOR
-    im = Image.open(png).convert("RGB")
-    w, h = im.size
+    if png.lower().endswith(".pdf"):                 # 全國土地使用分區：整頁是網頁截圖，右邊是地圖、左邊是查詢面板
+        import fitz
+        pm = fitz.open(png)[0].get_pixmap(dpi=200)
+        im = Image.frombytes("RGB", (pm.width, pm.height), pm.samples)
+        w, h = im.size
+        box_ = (int(w * 0.395), int(h * 0.145), w, int(h * 0.985))    # 留下方「僅供參考」的官方聲明
+    else:
+        im = Image.open(png).convert("RGB")
+        w, h = im.size
+        box_ = None
     # 高雄都計系統畫面：左邊選單約 21%、上方標題列約 8%、下方比例尺列約 7% → 只留地圖
-    crop = im.crop((int(w * 0.215), int(h * 0.18), w, int(h * 0.92)))      # 也切掉地圖上方那排工具按鈕
+    crop = im.crop(box_ or (int(w * 0.215), int(h * 0.18), w, int(h * 0.92)))      # 也切掉地圖上方那排工具按鈕
     out = os.path.join(deck.tmp, "zone_map.png")
     crop.save(out)
     s = deck.new("使用分區")
@@ -472,7 +489,7 @@ def zoning(M, deck, C, f, png):
         M.text(s, rx + Inches(0.25), y + Inches(0.4), rw - Inches(0.4), Inches(0.5), str(v), 16 if len(str(v)) <= 14 else 12, True,
                C["char"], anchor=MSO_ANCHOR.MIDDLE)
         y += Inches(1.08)
-    M.text(s, rx, M.FOOTER_Y - Inches(0.5), rw, Inches(0.4), "資料來源：都市計畫地理資訊系統", 11, False, C["grey"])
+    M.text(s, rx, M.FOOTER_Y - Inches(0.5), rw, Inches(0.4), "資料來源：" + ("全國土地使用分區資料查詢系統，僅供參考" if box_ else "都市計畫地理資訊系統"), 11, False, C["grey"])
 
 
 # ---------------------------------------------------------------- 聯絡頁(封底)：白底，左邊公司直式 LOGO＋Full Life＋電話，右邊預約看屋

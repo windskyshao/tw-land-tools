@@ -245,6 +245,16 @@ class RoundButton(tk.Canvas):
     def invoke(self):
         self.command()
 
+    def set_enabled(self, on):
+        """變灰、不能按(執行中或沒東西可做時)"""
+        if not hasattr(self, "_cmd"):
+            self._cmd, self._colors = self.command, (self.fill, self.hover, self.itemcget(self._text, "fill"))
+        self.command = self._cmd if on else (lambda: None)
+        self.fill, self.hover, fg = self._colors if on else ("#D5DAE1", "#D5DAE1", "#6B7280")
+        self.itemconfigure(self._shape, fill=self.fill)
+        self.itemconfigure(self._text, fill=fg)
+        self.configure(cursor="hand2" if on else "arrow")
+
     def cget(self, key):
         if key == "text":
             return self.itemcget(self._text, "text")

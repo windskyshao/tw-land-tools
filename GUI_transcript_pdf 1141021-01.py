@@ -314,7 +314,7 @@ class ModernStyle:
 # 🔥 基準目錄設定
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
-TOOL_VERSION = "2.4"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
+TOOL_VERSION = "2.5"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
 UPDATE_REPO = "windskyshao/tw-transcript-structurer"   # 主程式的自動更新也是看這個 repo
 LAUNCHED_BY_MAIN = "--base-dir" in sys.argv            # 由「地籍資料查詢系統」主程式開的
 
@@ -1921,7 +1921,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.4 (2026-10-29) | 電子謄本功能測試版",
+                               text="v2.5 (2026-11-02) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2292,36 +2292,12 @@ class ModernTranscriptGUI:
         self.master.configure(bg=ModernStyle.BG_PRIMARY)
         
         try:
-            # 備用方案：使用更亮的背景色
-            import ctypes
-            import tkinter as tk
-            from PIL import Image, ImageDraw, ImageTk
-            
-            self.master.iconbitmap("")
-            
-            # 使用更亮的背景色
-            img = Image.new('RGBA', (32, 32), (100, 150, 200, 255))  # 更亮的藍色
-            draw = ImageDraw.Draw(img)
-            
-            # 超寬版本
-            draw.polygon([(16, 5), (5, 15), (27, 15)], fill='white')  # 更寬的屋頂
-            draw.rectangle([7, 15, 25, 27], fill='white')              # 更寬的房身
-            draw.rectangle([14, 20, 18, 27], fill='#8B4513')           # 門
-            draw.rectangle([8, 17, 11, 19], fill='#87CEEB')            # 左窗
-            draw.rectangle([21, 17, 24, 19], fill='#87CEEB')           # 右窗
-            
-            # 加個邊框讓圖示更明顯
-            draw.rectangle([0, 0, 31, 31], outline='white', width=1)
-            
-            icon_photo = ImageTk.PhotoImage(img)
-            self.master.iconphoto(True, icon_photo)
-            
-            myappid = 'RealEstateTool.Application.1.0'
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-            
+            icon = os.path.join(getattr(sys, '_MEIPASS', os.path.dirname(os.path.abspath(__file__))), 'transcript_epaper.ico')
+            if not os.path.exists(icon):
+                icon = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'installer', 'art', 'transcript_epaper.ico')
+            self.master.iconbitmap(default=icon)
         except Exception as e:
-            print(f"備用圖示設置失敗: {e}", flush=True)
-            pass
+            print(f"圖示設置失敗: {e}", flush=True)
         
         # 配置ttk樣式
         ModernStyle.configure_ttk_style()
@@ -2431,7 +2407,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.4 (2026-10-29) | {status_text}",
+                            text=f"v2.5 (2026-11-02) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -4575,7 +4551,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.4 (2026-10-29) | 電子謄本功能測試版",
+                            text="v2.5 (2026-11-02) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -8998,14 +8974,6 @@ def main():
 
     # 啟動美化版GUI
     try:
-        # 🔧 修復工作列圖示問題：必須在建立視窗之前設定 AppUserModelID
-        try:
-            import ctypes
-            myappid = 'RealEstateTool.Application.1.0'
-            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(myappid)
-        except Exception:
-            pass
-
         # 🔧 先建立主視窗但隱藏，立刻顯示「載入中」啟動畫面，給使用者即時回饋
         root = tk.Tk()
         root.withdraw()
