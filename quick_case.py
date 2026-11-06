@@ -126,6 +126,30 @@ def _case_folder_name(e):
     return f"{e['area']}{e['section']}-{e['lot_number']}"
 
 
+# 這次查詢是要做什麼(決定哪顆按鈕最醒目、目前案件要不要淡掉)：
+#   "new"＝開始卡／新案件鈕進來，要建新的 → 目前案件淡掉、「建立新案件」藍色
+#   "add"＝剛建好案件說「還有其他地號／門牌」→「加入○○」藍色
+#   兩種都只對設定當時的那個案件有效(換案件就失效)
+INTENT = {"mode": None, "case": None}
+
+
+def case_name(data_json_path):
+    cur = _load_data(data_json_path)
+    if cur and all(k in cur[0] for k in ("area", "section", "lot_number")):
+        return _case_folder_name(cur[0])
+    return "目前案件" if cur else None
+
+
+def set_intent(mode, case=None):
+    INTENT.update(mode=mode, case=case)
+
+
+def intent_now(data_json_path):
+    if INTENT["mode"] and INTENT["case"] != case_name(data_json_path):     # 案件換了 → 失效
+        return None
+    return INTENT["mode"]
+
+
 def _load_data(path):
     try:
         with open(path, "r", encoding="utf-8") as f:
@@ -742,13 +766,17 @@ class QuickCaseWindow:
     def _footer(self, can_save):
         for w in self.foot.winfo_children():
             w.destroy()
-        cur = _load_data(self.data_json_path)
+        name = case_name(self.data_json_path)
         if can_save:
             save = self._save_batch if self.batch else self._save
-            ui.button(self.foot, "＋  建立新案件", lambda: save("new")).pack(side=tk.RIGHT)
-            if cur:
-                name = _case_folder_name(cur[0]) if all(k in cur[0] for k in ("area", "section", "lot_number")) else "目前案件"
-                ui.button(self.foot, f"加入目前案件（{name}）", lambda: save("append"), "chip").pack(side=tk.RIGHT, padx=10)
+            if name and intent_now(self.data_json_path) == "add":     # 正在幫剛建的案件加地號 → 加入是主角
+                ui.button(self.foot, f"＋  加入 {name}", lambda: save("append")).pack(side=tk.RIGHT)
+                ui.button(self.foot, "另建新案件", lambda: save("new"), "chip").pack(side=tk.RIGHT, padx=10)
+            else:
+                ui.button(self.foot, "＋  建立新案件", lambda: save("new")).pack(side=tk.RIGHT)
+                if name:
+                    ui.button(self.foot, f"加入目前案件（{name}）", lambda: save("append"),
+                              "ghost" if intent_now(self.data_json_path) == "new" else "chip").pack(side=tk.RIGHT, padx=10)
         ui.button(self.foot, "取消" if can_save else "關閉", self.top.destroy, "ghost").pack(side=tk.RIGHT, padx=(0, 10))
         self._add_back()
         tk.Label(self.body, text="資料來源：阿生地圖（國土測繪中心、內政部實價登錄）", font=ui.FS, fg=INK2,
@@ -1604,13 +1632,20 @@ class QuickIntro:
         st = {"box": box, "rows": [], "more": None, "tip": None, "total": 0, "bad": 0, "cv": None}
         n_lot = len(r["entries"])
         n_bld = sum(len(e["builds"]) for e in r["entries"])
+        intent = intent_now(self.case_info()[0]) if n_lot else None
+        title = "📋 目前案件（data.json）"
+        ink = "#8A8F98" if intent == "new" else INK
+        if intent == "new":          # 這次要建新的 → 目前案件淡掉，免得以為要加進去
+            blue, edge, title = "#9AA3AE", "#C9CED6", "📋 目前案件（這次要建新的，不會動到它）"
+        elif intent == "add":
+            title = "📋 正在加入這個案件"
 
         # ===== 第一部分：data.json =====
         part1 = tk.Frame(box, bg="white", highlightthickness=2, highlightbackground=blue)
         part1.pack(fill=tk.X)
         head = tk.Frame(part1, bg=blue)
         head.pack(fill=tk.X)
-        tk.Label(head, text="📋 目前案件（data.json）", font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue,
+        tk.Label(head, text=title, font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue,
                  padx=12).pack(side=tk.LEFT, pady=4)
         cnt = (f"地段地號 {n_lot} 筆　建號 {n_bld} 戶" if n_lot else "還沒有案件")
         tk.Label(head, text=cnt, font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue, padx=12).pack(side=tk.RIGHT, pady=4)
@@ -1643,9 +1678,9 @@ class QuickIntro:
             st["fit"] = fit
             row = 0
             for i, e in enumerate(r["entries"], 1):
-                lines = [("", f"{i}. {e['label']}", INK, (ui.FAMILY, 15, "bold"))]
+                lines = [("", f"{i}. {e['label']}", ink, (ui.FAMILY, 15, "bold"))]
                 for txt, _stt in e["builds"]:
-                    lines.append(("", "　　" + txt, INK, (ui.FAMILY, 15)))
+                    lines.append(("", "　　" + txt, ink, (ui.FAMILY, 15)))
                 if not e["builds"]:
                     lines.append(("", "　　建號：（沒有）", INK2, (ui.FAMILY, 14)))
                 if e["community"]:
@@ -1668,7 +1703,9 @@ class QuickIntro:
                 for ch in w.winfo_children():
                     bind_wheel(ch)
             bind_wheel(cv)
-            st["tip"] = tk.Label(c, text="→加地號／建號：查詢後按「加入目前案件」；換案件：按「建立新案件」",
+            st["tip"] = tk.Label(c, text={"new": "→這次要建立新案件：查好後按「建立新案件」",
+                                       "add": "→查好後按「加入」，就會加進上面這個案件"}.get(
+                                     intent, "→加地號／建號：查詢後按「加入目前案件」；換案件：按「建立新案件」"),
                                  font=self.HF, fg=blue, bg="white", anchor="w", justify="left")
             st["tip"].pack(anchor="w", pady=(6, 0))
 
@@ -1804,7 +1841,7 @@ class QuickIntro:
             iy = self.inp.winfo_rooty() + self.inp.winfo_height() // 2      # 輸入欄中線(螢幕座標)
             fx, fw = root.winfo_x(), root.winfo_width() + (root.winfo_rootx() - root.winfo_x()) * 2
             sw, sh = top.winfo_screenwidth(), top.winfo_screenheight()
-            gap = 96                                                          # 留給箭頭
+            gap = 16
             on_left = fx >= W + gap or fx >= sw - (fx + fw)
             X = fx - gap - W if on_left else fx + fw + gap
             X = max(0, min(X, sw - W - 16))
@@ -1840,35 +1877,43 @@ class QuickIntro:
         return h - 45
 
     def _make_arrow(self, on_left, x, iy):
-        """主介面旁的透明小視窗，畫一支會前後動的橘色箭頭指著輸入欄"""
+        """輸入欄正上方的橘色小提示泡泡「也可以直接在下面這格打…」(原本是一支大箭頭，
+        會讓人以為一定要打下面、左邊不能用；改成說「兩邊都可以」)"""
         try:
+            import tkinter.font as tkfont
             a = tk.Toplevel(self.top)
             a.overrideredirect(True)
             key = "#FF00FE"
             a.configure(bg=key)
             a.attributes("-transparentcolor", key)
             a.attributes("-topmost", True)
-            w, h = 92, 64
-            a.geometry(f"{w}x{h}+{int(x)}+{int(iy - h / 2)}")
+            font = (ui.FAMILY, 13, "bold")
+            text = "也可以直接在這格打：地址、門牌、地號"
+            fw = tkfont.Font(root=a, font=font).measure(text)
+            fh = tkfont.Font(root=a, font=font).metrics("linespace")
+            ix, iw = self.inp.winfo_rootx(), self.inp.winfo_width()
+            w = int(max(fw + 28, 120))
+            h = int(fh + 16 + 12 + 6)                  # 文字＋上下留白＋小尖角＋上下輕晃
+            x0 = int(min(ix + max(0, (iw - w) // 2), a.winfo_screenwidth() - w - 4))
+            a.geometry(f"{w}x{h}+{x0}+{int(self.inp.winfo_rooty() - h - 1)}")
             cv = tk.Canvas(a, width=w, height=h, bg=key, highlightthickness=0)
             cv.pack()
-            self.arrow, self.arrow_cv, self.arrow_dir = a, cv, (1 if on_left else -1)
+            self.arrow, self.arrow_cv, self.arrow_dir = a, cv, (w, h, fh, font, text)
         except Exception:
             self.arrow = None
 
     def _draw_arrow(self, t):
         if not self.arrow:
             return
-        cv, d = self.arrow_cv, self.arrow_dir
+        cv, (w, h, fh, font, text) = self.arrow_cv, self.arrow_dir
         cv.delete("all")
-        off = 8 * math.sin(t / 3)                    # 前後輕推
-        w, h = 92, 64
-        tip = (w - 6 + off - 8) if d > 0 else (6 - off + 8)
-        tail = tip - 70 * d
-        cy = h / 2
-        pts = [tail, cy - 9, tip - 30 * d, cy - 9, tip - 30 * d, cy - 24, tip, cy,
-               tip - 30 * d, cy + 24, tip - 30 * d, cy + 9, tail, cy + 9]
-        cv.create_polygon(pts, fill=CAT_ORANGE, outline="#8A3B00", width=2)
+        off = round(3 * math.sin(t / 4)) if t < 200 else 0    # 剛出現輕輕上下晃，10 秒後停住
+        y0, y1 = 3 + off, 3 + off + fh + 16
+        r = 10
+        cv.create_polygon([1 + r, y0, w - 1 - r, y0, w - 1, y0, w - 1, y0 + r, w - 1, y1 - r, w - 1, y1,
+                           w - 1 - r, y1, w // 2 + 11, y1, w // 2, y1 + 11, w // 2 - 11, y1, 1 + r, y1, 1, y1,
+                           1, y1 - r, 1, y0 + r, 1, y0], smooth=True, fill=CAT_ORANGE, outline="#8A3B00", width=2)
+        cv.create_text(w / 2, (y0 + y1) / 2, text=text, font=font, fill="white")
 
     def _blink(self, t):
         """輸入欄閃橘框＋箭頭動畫，約 15 秒後停在亮框(視窗關掉才恢復)"""
@@ -1882,7 +1927,7 @@ class QuickIntro:
                 self._orig = {k: self.inp.cget(k) for k in ("bg", "highlightthickness", "highlightbackground", "highlightcolor")}
             except tk.TclError:
                 self._orig = {}
-        on = (t // 6) % 2 == 0 or t > 300
+        on = True                                        # 穩定亮橘框，不閃(閃爍會讓人以為只能打這裡)
         try:
             self.inp.config(highlightthickness=4, highlightbackground=CAT_ORANGE if on else "#FFD2A6",
                             highlightcolor=CAT_ORANGE, bg="#FFF4E8" if on else "white")

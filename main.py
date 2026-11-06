@@ -94,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9m"
-BUILD_DATE = "2026-11-02"
+VERSION = "1.1.9n"
+BUILD_DATE = "2026-11-06"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -3178,32 +3178,186 @@ def load_data_json_from_folder():
         from tkinter import filedialog
         import glob
 
-        # 🔥 預設開啟程式目錄，方便找到其他地段資料夾
-        initial_dir = os.getcwd()
-
-        data_json_path = filedialog.askopenfilename(
-            title="選擇案件的 data.json 檔案（在 4.其他相關 資料夾內）",
-            initialdir=initial_dir,
-            filetypes=[("JSON files", "data.json"), ("All files", "*.*")]
-        )
-
-        if not data_json_path:
-            update_message("[取消] 未選擇檔案")
+        # 2026-11-06 使用者：一般人不知道要找「4.其他相關\data.json」→ 選案件資料夾就好，程式自己找；選錯給白話提示
+        folder = filedialog.askdirectory(
+            title="選案件資料夾（例如「旗津區旗港段-41」，選它裡面的資料夾也可以）",
+            initialdir=os.getcwd(), mustexist=True)
+        if not folder:
+            update_message("[取消] 未選擇資料夾")
             return
+        data_json_path = _find_case_data_json(folder)
+        if data_json_path:
+            _load_case_data_json(data_json_path)
+    except Exception as e:
+        update_message(f"[錯誤] 載入 data.json 失敗：{e}")
+        show_large_message("載入失敗", f"無法載入 data.json\n\n錯誤：{e}")
 
-        if not os.path.exists(data_json_path):
-            show_large_message(
-                "找不到檔案",
-                f"選擇的檔案不存在"
-            )
-            return
 
+def _case_dj(folder):
+    """這個資料夾是案件 → 回它的 4.其他相關/data.json(內容要讀得到地段地號)，不是回 None"""
+    dj = os.path.join(folder, "4.其他相關", "data.json")
+    try:
+        with open(dj, encoding="utf-8") as f:
+            d = json.load(f)
+        if isinstance(d, list) and d and isinstance(d[0], dict) and (d[0].get("section") or d[0].get("lot_number")):
+            return dj
+    except Exception:
+        pass
+    return None
+
+
+def _find_case_data_json(folder):
+    """使用者選的資料夾 → 案件的 data.json：
+    ①選到案件資料夾 ②選到案件裡面的資料夾(0.謄本、4.其他相關…)往上找 ③選到放很多案件的資料夾→列出來挑；
+    都不是→白話說明(不是案件資料夾／案件資料壞了)，回 None"""
+    folder = os.path.abspath(folder)
+    p = folder
+    for _ in range(3):                                   # 自己、上一層、上兩層(選到 0.謄本\某子資料夾也找得到)
+        dj = _case_dj(p)
+        if dj:
+            return dj
+        parent = os.path.dirname(p)
+        if parent == p:
+            break
+        p = parent
+    name = os.path.basename(folder) or folder
+    # 案件資料夾(或它的 4.其他相關)有 data.json 卻讀不到 → 壞了；程式資料夾本身也有 data.json(目前案件的副本)不算
+    broken = [x for x in (os.path.join(folder, "4.其他相關", "data.json"),
+                          os.path.join(folder, "data.json") if os.path.basename(folder) == "4.其他相關" else "")
+              if x and os.path.isfile(x)]
+    if broken:
+        show_large_message("案件資料讀不到",
+                           f"「{name}」裡面有案件資料（data.json），但內容讀不到地段地號，可能檔案壞了或是別的東西。\n\n"
+                           "可以改用最下面輸入框打這件的地址或地段地號，重新建立案件（舊檔案不會被刪掉）。")
+        return None
+    cases = []                                           # 選到上層(例如 地籍資料查詢系統)：列出裡面的案件
+    try:
+        for e in sorted(os.scandir(folder), key=lambda e: -e.stat().st_mtime):
+            if e.is_dir() and _case_dj(e.path):
+                cases.append(e.path)
+    except OSError:
+        pass
+    if len(cases) == 1:
+        return _case_dj(cases[0])
+    if cases:
+        pick = _pick_case_dialog(name, cases)
+        return _case_dj(pick) if pick else None
+    show_large_message("這不是案件資料夾",
+                       f"「{name}」裡面找不到案件資料。\n\n"
+                       "案件資料夾是用地段地號命名的那個，例如「旗津區旗港段-41」，\n"
+                       "裡面會有 0.謄本、1.基本資料……4.其他相關 這些資料夾。\n\n"
+                       "請再選一次；如果是自己整理的檔案資料夾，先建立案件，再用第 1 步的「📥 整理資料夾」把檔案放進來。")
+    return None
+
+
+def _pick_case_dialog(parent_name, cases):
+    """選到放很多案件的資料夾 → 大字清單挑一件(最近動過的在上面)；回資料夾路徑或 None"""
+    import case_flow as _CF
+    dlg = tk.Toplevel(root)
+    dlg.title("選一個案件")
+    dlg.transient(root)
+    dlg.configure(bg="white")
+    tk.Label(dlg, text=f"「{parent_name}」裡面有 {len(cases)} 個案件，要開哪一個？", font=(_CF.FAM, 15, "bold"),
+             bg="white", fg=_CF.INK, anchor="w").pack(fill=tk.X, padx=18, pady=(16, 6))
+    fr = tk.Frame(dlg, bg="white")
+    fr.pack(fill=tk.BOTH, expand=True, padx=18)
+    sb = tk.Scrollbar(fr)
+    lb = tk.Listbox(fr, font=(_CF.FAM, 15), height=min(12, len(cases)), width=34, activestyle="none",
+                    selectbackground="#55B092", selectforeground="white", yscrollcommand=sb.set)
+    sb.config(command=lb.yview)
+    for c in cases:
+        lb.insert(tk.END, os.path.basename(c))
+    lb.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+    if len(cases) > 12:
+        sb.pack(side=tk.RIGHT, fill=tk.Y)
+    lb.selection_set(0)
+    res = {}
+
+    def ok(e=None):
+        s = lb.curselection()
+        if s:
+            res["p"] = cases[s[0]]
+        dlg.destroy()
+    bar = tk.Frame(dlg, bg="white")
+    bar.pack(fill=tk.X, padx=18, pady=14)
+    tk.Button(bar, text="開這件", font=(_CF.FAM, 14, "bold"), bg="#55B092", fg=_CF.INK, bd=0, padx=18, pady=6,
+              cursor="hand2", command=ok).pack(side=tk.RIGHT)
+    tk.Button(bar, text="取消", font=(_CF.FAM, 14), bg="#E9E2D8", fg=_CF.INK, bd=0, padx=18, pady=6,
+              cursor="hand2", command=dlg.destroy).pack(side=tk.RIGHT, padx=(0, 10))
+    lb.bind("<Double-Button-1>", ok)
+    dlg.bind("<Return>", ok)
+    dlg.bind("<Escape>", lambda e: dlg.destroy())
+    dlg.update_idletasks()
+    x = root.winfo_rootx() + (root.winfo_width() - dlg.winfo_reqwidth()) // 2
+    y = root.winfo_rooty() + 80
+    dlg.geometry(f"+{max(0, x)}+{max(0, y)}")
+    dlg.grab_set()
+    lb.focus_set()
+    root.wait_window(dlg)
+    return res.get("p")
+
+
+def _trans_norm_lot(s):
+    """地號正規化：'41' / '0041-0000' / '00410000' / '41-0' → '41-0'"""
+    s = str(s or '').strip().replace('地號', '').replace('－', '-')
+    try:
+        if '-' in s:
+            a, b = s.split('-', 1)
+            return f"{int(a)}-{int(b)}"
+        if len(s) >= 8:
+            return f"{int(s[:4])}-{int(s[4:])}"
+        return f"{int(s)}-0"
+    except (ValueError, IndexError):
+        return s
+
+
+def _find_output_trans(data_list):
+    """在 output/ 找這個案件的謄本結構化檔：看檔案內容的「區＋地段＋地號」，
+    涵蓋案件地號最多、最新的那份；都對不上回 None"""
+    import glob
+    import re as _re
+    want = set()
+    for d in data_list or []:
+        sec, lot = (d.get('section') or '').strip(), (d.get('lot_number') or '').strip()
+        if sec and lot:
+            want.add(((d.get('area') or '').strip(), sec, _trans_norm_lot(lot)))
+    if not want:
+        return None
+    best, best_key = None, None
+    for p in glob.glob(os.path.join(JSON_DIR_DEFAULT, "trans_*.json")):
+        try:
+            with open(p, 'r', encoding='utf-8') as f:
+                j = json.load(f)
+        except Exception:
+            continue
+        hit = 0
+        for r in (j if isinstance(j, list) else [j]):
+            s = ((r or {}).get('基本資訊') or {}).get('地號建號', '')
+            m = _re.match(r'\s*(\S+?)\s*(\d+-?\d*)\s*地號', s)
+            if not m:
+                continue
+            place, lot = m.group(1), _trans_norm_lot(m.group(2))
+            hit += any(place.endswith(sec) and (not area or area in place) and lot == l
+                       for area, sec, l in want)
+        if hit:
+            key = (hit, os.path.getmtime(p))
+            if best_key is None or key > best_key:
+                best, best_key = p, key
+    return best
+
+
+def _load_case_data_json(data_json_path, show_dialog=True):
+    """把某個案件的 4.其他相關/data.json 載入成目前案件(並連動找它的謄本結構化 JSON)。
+    「載入案件 data.json」和開始卡「切到最近的案件」共用；回傳 True＝載入成功"""
+    global json_status_label, selected_json_path
+    import glob
+    try:
         # 讀取並複製到程式目錄
         import shutil
-        shutil.copy2(data_json_path, "data.json")
+        shutil.copy2(data_json_path, os.path.join(PROGRAM_DIR, "data.json"))
 
         # 讀取第一筆資料顯示資訊
-        with open("data.json", 'r', encoding='utf-8') as f:
+        with open(os.path.join(PROGRAM_DIR, "data.json"), 'r', encoding='utf-8') as f:
             data_list = json.load(f)
             if data_list:
                 first = data_list[0]
@@ -3225,10 +3379,6 @@ def load_data_json_from_folder():
 
                 # 🔥 NEW：同步更新 selected_json_path（指向該案件的結構化 trans_*.json）
                 # 避免下次重啟時還用舊案件的 trans，引發「不同地段警告」
-                _section = first.get('section', '')
-                _lot_raw = (first.get('lot_number', '') or '').replace('-', '')
-                _lot_no_zero = _lot_raw.lstrip('0') or _lot_raw
-
                 # 從 data.json 路徑往回退兩層 = 案件資料夾
                 case_folder = os.path.dirname(os.path.dirname(data_json_path))
                 found_trans = None
@@ -3247,20 +3397,21 @@ def load_data_json_from_folder():
                     update_message(f"  [連動] 案件資料夾內找到 trans：{os.path.basename(found_trans)}")
                     trans_status_text = f"\n結構化 JSON：✓ {os.path.basename(found_trans)}"
                 else:
-                    # 2. 退而到 output/ 找檔名含「案件地段＋地號」的 trans
-                    trans_in_output = sorted(
-                        glob.glob(os.path.join(JSON_DIR_DEFAULT, "trans_*.json")),
-                        key=os.path.getmtime,
-                        reverse=True
-                    )
-                    for cand in trans_in_output:
-                        cand_name = os.path.basename(cand)
-                        if _section and _section in cand_name:
-                            if _lot_no_zero and _lot_no_zero in cand_name:
-                                found_trans = cand
-                                update_message(f"  [連動] output/ 內找到匹配 trans：{cand_name}")
-                                trans_status_text = f"\n結構化 JSON：✓ {cand_name}（來自 output/）"
-                                break
+                    # 2. 退而到 output/ 找：看檔案內容的「地段＋地號」(不看檔名，免得 41 對到 4101)，
+                    #    找到就複製一份進案件的 4.其他相關，之後這個案件自己就帶著
+                    cand_name = _find_output_trans(data_list)
+                    if cand_name:
+                        found_trans = cand_name
+                        try:
+                            os.makedirs(case_other_dir, exist_ok=True)
+                            dst = os.path.join(case_other_dir, os.path.basename(cand_name))
+                            shutil.copy2(cand_name, dst)
+                            found_trans = dst
+                            update_message(f"  [連動] output/ 找到這個案件的 trans，已複製到 4.其他相關：{os.path.basename(dst)}")
+                            trans_status_text = f"\n結構化 JSON：✓ {os.path.basename(dst)}\n（從 output 找到，已複製一份到這個案件的 4.其他相關）"
+                        except Exception as _cp_e:
+                            update_message(f"  [連動] output/ 內找到匹配 trans：{os.path.basename(cand_name)}（複製到案件失敗：{_cp_e}）")
+                            trans_status_text = f"\n結構化 JSON：✓ {os.path.basename(cand_name)}（來自 output/）"
                     if not found_trans:
                         update_message("  [連動] 找不到對應案件的 trans")
                         update_message("        ① 重新執行【電子謄本結構化】產生並載入新的「結構化 JSON 檔」")
@@ -3291,18 +3442,24 @@ def load_data_json_from_folder():
                         update_json_status_display()
                     except Exception:
                         pass
+                else:
+                    json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
 
                 # 🔥 最後才顯示對話框（這樣狀態列已經更新完成）
-                show_large_message(
-                    "載入成功",
-                    f"已從資料夾載入 data.json\n\n案件：{info}\n筆數：{len(data_list)}{trans_status_text}"
-                )
+                if show_dialog:
+                    show_large_message(
+                        "載入成功",
+                        f"已開啟案件\n\n案件：{info}\n筆數：{len(data_list)}{trans_status_text}"
+                    )
+                return True
             else:
                 update_message("[警告] data.json 中沒有資料")
+                return False
 
     except Exception as e:
         update_message(f"[錯誤] 載入 data.json 失敗：{e}")
         show_large_message("載入失敗", f"無法載入 data.json\n\n錯誤：{e}")
+        return False
 
 def open_created_folder():
     """開啟建立的資料夾，並確保標準子目錄結構存在"""
@@ -5475,7 +5632,7 @@ def _ustyle(bg, abg):
     return {**_uw, 'bg': bg, 'activebackground': abg}
 
 # 功能分頁 - 左欄（資料相關）：載入案件、讀取結構化JSON、匯入封存、匯出封存
-utility_load_data_button = M.ModernButton(utility_left_frame, text="載入案件 data.json",
+utility_load_data_button = M.ModernButton(utility_left_frame, text="開其他案件（選資料夾）",
                                      command=load_data_json_from_folder,
                                      **_ustyle('#BBDEFB', '#90CAF9'))
 # 🔥 讀取結構化JSON：原本在謄本專區，移到功能分頁左欄
@@ -7828,6 +7985,20 @@ def open_quick_lookup(text):
             update_title_from_data_json()
         except Exception:
             pass
+        root.after(400, _ask_more_lots)
+
+    def _ask_more_lots():
+        """建好／加好就問：這個案子還有別的地號、門牌嗎？有 → 面板再開，這次「加入○○」是主角"""
+        import deal_ui
+        name = quick_case.case_name(os.path.join(PROGRAM_DIR, 'data.json')) or "這個案件"
+        if deal_ui.message(root, "還有要加的嗎？",
+                           f"已存進【{name}】。\n\n這個案子還有其他地號或門牌要加進來嗎？",
+                           kind="ask", ok="還有，繼續查", cancel="沒有了"):
+            quick_case.set_intent("add", name)
+            update_message(f"➕ 接著查下一筆，查好按「加入 {name}」")
+            open_quick_panel()
+        else:
+            quick_case.set_intent(None)
 
     update_message(f"🔎 查詢「{text}」…（結果會開新視窗）")
     # 🔥 寫「程式資料夾的 data.json 主檔」(跟地籍便民一樣)，再由 quick_case 備份到案件資料夾/4.其他相關。
@@ -7850,12 +8021,15 @@ def _case_info():
     return os.path.join(PROGRAM_DIR, 'data.json'), selected_json_path
 
 
-def show_quick_intro(force=False):
-    """萬用查詢面板(啟動時自動跳；勾「啟動時不要自動跳出」後只在打「說明」時跳)"""
+def show_quick_intro(force=False, intent=None):
+    """萬用查詢面板(啟動時自動跳；勾「啟動時不要自動跳出」後只在打「說明」時跳)。
+    intent="new"：開始卡／新案件鈕進來，這次要建新案件(目前案件淡掉、建立新案件最醒目)"""
     if is_running and not force:
         return
     try:
         import quick_case
+        if intent:
+            quick_case.set_intent(intent, quick_case.case_name(os.path.join(PROGRAM_DIR, 'data.json')))
         quick_case.show_intro(root, input_field, PROGRAM_DIR, force=force, on_query=_panel_query, case_info=_case_info)
     except Exception as e:
         print(f"[萬用查詢面板] 無法顯示：{e}")
@@ -9186,7 +9360,7 @@ def check_for_update(silent=True):
             # 🔥 啟動時就主動跳出下載對話框，明顯告知使用者；沒新版則不打擾
             #    對話框是 tkinter 元件，需排回主執行緒執行（本函式在背景執行緒）
             try:
-                root.after(0, lambda u=updates: _prompt_updates(u))
+                root.after(0, lambda u=updates: _after_start_card(lambda: _prompt_updates(u)))   # 開始卡開著就等它關
             except Exception:
                 pass
         return
@@ -9550,18 +9724,36 @@ try:
         pass
     root.deiconify()
     root.update()
+except Exception:
+    pass
+
+
+def _reveal_main():
+    """真正現身＋關「載入中」小窗；放到檔尾(新版介面換好之後)才叫，免得先看到舊版再閃成新版"""
     try:
+        root.update_idletasks()
         root.attributes("-alpha", 1.0)
     except Exception:
         pass
-finally:
     try:
         if _splash_win is not None:
             _splash_win.destroy()
     except Exception:
         pass
+    # 先把主畫面真的畫出來，再排提醒/萬用查詢面板(面板要 2~3 秒才建好；
+    # 以前排在現身前就到期，主畫面還沒畫就被它卡住，整片灰色好幾秒)
+    try:
+        root.update()
+    except Exception:
+        pass
+    if _cfw["on"]:
+        # 新版：開始卡取代「重要提醒」長串說明＋萬用查詢面板自動跳出(建立新案件會打開面板)
+        root.after(300, _startup_guide)
+    elif not _ui_pref().get("new_ui_told"):
+        root.after(300, _announce_new_ui)   # 更新後第一次開：告訴大家有新版介面可以試
+    else:
+        _classic_startup()
 
-root.after(100, show_startup_reminder)
 root.after(400, lambda: _sync_data_json_ui() and update_title_from_data_json())   # 兩份 data.json 不一致 → 用較新的同步
 root.after(500, check_and_warn_data_consistency)  # 在提醒訊息之後執行
 root.after(2000, _bg_check_update)  # 🔥 啟動 2 秒後背景檢查 GitHub 是否有新版（不擋主介面）
@@ -9619,7 +9811,6 @@ def _harden_install_dir():
 
 
 threading.Thread(target=_harden_install_dir, daemon=True).start()
-root.after(1200, show_quick_intro)  # 🆕 萬用查詢欄新功能介紹(勾「不再顯示」後就不跳)
 
 # 🔥 如果啟動時已載入 JSON，更新狀態列顯示
 if selected_json_path:
@@ -9738,7 +9929,7 @@ except Exception as _e:
 
 
 # ===================== 新版介面(試用)：案件進度表(case_flow)取代上方按鈕區，訊息框/輸入框照舊 =====================
-# 目前只給管理者試用(右上 ✨ 切換)；按鈕都接回舊版同一顆按鈕/函式，行為跟舊版一樣
+# 大家都能用(右上 ✨ 切換，預設舊版)；按鈕都接回舊版同一顆按鈕/函式，行為跟舊版一樣
 _UI_PREF = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "地籍資料查詢系統", "ui_pref.json")
 _cfw = {"flow": None, "on": False, "sig": None, "acct": None, "attach": None}
 
@@ -9787,7 +9978,8 @@ def _cf_state(case):
             d = json.load(f)
     except Exception:
         d = {}
-    if d.get("stage") not in ("委託", "開發"):
+    d["stage_set"] = d.get("stage") in ("委託", "開發")     # 沒選過 → 新版介面先問「已委託／還在開發」
+    if not d["stage_set"]:
         d["stage"] = "委託"
     d["skip"] = list(d.get("skip") or [])
     return d
@@ -9798,6 +9990,8 @@ def _cf_save_state(**kw):
     if not case:
         return
     d = _cf_state(case)
+    if not d.pop("stage_set") and "stage" not in kw:
+        d.pop("stage")                  # 只是改「跳過」：委託／開發還沒選過就別替他存成委託
     d.update(kw)
     try:
         os.makedirs(os.path.dirname(_cf_stage_path(case)), exist_ok=True)
@@ -9923,6 +10117,7 @@ _CF_FN = {
     "folder": open_work_folder,
     "folder_photo": _cf_open_photos,
     "quick": lambda: show_quick_intro(force=True),
+    "quick_new": lambda: show_quick_intro(force=True, intent="new"),
     "load_case": lambda: utility_load_data_button.invoke(), "read_json": lambda: read_json_button.invoke(),
     "import_arc": lambda: utility_import_archive_button.invoke(),
     "export_arc": lambda: utility_export_archive_button.invoke(),
@@ -9930,13 +10125,15 @@ _CF_FN = {
     "list_toggle": lambda: _cf_list_toggle(),
     "login": _cf_login, "account": _cf_account,
     "toolbox": lambda: _cf_toolbox(),
+    "start_card": lambda: show_start_card(),
+    "tips": lambda: _show_all_tips(),
     "classic_ui": lambda: _cf_switch(False),
     "refresh": lambda: _cf_refresh(force=True),
 }
 
 
 def _cf_action(key):
-    if key != "quick":                  # 新版大按鈕沒經過 ON_PRESS：一樣要收掉萬用查詢面板與箭頭
+    if key not in ("quick", "quick_new"):   # 新版大按鈕沒經過 ON_PRESS：一樣要收掉萬用查詢面板與箭頭
         _close_quick_panel()
     btn = _CF_BTN.get(key)
     if btn is not None:
@@ -9963,6 +10160,147 @@ def _cf_list_toggle():
 def _cf_toolbox():
     import case_flow as CF
     CF.open_toolbox(root, _cf_action, root.winfo_rootx() + M.px(40), root.winfo_rooty() + M.px(120), account=_cfw["acct"])
+
+
+# ===================== 開始卡(今天要做哪一件？)＋功能提示 =====================
+def _after_start_card(fn):
+    """開始卡、功能提示開著 → 都看完再做(更新通知不要疊在它們上面)"""
+    try:
+        import start_card
+        import feature_tips
+        start_card.when_closed(lambda: feature_tips.when_closed(fn))
+    except Exception:
+        fn()
+
+
+def _start_progress(folder, data_json):
+    """開始卡用：這個案件做到第幾步(新版介面的進度算法)"""
+    import case_flow as CF
+    try:
+        with open(data_json, encoding="utf-8") as f:
+            d0 = json.load(f)[0]
+    except Exception:
+        return ""
+    try:
+        with open(os.path.join(folder, "4.其他相關", "case_stage.json"), encoding="utf-8") as f:
+            st = json.load(f)
+    except Exception:
+        st = {}
+    oth = os.path.join(folder, "4.其他相關")
+    has_trans = any(n.startswith(("trans_", "transcript_data_")) and n.endswith(".json")
+                    for n in (os.listdir(oth) if os.path.isdir(oth) else []))
+    case = dict(city=d0.get("city", ""), area=d0.get("area", ""), section=d0.get("section", ""),
+                lot=str(d0.get("lot_number", "")), folder=folder, door=d0.get("door", "") or "", deal="",
+                title=os.path.basename(folder), struct_ok=has_trans, struct_why="" if has_trans else "還沒做謄本結構化")
+    steps = CF.scan(case, st.get("stage", "委託"), account=_cfw["acct"])
+    return CF.progress_text(steps, st.get("skip", []))
+
+
+def _start_continue():
+    folder, name = _current_case_folder()
+    if folder and os.path.isdir(folder):
+        update_message(f"📂 接著做：{name}")
+    _cf_refresh(force=True)
+
+
+def _start_switch(data_json):
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再切換案件。")
+        return
+    if _load_case_data_json(data_json, show_dialog=False):
+        _, name = _current_case_folder()
+        update_message(f"📂 已切到案件：{name}")
+        _cf_refresh(force=True)
+
+
+def show_start_card():
+    try:
+        import start_card
+    except Exception as e:
+        update_message(f"[開始卡] 無法顯示：{e}")
+        return
+    folder, name = _current_case_folder()
+    cur = dict(name=name, folder=folder) if folder and os.path.isdir(folder) else None
+    _close_quick_panel()
+    start_card.show(root, PROGRAM_DIR, current=cur, progress_fn=_start_progress,
+                    on_continue=_start_continue, on_switch=_start_switch,
+                    on_new=lambda: show_quick_intro(force=True, intent="new"), on_browse=load_data_json_from_folder,
+                    on_cancel=_start_cancel)
+
+
+def _start_cancel():
+    """開始卡按 ✕／Esc：不切換，留在上次的案件(沒有就停在「第 1 步 建立案件」)，訊息框告訴他之後怎麼換"""
+    folder, name = _current_case_folder()
+    if folder and os.path.isdir(folder):
+        update_message(f"📂 先停在上次的案件：{name}（要換案件：按「🔍 新案件」，或「🧰 其他功能」→ 開始卡）")
+    else:
+        update_message("還沒選案件：在最下面輸入框打地址或地號建立新案件，或按「🧰 其他功能」→ 開始卡")
+    _cf_refresh(force=True)
+
+
+def _tip_target(name):
+    f = _cfw.get("flow")
+    if not _cfw.get("on") or f is None:
+        return None
+    return {"doc_items": getattr(f, "items_row", None), "toolbox": getattr(f, "tools_btn", None),
+            "stage_ask": getattr(f, "stage_box", None)}.get(name)
+
+
+def _show_new_tips(startup=True):
+    """用到才講：開始卡選完跳一次(startup)，之後畫面每次更新再看有沒有剛出現的新功能"""
+    try:
+        import start_card
+        import feature_tips
+        if start_card.is_open() or is_running or not _cfw.get("on"):
+            return
+        if not startup and not _cfw.get("tips_boot"):
+            return                              # 開始卡那一輪還沒跑，先別搶
+        _cfw["tips_boot"] = True
+        feature_tips.show_ready(root, PROGRAM_DIR, VERSION, _tip_target, startup=startup)
+    except Exception as e:
+        print(f"[功能提示] {e}")
+
+
+def _show_all_tips():
+    import feature_tips
+    feature_tips.show_all(root, PROGRAM_DIR, _tip_target)
+
+
+def _classic_startup():
+    root.after(100, show_startup_reminder)
+    root.after(1000, show_quick_intro)  # 🆕 萬用查詢欄新功能介紹(勾「不再顯示」後就不跳)
+
+
+def _announce_new_ui():
+    """更新後第一次開(舊版畫面)：介紹新版介面，可以馬上試，也可以先用舊版；只講一次"""
+    import deal_ui
+    _ui_pref("new_ui_told", VERSION)
+    try_it = deal_ui.message(
+        root, "有新的介面可以試用",
+        "✨ 有新的介面可以試用了！\n\n"
+        "新版照辦案子的順序一步一步帶你做：最上面直接告訴你「下一步」要做什麼，按大按鈕就好。\n"
+        "原本的功能全部都還在。\n\n"
+        "新版、舊版隨時可以切換：\n"
+        "　• 右上角的 ✨ 按鈕：按一下就換\n"
+        "　• 新版裡「🧰 其他功能」最下面，也可以切回舊版",
+        kind="ask", ok="✨ 試用新版", cancel="先用舊版")
+    if try_it:
+        _cf_switch(True, announce=False)
+        update_message("✨ 已切到新版介面（右上 ✨，或「🧰 其他功能」最下面，可以切回舊版）")
+        _startup_guide()
+    else:
+        update_message("先用舊版介面。想試新版：按右上角的 ✨")
+        _classic_startup()
+
+
+def _startup_guide():
+    """啟動時(新版介面)：開始卡 → 新功能提示；開始卡設成不問就直接接著上次的案件"""
+    import start_card
+    if start_card.disabled(PROGRAM_DIR):
+        _start_continue()
+    else:
+        show_start_card()
+    start_card.when_closed(_show_new_tips)      # 排在更新通知前面；提示看完更新通知才跳
 
 
 def _cf_import():
@@ -10032,12 +10370,13 @@ def _cf_refresh(force=False):
         st = _cf_state(case)
         stage = st["stage"]
         steps = CF.scan(case, stage, account=_cfw["acct"])
-        sig = (case["folder"], stage, busy, repr(_cfw["acct"]), repr(steps), tuple(st["skip"]))
+        sig = (case["folder"], stage, st["stage_set"], busy, repr(_cfw["acct"]), repr(steps), tuple(st["skip"]))
         if force or sig != _cfw["sig"]:
             if _cfw["sig"] and _cfw["sig"][0] != case["folder"]:
                 f._prev_done, f.pick = None, None            # 換了案件：不要說「剛做好」
             _cfw["sig"] = sig
             f.busy = busy
+            f.stage_unset = not st["stage_set"]
             f.show(steps, stage, _cfw["acct"], st["skip"])
     except Exception as e:
         print(f"[新版介面] 更新失敗：{e}")
@@ -10045,6 +10384,7 @@ def _cf_refresh(force=False):
 
 def _cf_tick():
     _cf_refresh()
+    _show_new_tips(startup=False)        # 剛出現在畫面上的新功能(例如第一次走到第 8 步)才提示
     root.after(2500, _cf_tick)
 
 
@@ -10097,20 +10437,25 @@ for _n in ("show_main_page", "show_transcript_page", "show_land_page", "show_uti
            "show_building_license_page", "show_real_estate_price_page"):
     globals()[_n] = _cf_guard(globals()[_n])
 
-if has_contacts_admin():
+if True:      # 新版介面開放給大家(原本只有管理者)；預設舊版，更新後第一次開會問要不要試
     _cf_btn = M.IconButton(_cc_icons, "✨", lambda: _cf_switch(not _cfw["on"]), "#E07A1F", size=_icon_size)
     _cf_btn.pack(side=tk.LEFT, padx=(M.px(4), 0), before=help_button)
     try:
         import case_flow as _CFm
         _CFm.Tip(_cf_btn, lambda: "切回舊版介面（原本的按鈕畫面）" if _cfw["on"] else
-                 "✨ 試用新版介面：照辦案順序的四個大方塊＋「下一步」\n（目前只有管理者看得到；隨時可以切回來）")
+                 "✨ 試用新版介面：照辦案順序一步一步帶你做＋「下一步」\n（隨時可以切回來）")
     except Exception:
         pass
     _cf_refresh_acct()
-    threading.Thread(target=lambda: (_cf_refresh_acct(remote=True), root.after(0, lambda: _cf_refresh(force=True))),
+    # 帳號跟雲端核對完：有變才重畫(不 force，免得啟動幾秒後整片又閃一次)
+    threading.Thread(target=lambda: (_cf_refresh_acct(remote=True), root.after(0, _cf_refresh)),
                      daemon=True).start()
     if _ui_pref().get("ui") == "new":
-        root.after(600, lambda: _cf_switch(True, announce=False))
+        try:
+            _cf_switch(True, announce=False)     # 還沒現身前就換好，一出來就是新版
+        except Exception as e:
+            print(f"[新版介面] 啟動切換失敗：{e}")
     root.after(3000, _cf_tick)
 
+_reveal_main()
 root.mainloop()

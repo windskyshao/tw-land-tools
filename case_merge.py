@@ -53,7 +53,7 @@ def pick_files(info_dir):
 
 
 TRANS_EXTS = (".pdf", ".png", ".jpg", ".jpeg")
-_VARIANT = re.compile(r"(_標註|_重新處理|_unlocked|_\d)+$")
+_VARIANT = re.compile(r"(_標註\d*|_重新處理|_unlocked|_\d)+$")   # _標註2/_標註3＝工具另存的第 N 版
 
 
 def _trans_cat(name):
