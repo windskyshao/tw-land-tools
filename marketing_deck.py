@@ -62,8 +62,8 @@ TEMPLATES = {
     "villa": ("🏪", "透天・店面", "透天厝、透天店面、別墅", "滿版封面・物件亮點・樓層配置・周邊機能・街景（不用公司外框）", True),
     "office": ("🏬", "辦公・店面", "辦公室、商辦、店面", "樓層・面寬・管理・適合行業・商圈", False),
     "factory": ("🏭", "工業・廠房", "廠房、廠辦、倉庫、工業用地", "滿版實景・分割方案・交通・法規・周邊廠商・團隊", True),
-    "land": ("🗺", "土地・建地", "建地、重劃區土地", "地籍圖・使用分區・面寬深度・臨路・開發試算", False),
-    "farm": ("🌾", "農地", "農牧用地、田地", "地籍圖・農業用地・農舍資格・水源・現況", False),
+    "land": ("🗺", "土地・建地", "建地、重劃區土地", "滿版空拍・地籍・使用分區・開發試算・利多消息", True),
+    "farm": ("🌾", "農地", "農牧用地、田地", "滿版空拍・地籍・農舍條件・現況說明・周邊", True),
 }
 
 
@@ -72,6 +72,8 @@ def suggest_template(kind, zone=""):
     k = str(kind or "")
     if re.search(r"工業|丁種", str(zone or "")) and not re.search(r"透天|大樓|華廈|公寓", k):
         return "factory"
+    if re.search(r"農牧|農業區", str(zone or "")) and not re.search(r"透天|大樓|華廈|公寓|廠", k):     # 型式只寫「土地」的農地
+        return "farm"
     for key, words in (("factory", ("廠", "倉庫")), ("farm", ("農", "田")), ("land", ("土地", "建地")),
                        ("villa", ("透天", "別墅", "墅")), ("office", ("辦公", "店面", "商辦", "店"))):
         if any(w in k for w in words):
@@ -347,6 +349,11 @@ FACTORY_PHOTO_PAGES = [("空拍・外觀", ("空拍", EXT_CAT, STREET_CAT), 4),
                        ("辦公・其他空間", ("辦公室", "其他空間", "車位", "庭院"), 4)]
 
 
+# 土地・農地版：沒有室內，只有空拍、現況、街景
+LAND_PHOTO_PAGES = [("空拍・現況", ("空拍", EXT_CAT, "庭院"), 4),
+                    ("周邊環境・街景", (STREET_CAT, "其他空間"), 4)]
+
+
 def split_pages(n, cap):
     """n 張照片、每頁最多 cap 張 → 每頁幾張(平均分配)。例 5 張每頁 4 → [3, 2]；9 張 → [3, 3, 3]"""
     if n <= 0:
@@ -365,6 +372,8 @@ def guess_cat(name):
     n = name.lower()
     if "成果圖" in n:                      # 建物測量成果圖另有專頁，不當照片
         return "不使用"
+    if re.match(r"dji_\d", n):              # 空拍機(DJI)原檔名
+        return "空拍"
     for cat, keys in _GUESS:
         if any(k in n for k in keys):
             return cat
@@ -1543,7 +1552,7 @@ def slide_location(deck, lat, lng):
             break
     rows = [(k, v) for k, v in (("所在商圈", f.get("district")), ("鄰近學校", f.get("school")), ("交通", traffic)) if v]
     if not rows:
-        rows = [("地址", f.get("door", ""))]
+        rows = [("地址", f.get("door", ""))] if f.get("door") else [("地段地號", f.get("lots", ""))]    # 土地沒有門牌
     avail = FOOTER_Y - Inches(0.55) - y
     each = min(Inches(1.05), avail // len(rows))
     for k, v in rows:
@@ -1856,6 +1865,13 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
         import marketing_deck_factory
         return marketing_deck_factory.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
                                             show_agents=show_agents, sel=sel)
+    if template in ("land", "farm"):         # 土地・農地版也只有橫式(滿版空拍)
+        if REAL_H > REAL_W:
+            log("（土地・農地版目前只有橫式，已改用 A4 橫式）")
+            set_page("a4l")
+        import marketing_deck_land
+        return marketing_deck_land.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
+                                         show_agents=show_agents, sel=sel, farm=template == "farm")
     if REAL_H > REAL_W:                     # A4 直式：另一套直式排版(保留富住通外框、LOGO、售/租章、封底)
         import marketing_deck_portrait
         return marketing_deck_portrait.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
@@ -2053,6 +2069,40 @@ def collect_sections(case_dir, exp, template, d):
         add("neighbors", "周邊廠商", "經濟部工廠清冊：2 公里內家數、主要產業、最近的工廠", None)
         plans = _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*.pdf"))
         add("plan", "建物測量成果圖", "廠房才需要；可選多張，每張一頁", plans, plans[:1], multi=True, empty="0.謄本 沒有建物測量成果圖")
+        mk = _globs(roots, os.path.join("3.行情", "104實價登錄-*.pdf"), os.path.join("3.行情", "*.png"))
+        add("market", "市場行情", "可選 104 實價網、內政部實價，或都不放", mk, market_default(roots, rent), multi=True,
+            empty="3.行情 沒有實價資料")
+        return out
+    if template in ("land", "farm"):
+        import marketing_deck_land as ml
+        farm = template == "farm"
+        ex = ml.load_extra(case_dir)
+        cads = [c for c in _globs(roots, os.path.join("0.謄本", "*地籍圖*標註*.pdf"), os.path.join("0.謄本", "*地籍圖*.pdf"))
+                if "合併" not in os.path.basename(c) and "_temp" not in os.path.basename(c)]
+        cards = _globs(roots, os.path.join("0.謄本", "*_行銷*.png"))
+        add("card", "地籍與現況", "地籍圖工具做的「行銷圖」＋航照；沒有就用下面的地籍圖", cards, cards[:1], on=bool(cards),
+            empty="0.謄本 沒有行銷圖(到地籍圖工具按「做行銷圖」)")
+        add("cadastral", "地籍圖", "沒有行銷圖時才會用", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
+        zon = _globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
+                     os.path.join("1.基本資料", "*全國土地使用分區*.pdf"))
+        add("zoning", "使用分區", "都市計畫圖(只取地圖區)＋分區、建蔽容積", zon, zon[:1], empty="1.基本資料 沒有都市計畫截圖")
+        if farm:
+            add("develop", "農地資訊", "使用地類別、面積(公頃)、農舍興建條件(農牧用地才列)", None)
+        else:
+            ok = bool(_num(d.get("總地坪")) and _num(d.get("容積率")))
+            add("develop", "開發試算", "可建樓地板(基準容積)、每坪容積地價" + ("" if ok else "（物件編輯器要先填土地坪數、容積率）"),
+                None, on=ok)
+        imgs = [h for h in _globs(roots, os.path.join("2.照片", "*分割*"), os.path.join("4.其他相關", "*分割*"))
+                if h.lower().endswith(IMG_EXT)]
+        add("split", "分割銷售方案", "按「填寫」輸入各區坪數、單價，差額自動算；圖檔檔名含「分割」會自動列出，沒圖用航照", imgs, imgs[:1],
+            on=bool(ex.get("split")))
+        out[-1].update(editor=True, case_dir=case_dir, cands_optional=True, mod="land", farm=farm)
+        add("location", "地理位置", "國土測繪中心電子地圖＋航照(需要案件座標)", None)
+        fac = _globs(roots, os.path.join("1.基本資料", "*重要設施*.pdf"))
+        add("facility", "周邊機能", "重要設施地圖＋距離表", fac, fac[:1], empty="1.基本資料 沒有「重要設施」查詢結果")
+        add("notes", "現況說明" if farm else "利多消息", "按「填寫」一行一點" + ("（水源、種植現況、農路）" if farm else "（重劃、交通建設、周邊建案）"),
+            None, on=bool(ex.get("notes")))
+        out[-1].update(editor=True, case_dir=case_dir, mod="land", farm=farm)
         mk = _globs(roots, os.path.join("3.行情", "104實價登錄-*.pdf"), os.path.join("3.行情", "*.png"))
         add("market", "市場行情", "可選 104 實價網、內政部實價，或都不放", mk, market_default(roots, rent), multi=True,
             empty="3.行情 沒有實價資料")

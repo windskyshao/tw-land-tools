@@ -205,6 +205,47 @@ def save_entries(entries, mode, data_json_path, base_dir):
     return folder
 
 
+def existing_case(folder):
+    """建新案件前看同名資料夾：裡面已經有東西(data.json 備份以外的檔案) → {mtime, n, doors, builds}；沒有 → None"""
+    if not os.path.isdir(folder):
+        return None
+    dj = os.path.join(folder, "4.其他相關", "data.json")
+    n, mt = 0, 0
+    for dp, _dns, fns in os.walk(folder):
+        for fn in fns:
+            p = os.path.join(dp, fn)
+            if os.path.normcase(p) == os.path.normcase(dj):
+                continue
+            n += 1
+            try:
+                mt = max(mt, os.path.getmtime(p))
+            except OSError:
+                pass
+    if not n:
+        return None
+    doors, builds = [], set()
+    for it in _load_data(dj):
+        for b in it.get("builds") or ([{"build_no": it["build_no"], "door": it.get("door", "")}] if it.get("build_no") else []):
+            if b.get("build_no") and b["build_no"] not in builds:
+                builds.add(b["build_no"])
+                doors.append(b.get("door") or f"建號 {b['build_no']}")
+    return dict(mtime=mt, n=n, doors=doors, builds=builds, has_data=os.path.isfile(dj))
+
+
+LAST_ASIDE = [None]                         # 剛改名留存的舊案件資料夾(主程式讀完清掉)
+
+
+def set_aside(folder):
+    """舊案件資料夾改名留存(檔案都不動)：xxx → xxx_舊YYYYMMDD(同一天第二次加 -2…)；回新路徑"""
+    import time
+    base = f"{folder}_舊{time.strftime('%Y%m%d')}"
+    dst, k = base, 2
+    while os.path.exists(dst):
+        dst, k = f"{base}-{k}", k + 1
+    os.rename(folder, dst)
+    return dst
+
+
 def save_entry(entry, mode, data_json_path, base_dir):
     return save_entries([entry], mode, data_json_path, base_dir)
 
@@ -774,9 +815,8 @@ class QuickCaseWindow:
                 ui.button(self.foot, "另建新案件", lambda: save("new"), "chip").pack(side=tk.RIGHT, padx=10)
             else:
                 ui.button(self.foot, "＋  建立新案件", lambda: save("new")).pack(side=tk.RIGHT)
-                if name:
-                    ui.button(self.foot, f"加入目前案件（{name}）", lambda: save("append"),
-                              "ghost" if intent_now(self.data_json_path) == "new" else "chip").pack(side=tk.RIGHT, padx=10)
+                if name and intent_now(self.data_json_path) != "new":     # 按了「新案件」→ 不提舊案件
+                    ui.button(self.foot, f"加入目前案件（{name}）", lambda: save("append"), "chip").pack(side=tk.RIGHT, padx=10)
         ui.button(self.foot, "取消" if can_save else "關閉", self.top.destroy, "ghost").pack(side=tk.RIGHT, padx=(0, 10))
         self._add_back()
         tk.Label(self.body, text="資料來源：阿生地圖（國土測繪中心、內政部實價登錄）", font=ui.FS, fg=INK2,
@@ -799,14 +839,59 @@ class QuickCaseWindow:
             tk.Label(self.body, text=msg, font=ui.FB, fg=ui.BAD, bg=ui.BG, wraplength=self.W - 80,
                      justify="left").pack(anchor="w")
             return
+        mode = self._same_name(mode, [entry])
+        if not mode:
+            return
         try:
-            folder = save_entry(entry, mode, self.data_json_path, self.base_dir)
+            folder = save_entry(entry, "append" if mode == "keep" else mode, self.data_json_path, self.base_dir)
         except Exception as e:
             tk.Label(self.body, text=f"儲存失敗：{e}", font=ui.FB, fg=ui.BAD, bg=ui.BG).pack(anchor="w")
             return
         self.top.destroy()
         if self.on_saved:
             self.on_saved(entry, mode, folder)
+
+    def _same_name(self, mode, entries):
+        """建新案件但已經有同名資料夾(同地號：常是同棟另一戶，或同一戶又來委託)→ 問要接著用舊的，還是舊的改名留存、開全新的。
+        回 "new"／"keep"(載入舊案件再加進去)／原本的 mode；取消回 None"""
+        if mode != "new":
+            return mode
+        import time
+        name = _case_folder_name(entries[0])
+        folder = os.path.join(self.base_dir, name)
+        info = existing_case(folder)
+        if not info:
+            return mode
+        same = bool(info["builds"] & {b["build_no"] for e in entries for b in e.get("builds") or []})
+        doors = "、".join(info["doors"][:3]) + (f" 等 {len(info['doors'])} 戶" if len(info["doors"]) > 3 else "")
+        idx = ui.choice(
+            self.top, "已經有同名的案件",
+            f"已經有同一個地號的案件資料夾「{name}」\n\n"
+            f"上次動過：{time.strftime('%Y-%m-%d', time.localtime(info['mtime']))}　　裡面有 {info['n']} 個檔案\n"
+            f"門牌／建號：{doors or '（沒有指定建號）'}\n"
+            + ("→ 看起來是同一戶\n" if same else "") + "\n"
+            "●接著用舊的：這次查的加進原本那個案件\n"
+            "●舊的留存，開全新的：新案件從頭開始；舊資料夾改名成\n"
+            f"　「{name}_舊{time.strftime('%Y%m%d')}」，檔案都在",
+            [("取消", "ghost"), ("接著用舊的", "primary" if same else "ghost"),
+             ("舊的留存，開全新的", "ghost" if same else "primary")], default=1 if same else 2)
+        if not idx:
+            return None
+        if idx == 1:
+            if not info["has_data"]:
+                return "new"                # 舊資料夾沒有地號清單：直接用這個資料夾
+            shutil.copy2(os.path.join(folder, "4.其他相關", "data.json"), self.data_json_path)
+            return "keep"
+        try:
+            dst = set_aside(folder)
+        except OSError as e:
+            ui.message(self.top, "舊資料夾改名失敗",
+                       f"「{name}」改不了名字，可能裡面有檔案正在開著，或檔案總管停在那個資料夾。\n\n"
+                       f"把它們關掉再按一次。\n（{e}）", kind="warn")
+            return None
+        self.log(f"📦 舊案件已改名留存：{os.path.basename(dst)}（在開始卡「最近的案件」找得到）")
+        LAST_ASIDE[0] = dst                 # 主程式看到 → 舊案件的謄本結構化不要接到新案件
+        return "new"
 
 
     # ---------- 批次 ----------
@@ -893,8 +978,11 @@ class QuickCaseWindow:
             tk.Label(self.body, text=msg, font=ui.FB, fg=ui.BAD, bg=ui.BG, wraplength=self.W - 80,
                      justify="left").pack(anchor="w")
             return
+        mode = self._same_name(mode, entries)
+        if not mode:
+            return
         try:
-            folder = save_entries(entries, mode, self.data_json_path, self.base_dir)
+            folder = save_entries(entries, "append" if mode == "keep" else mode, self.data_json_path, self.base_dir)
         except Exception as e:
             tk.Label(self.body, text=f"儲存失敗：{e}", font=ui.FB, fg=ui.BAD, bg=ui.BG).pack(anchor="w")
             return
@@ -1634,9 +1722,10 @@ class QuickIntro:
         n_bld = sum(len(e["builds"]) for e in r["entries"])
         intent = intent_now(self.case_info()[0]) if n_lot else None
         title = "📋 目前案件（data.json）"
-        ink = "#8A8F98" if intent == "new" else INK
-        if intent == "new":          # 這次要建新的 → 目前案件淡掉，免得以為要加進去
-            blue, edge, title = "#9AA3AE", "#C9CED6", "📋 目前案件（這次要建新的，不會動到它）"
+        ink = INK
+        fresh = intent == "new"      # 按了「新案件」：舊案件的地號、結構化都不顯示，畫面像全新的(舊案件在「最近的案件」找得到)
+        if fresh:
+            n_lot, title = 0, "🆕 新案件"
         elif intent == "add":
             title = "📋 正在加入這個案件"
 
@@ -1647,10 +1736,14 @@ class QuickIntro:
         head.pack(fill=tk.X)
         tk.Label(head, text=title, font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue,
                  padx=12).pack(side=tk.LEFT, pady=4)
-        cnt = (f"地段地號 {n_lot} 筆　建號 {n_bld} 戶" if n_lot else "還沒有案件")
+        cnt = (f"地段地號 {n_lot} 筆　建號 {n_bld} 戶" if n_lot else "" if fresh else "還沒有案件")
         tk.Label(head, text=cnt, font=(ui.FAMILY, 16, "bold"), fg="white", bg=blue, padx=12).pack(side=tk.RIGHT, pady=4)
         c = tk.Frame(part1, bg="white", padx=12, pady=6)
         c.pack(fill=tk.X)
+        if fresh:
+            tk.Label(c, text="用上面的選單查地號或地址，查好按「建立新案件」。\n上一個案件不會被動到，要找回來：「🧰 其他功能」→ 開始卡。",
+                     font=self.HF, fg=INK, bg="white", anchor="w", justify="left").pack(anchor="w")
+            return st
         if not n_lot:
             tk.Label(c, text="用上面的選單查地號或地址，按「建立新案件」就會寫進 data.json", font=self.HF,
                      fg=INK, bg="white", anchor="w").pack(anchor="w")

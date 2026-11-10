@@ -134,21 +134,60 @@ def _dim(root):
     ov = tk.Toplevel(root)
     ov.overrideredirect(True)
     ov.configure(bg="#1C1C1E", cursor="arrow")
+    ov.transient(root)
+    ov.attributes("-topmost", True)     # ★實測主程式還是會壓在它上面(transient 擋不住)→ 跟開始卡一樣設最上層，卡片關掉就一起消失
     try:
-        ov.attributes("-alpha", 0.55)
+        ov.attributes("-alpha", 0.35)   # 淡一點：進度還看得清楚
     except tk.TclError:
         pass
-    ov.msg = tk.Label(ov, text="請先選擇要從哪裡開始", font=(FAM, 16, "bold"), bg="#1C1C1E", fg="#FFFFFF",
-                      justify="center")
-    ov.msg.place(relx=0.5, rely=0.42, anchor="center")
+    # 提示條另開一個不透明的小視窗(放在半透明層上字會變淡)
+    bn = tk.Toplevel(ov)
+    bn.overrideredirect(True)
+    bn.transient(ov)
+    bn.attributes("-topmost", True)
+    bn.configure(bg="#FFF4E5", highlightthickness=2, highlightbackground="#E58135")
+    ov.msg = tk.Label(bn, text="請先選擇要從哪裡開始", font=(FAM, 15, "bold"), bg="#FFF4E5", fg="#7C2D12",
+                      justify="center", padx=M.px(14), pady=M.px(10))
+    ov.msg.pack()
+    tk.Label(bn, text="這裡是目前案件的進度（先看就好），選好之後就能操作", font=(FAM, 12), bg="#FFF4E5", fg="#1C1917",
+             padx=M.px(14)).pack(pady=(0, M.px(10)))
 
-    def fit(e=None):
+    last = {}
+    subs = [w_ for w_ in bn.winfo_children() if isinstance(w_, tk.Label)]
+
+    def fit(e=None, raise_=False):
+        # (主程式 Configure 觸發時不能 lift/update：會再觸發 Configure → 無限迴圈；只有計時呼叫(raise_)才做)
+        # ★實測 lift 這種無邊框最上層視窗，Tk 會把它的位置重設到左上角 → lift 完一定要把位置再設一次
         try:
-            ov.geometry(f"{root.winfo_width()}x{root.winfo_height()}+{root.winfo_rootx()}+{root.winfo_rooty()}")
+            if e is not None and e.widget is not root:
+                return
+            c = getattr(ov, "_card", None)
+            if raise_:
+                ov.lift()
+                bn.lift()
+                if c is not None:
+                    c.attributes("-topmost", True)       # 開始卡放回最上面
+                bn.update_idletasks()
+            w, h, x, y = root.winfo_width(), root.winfo_height(), root.winfo_rootx(), root.winfo_rooty()
+            bw = max(M.px(200), w - M.px(40))            # 提示條固定比主程式窄一點，字太長就換行(不會超出螢幕)
+            g = (w, h, x, y, bn.winfo_reqheight())
+            if raise_ or g != last.get("g"):
+                last["g"] = g
+                for l_ in subs:
+                    l_.configure(wraplength=bw - M.px(30))
+                ov.geometry(f"{w}x{h}+{x}+{y}")
+                bh = bn.winfo_reqheight()
+                bn.geometry(f"{bw}x{bh}+{x + (w - bw) // 2}+{y + h - bh - M.px(140)}")   # 放下面(蓋訊息區)，上面的進度看得到
+                if raise_ and c is not None and getattr(c, "_pos", None):
+                    c.geometry("%dx%d+%d+%d" % c._pos)
         except tk.TclError:
             pass
-    fit()
+    ov.fit = fit
+    fit(raise_=True)
+    root.after(300, lambda: fit(raise_=True))     # 開機時主程式可能還沒畫好(寬高 1)：等一下再對一次
+    root.after(1500, lambda: fit(raise_=True))
     bid = root.bind("<Configure>", fit, add="+")
+    bn.bind("<Button-1>", lambda e: ov.event_generate("<Button-1>"))
     return ov, bid
 
 
@@ -179,6 +218,7 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
     bg = "#FFFFFF"
     ov, bid = _dim(root)
     tw = tk.Toplevel(root)
+    ov._card = tw
     _STATE["win"] = tw
     tw.title("請問目前我們要從哪裡開始？")
     tw.overrideredirect(True)                 # 自己畫標題列(正式一點，也不會被當成一般小視窗關掉)
@@ -194,7 +234,11 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
         except tk.TclError:
             pass
         try:
-            root.unbind("<Configure>", bid)
+            # ★不能用 root.unbind("<Configure>", bid)：tkinter 會把主程式 Configure 的「所有」綁定一起清掉
+            #   (主視窗拖走自動放回就是被它清掉的)→ 只拿掉自己這一條
+            script = root.bind("<Configure>") or ""
+            root.bind("<Configure>", "\n".join(l_ for l_ in script.split("\n") if bid not in l_))
+            root.deletecommand(bid)
         except tk.TclError:
             pass
         for w in (tw, ov):
@@ -245,7 +289,10 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
         drag.update(x=e.x_root - tw.winfo_x(), y=e.y_root - tw.winfo_y())
 
     def move(e):
-        tw.geometry(f"+{e.x_root - drag['x']}+{e.y_root - drag['y']}")
+        nx, ny = e.x_root - drag['x'], e.y_root - drag['y']
+        tw.geometry(f"+{nx}+{ny}")
+        if getattr(tw, "_pos", None):
+            tw._pos = tw._pos[:2] + (nx, ny)
     for wdg in [head, ht] + [w_ for w_ in head.winfo_children() if w_ is not xb] + list(ht.winfo_children()):
         wdg.bind("<ButtonPress-1>", press)
         wdg.bind("<B1-Motion>", move)
@@ -346,6 +393,8 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
         x = max(0, rx + (rw - W) // 2)
     y = max(0, min(ry, sh - H - M.px(48)))
     tw.geometry(f"{W}x{H}+{x}+{y}")
+    tw._pos = (W, H, x, y)
+    tw.after(50, lambda: ov.fit(raise_=True))      # 提示字換了(←左邊/右邊→)：重新置中
     tw.bind("<Escape>", lambda e: close(on_cancel))   # Esc＝右上 ✕：先不選
     ov.bind("<Button-1>", lambda e: (tw.lift(), tw.focus_force()))
     tw.lift()

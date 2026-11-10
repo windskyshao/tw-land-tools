@@ -42,6 +42,7 @@ import os
 import re
 import sys
 import json
+import math
 import time
 import argparse
 import ctypes
@@ -1893,17 +1894,17 @@ def setup_chinese_font():
     except:
         return 'Helvetica'
 
-def create_enhanced_excel_summary(results, output_path):
+def create_enhanced_excel_summary(results, output_path, title="財 政 部 土 地 增 值 稅 試 算 列 表"):
     """創建增強版Excel報告，包含稅額數據和加總 - 支援統一編號和多組資料"""
     try:
         wb = Workbook()
         ws = wb.active
-        ws.title = "財政部土地增值稅試算統計"
+        ws.title = "土地增值稅試算統計"
 
         # 第一列：標題欄（A1~K1 跨欄合併）+ 製表日期（L1~M1）
         ws.merge_cells('A1:K1')
         title_cell = ws['A1']
-        title_cell.value = "財 政 部 土 地 增 值 稅 試 算 列 表"
+        title_cell.value = title
         title_cell.font = Font(size=14, bold=True)
         title_cell.alignment = Alignment(horizontal='center', vertical='center')
         ws.row_dimensions[1].height = 25  # 設定標題列高度
@@ -2935,8 +2936,7 @@ def fill_form_interactive_finance_fixed(driver, payload, owner, transcript_dir, 
             flush_print(f"\n⚠️  警告：表單資料不完整，請檢查以下可能問題：", "important")
             flush_print(f"  - 土地登記謄本是否包含完整資料", "important")
             flush_print(f"  - 是否有欄位填寫失敗", "important")
-            flush_print(f"\n程式將暫停執行，請按 Enter 確認後繼續或 Ctrl+C 取消...", "important")
-            input()  # 等待使用者確認
+            # (不再停下來等 Enter：外面會自動重新整理再填一次)
 
         # 8. 提交試算
         try:
@@ -2989,6 +2989,335 @@ def fill_form_interactive_finance_fixed(driver, payload, owner, transcript_dir, 
         return "failed", None, {}
 
 #=========================================================
+# 程式試算(--calc)：主程式「土地增值稅」按鈕用，不開財政部網站，照稅法自己算(連續模式的附件查詢仍走網站)
+# 公式與財政部試算一致(已對財政部舊試算 PDF 三組、節稅手冊範例算到元)：
+#   漲價總數額 = 申報現值總額 − 前次移轉現值總額 × 物價指數(未滿 100 以 100 計)
+#   一般稅率三級累進，持有滿 20/30/40 年超過 20% 的部分減徵 20/30/40%；自用住宅 10%(都市 3 公畝、非都市 7 公畝內)
+SELF_CAP_M2 = {"urban": 300.0, "rural": 700.0}
+
+
+def _hold_reduce(years):
+    return .4 if years >= 40 else .3 if years >= 30 else .2 if years >= 20 else 0
+
+
+def _general_tax(gain, base, years):
+    """一般稅率：gain＝漲價總數額，base＝物價調整後的前次移轉現值總額"""
+    if gain <= 0:
+        return 0
+    r, f = (gain / base if base else 99), _hold_reduce(years)
+    if r < 1:
+        return gain * .2
+    if r < 2:
+        return gain * (.3 - .1 * f) - base * .1 * (1 - f)
+    return gain * (.4 - .2 * f) - base * .3 * (1 - f)
+
+
+def _hold_years(year_month):
+    """前次移轉年月(民國 YYYMM)到今天滿幾年"""
+    try:
+        y, m = int(year_month[:3]) + 1911, int(year_month[3:5])
+    except (ValueError, TypeError):
+        return 0
+    now = datetime.now()
+    return max(0, (now.year * 12 + now.month - (y * 12 + m)) // 12)
+
+
+def calc_land_tax(form_data, area_m2, land_type, cpi):
+    """回傳 dict：各項計算過程＋自用、一般稅額(元，四捨五入)"""
+    share = int(form_data["numerator"]) / int(form_data["denominator"])
+    a = area_m2 * share
+    cur, prev = float(form_data["current_value"]), float(form_data["previous_value"])
+    idx = max(float(cpi), 100.0)
+    years = _hold_years(form_data.get("year_month", ""))
+    # 進位方式照財政部試算網頁(對過去 199 組網頁結果驗證)：申報現值總額四捨五入、前次移轉現值總額無條件捨去、
+    # 稅額四捨五入(.5 進位，不用 Python 的銀行家捨入)；超過自用面積上限時兩段各自四捨五入再相加
+    half_up = lambda v: int(math.floor(v + 0.5))
+    now_total = math.floor(cur * a + 0.5)
+    base = math.floor(prev * a * idx / 100)
+    gain = max(now_total - base, 0)
+    general = half_up(_general_tax(gain, base, years))
+    cap = SELF_CAP_M2.get(land_type, 300.0)
+    if a <= cap:
+        self_tax = half_up(gain * .1)
+    else:                                   # 超過自用面積上限的部分按一般稅率
+        k = cap / a
+        self_tax = half_up(gain * k * .1) + half_up(_general_tax(gain * (1 - k), base * (1 - k), years))
+    return dict(share=share, share_area=a, now_total=now_total, base=base, cpi=idx, gain=gain, years=years,
+                ratio=(gain / base if base else 0), reduce=_hold_reduce(years), cap=cap,
+                self_tax=self_tax, general_tax=general)
+
+
+def _calc_pdf(pages, pdf_path):
+    """每一組一頁：輸入資料、計算過程、兩種稅額"""
+    fn = setup_chinese_font()
+    c = canvas.Canvas(pdf_path, pagesize=A4)
+    W, H = A4
+    for p in pages:
+        r = p["calc"]
+        y = H - 60
+        c.setFont(fn, 20)
+        c.drawString(50, y, "土地增值稅試算（程式計算）")
+        c.setFont(fn, 11)
+        c.drawRightString(W - 50, y, f"試算日期：{datetime.now().strftime('%Y-%m-%d')}")
+        y -= 26
+        c.setFont(fn, 12)
+        c.drawString(50, y, f"編號{p['seq']:03d}　{p['owner']}　{p['district']}{p['section']} {p['lot']}　" + (f"第{p['group']}/{p['groups']}組" if p["groups"] > 1 else ""))
+        y -= 14
+        c.line(50, y, W - 50, y)
+        rows = [("土地類別", p["land_type_name"]), ("宗地面積", f"{p['area']:,.2f} 平方公尺"),
+                ("權利範圍", f"{p['form']['denominator']}分之{p['form']['numerator']}（持分面積 {r['share_area']:,.2f} 平方公尺）"),
+                ("公告土地現值（申報現值）", f"{float(p['form']['current_value']):,.0f} 元/平方公尺"),
+                ("前次移轉現值", f"{float(p['form']['previous_value']):,.0f} 元/平方公尺"),
+                ("前次移轉年月", p["form"].get("year_month_display") or p["form"].get("year_month", "")),
+                ("消費者物價指數", f"{r['cpi']:g} %"), ("持有年限", f"約 {r['years']} 年" + (f"（長期持有減徵 {int(r['reduce'] * 100)}%）" if r["reduce"] else ""))]
+        y -= 26
+        for k, v in rows:
+            c.setFont(fn, 12)
+            c.drawString(60, y, k)
+            c.drawString(230, y, v)
+            y -= 22
+        y -= 8
+        c.line(50, y, W - 50, y)
+        y -= 26
+        calc = [("申報現值總額", f"{r['now_total']:,.0f} 元"),
+                ("前次移轉現值總額（按物價指數調整）", f"{r['base']:,.0f} 元"),
+                ("土地漲價總數額", f"{r['gain']:,.0f} 元"),
+                ("漲價倍數", f"{r['ratio']:.4f} 倍" if r["base"] else "—")]
+        for k, v in calc:
+            c.drawString(60, y, k)
+            c.drawRightString(W - 60, y, v)
+            y -= 22
+        y -= 14
+        c.setFont(fn, 16)
+        c.drawString(60, y, "(一) 自用住宅用地稅率（10%）")
+        c.drawRightString(W - 60, y, f"NT${r['self_tax']:,} 元")
+        y -= 30
+        c.drawString(60, y, "(二) 一般用地稅率")
+        c.drawRightString(W - 60, y, f"NT${r['general_tax']:,} 元")
+        y -= 34
+        c.setFont(fn, 10)
+        for ln in (f"※ 自用住宅面積以{'都市土地 3 公畝' if r['cap'] == 300 else '非都市土地 7 公畝'}為限，超過部分按一般稅率計算；須符合自用住宅用地條件。",
+                   "※ 持有年限依前次移轉年月推算；實際以登記日、稅捐稽徵機關核定為準。",
+                   "※ 未計入改良土地費用、工程受益費、重劃費用、增繳地價稅抵繳等減除項目。",
+                   "※ 本表依財政部土地增值稅試算公式以程式計算，僅供參考。"):
+            c.drawString(50, y, ln)
+            y -= 16
+        c.showPage()
+    if len(pages) > 1:                          # 多組：最後加一頁合計
+        y = H - 60
+        c.setFont(fn, 20)
+        c.drawString(50, y, f"合計（共 {len(pages)} 組）")
+        y -= 20
+        c.line(50, y, W - 50, y)
+        y -= 24
+        c.setFont(fn, 11)
+        c.drawString(50, y, "編號　所有權人／土地")
+        c.drawRightString(W - 210, y, "自用住宅稅率（元）")
+        c.drawRightString(W - 50, y, "一般稅率（元）")
+        y -= 20
+        t_self = t_gen = 0
+        for p in pages:
+            r = p["calc"]
+            t_self += r["self_tax"]
+            t_gen += r["general_tax"]
+            if y < 90:
+                c.showPage()
+                y = H - 60
+                c.setFont(fn, 11)
+            c.drawString(50, y, f"{p['seq']:03d}　{p['owner']}　{p['section']} {p['lot']}" + (f" 第{p['group']}組" if p["groups"] > 1 else ""))
+            c.drawRightString(W - 210, y, f"{r['self_tax']:,}")
+            c.drawRightString(W - 50, y, f"{r['general_tax']:,}")
+            y -= 20
+        c.line(50, y + 6, W - 50, y + 6)
+        y -= 14
+        c.setFont(fn, 14)
+        c.drawString(50, y, "合計")
+        c.drawRightString(W - 210, y, f"{t_self:,}")
+        c.drawRightString(W - 50, y, f"{t_gen:,}")
+        c.showPage()
+    c.save()
+
+
+def _row_label(r):
+    g = f" 第{r.get('group_number')}組" if (r.get("total_groups") or 0) > 1 else ""
+    return f"{r.get('section', '')} {r.get('lot_display', '')}　{r.get('owner_name', '')}{g}"
+
+
+def _print_list_and_total(results, title):
+    """逐筆列出稅額，最後印合計(多筆時一眼看到每筆＋加總)"""
+    flush_print(f"\n=== {title} ===", "important")
+    t_self = t_gen = 0
+    for i, r in enumerate(results, 1):
+        ta = r.get("tax_amounts") or {}
+        if r.get("status") == "成功":
+            s = int(str(ta.get("自用稅額") or 0).replace(",", "") or 0)
+            g = int(str(ta.get("一般稅額") or 0).replace(",", "") or 0)
+            t_self += s
+            t_gen += g
+            flush_print(f"  {i}. {_row_label(r)}　自用 {s:,} 元　一般 {g:,} 元", "important")
+        else:
+            flush_print(f"  {i}. {_row_label(r)}　✗ {r.get('status', '')}（沒算進合計）", "important")
+    flush_print(f"\033[93m  合計（{sum(1 for r in results if r.get('status') == '成功')}/{len(results)} 組）："
+                f"自用 {t_self:,} 元　一般 {t_gen:,} 元\033[0m", "important")
+    return t_self, t_gen
+
+
+def _compare_web_with_calc(results, cpi_data):
+    """財政部網站跑完後：每組用程式公式再算一次對照(不用另外跑)，不一致的列出來"""
+    flush_print("\n=== 與程式試算比對 ===", "important")
+    same, diff, extra = 0, [], []
+    for i, r in enumerate(results, 1):
+        fd = r.get("payload_data")
+        if not fd:
+            fd = r.get("_form")
+        if not fd or not r.get("_area"):
+            continue
+        try:
+            cpi = fd.get("cpi_value") or find_cpi_for_year_month(fd.get("year_month", ""), cpi_data)
+            c = calc_land_tax(fd, r["_area"], r.get("_land_type", "urban"), cpi)
+        except Exception:
+            continue
+        if r.get("status") != "成功":
+            extra.append(f"  {i}. {_row_label(r)}：網站沒算到，程式試算 自用 {c['self_tax']:,} 元　一般 {c['general_tax']:,} 元")
+            continue
+        ta = r.get("tax_amounts") or {}
+        ws_ = int(str(ta.get("自用稅額") or 0).replace(",", "") or 0)
+        wg = int(str(ta.get("一般稅額") or 0).replace(",", "") or 0)
+        if ws_ == c["self_tax"] and wg == c["general_tax"]:
+            same += 1
+        else:
+            diff.append(f"  {i}. {_row_label(r)}：網站 自用 {ws_:,}／一般 {wg:,}　程式 自用 {c['self_tax']:,}／一般 {c['general_tax']:,}")
+    if diff:
+        flush_print(f"⚠️ {same} 組一致，{len(diff)} 組不同（請以財政部網站為準）：", "important")
+        for ln in diff:
+            flush_print(ln, "important")
+    elif same:
+        flush_print(f"✓ {same} 組全部一致（網站和程式算的一樣，到元）", "important")
+    for ln in extra:
+        flush_print(ln, "important")
+
+
+def _compare_calc_with_last_web(results, other_dir):
+    """程式試算跑完後：如果之前跑過財政部網站版，拿它的結果逐組對照"""
+    path = os.path.join(other_dir, "財政部_網站版_tax_result.json")
+    if not os.path.exists(path):
+        flush_print("\n（這個案件還沒跑過財政部網站版，沒有可比對的；附件裡的「財政部土增稅」跑完會自動比對）", "important")
+        return
+    try:
+        web = json.load(open(path, encoding="utf-8"))
+    except Exception:
+        return
+    rows = web.get("詳細資料") or []
+    ok = [r for r in results if r.get("status") == "成功"]
+    flush_print(f"\n=== 與財政部網站版比對（網站版 {str(web.get('計算日期', ''))[:16]} 跑的）===", "important")
+    same, diff = 0, []
+    for i, r in enumerate(ok):
+        cs, cg = int(r["tax_amounts"]["自用稅額"]), int(r["tax_amounts"]["一般稅額"])
+        w = next((x for x in rows if x.get("統一編號") == r.get("owner_id") and x.get("組別") == f"第{r['group_number']}組"
+                  and (not x.get("地號") or x.get("地號") == r.get("lot_display"))), None)
+        if w is None:
+            diff.append(f"  {_row_label(r)}：網站版沒有這組")
+            continue
+        ws_ = int(str(w.get("自用稅額") or 0).replace(",", "") or 0)
+        wg = int(str(w.get("一般稅額") or 0).replace(",", "") or 0)
+        if ws_ == cs and wg == cg:
+            same += 1
+        else:
+            diff.append(f"  {_row_label(r)}：程式 自用 {cs:,}／一般 {cg:,}　網站 自用 {ws_:,}／一般 {wg:,}")
+    if diff:
+        flush_print(f"⚠️ {same} 組一致，{len(diff)} 組不同：", "important")
+        for ln in diff:
+            flush_print(ln, "important")
+        flush_print("  （物價指數每月更新、公告現值每年 1 月更新，隔一段時間跑的可能本來就會差一點）", "important")
+    elif same:
+        flush_print(f"✓ {same} 組全部一致（和網站版算的一樣，到元）", "important")
+
+
+def run_calc_mode(payloads, cpi_data, transcript_dir, outdir_root, section_name, p0):
+    flush_print("\n🧮 程式試算（不開財政部網站）", "important")
+    results, pages, seq = [], [], 1
+    _t0 = time.time()
+    print(f"__PROGRESS__:0/{len(payloads)}:0:0", flush=True)
+    for pi, payload in enumerate(payloads, 1):
+        owners = payload.get("owners", [])
+        groups = payload.get("co_ownership_groups", {})
+        done_groups = set()
+        area = float(str(payload.get("area", "")).replace("平方公尺", "").replace(",", "").strip() or 0)
+        land_type, land_type_name = determine_land_type(payload)
+        flush_print(f"\n=== 第 {pi}/{len(payloads)} 筆：{payload.get('district', '')}{payload.get('section_hint', '')} {payload.get('lot_display', '')}（{land_type_name}）===", "important")
+        own_rows = payload.get("所有權部", [])
+        for oi, owner in enumerate(owners, 1):
+            name = owner.get("name", "")
+            grp = owner.get("co_ownership_group")
+            if owner.get("is_co_ownership") and grp:
+                if grp in done_groups:
+                    continue
+                done_groups.add(grp)
+                members = groups.get(grp, [])
+                if len(members) > 1:
+                    name = f"{name}等{len(members)}人{owner.get('rights_range', '')}"
+            owner_id = ""
+            if isinstance(own_rows, list) and 0 <= oi - 1 < len(own_rows) and isinstance(own_rows[oi - 1], dict):
+                owner_id = own_rows[oi - 1].get("統一編號", "")
+            base_res = dict(district=payload.get("district", ""), section=payload.get("section_hint", ""),
+                            lot_display=payload.get("lot_display", ""), owner_name=name, owner_id=owner_id,
+                            area=payload.get("area", ""), timestamp=datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+            records = extract_form_data_from_json(payload, oi - 1)
+            if not records:
+                results.append(dict(base_res, sequence_num=seq, group_number=0, total_groups=0, status="解析失敗",
+                                    tax_amounts={"一般稅額": "", "自用稅額": ""}))
+                seq += 1
+                continue
+            for gi, fd in enumerate(records, 1):
+                cpi = find_cpi_for_year_month(fd.get("year_month", ""), cpi_data) if fd.get("year_month") else None
+                miss = [k for k, v in (("公告現值", fd.get("current_value")), ("前次移轉現值", fd.get("previous_value")),
+                                       ("物價指數", cpi), ("面積", area)) if not v]
+                if miss:
+                    flush_print(f"  ✗ {name} 第{gi}組缺少：{'、'.join(miss)}，略過", "important")
+                    results.append(dict(base_res, sequence_num=seq, group_number=gi, total_groups=len(records), status="資料不完整",
+                                        tax_amounts={"一般稅額": "", "自用稅額": ""}, payload_data=fd))
+                    seq += 1
+                    continue
+                fd["cpi_value"] = cpi
+                r = calc_land_tax(fd, area, land_type, cpi)
+                flush_print(f"  ✓ {name} 第{gi}/{len(records)}組　自用 {r['self_tax']:,} 元　一般 {r['general_tax']:,} 元", "important")
+                results.append(dict(base_res, sequence_num=seq, group_number=gi, total_groups=len(records), status="成功",
+                                    tax_amounts={"一般稅額": str(r["general_tax"]), "自用稅額": str(r["self_tax"])}, payload_data=fd))
+                pages.append(dict(seq=seq, owner=name, district=base_res["district"], section=base_res["section"],
+                                  lot=base_res["lot_display"], group=gi, groups=len(records), land_type_name=land_type_name,
+                                  area=area, form=fd, calc=r))
+                seq += 1
+        el = int(time.time() - _t0)
+        print(f"__PROGRESS__:{pi}/{len(payloads)}:{el}:0", flush=True)
+
+    lot_number = p0.get("lot_display", "") or p0.get("lot_number", "")
+    tag = f"{section_name}_{lot_number}_{now_ymd()}"
+    if pages:
+        pdf_path = os.path.join(transcript_dir, _safe_filename(f"01_土地增值稅_程式試算_{tag}") + ".pdf")
+        _calc_pdf(pages, pdf_path)
+        flush_print(f"\n\033[93m✓ 試算表：{pdf_path}\033[0m", "important")
+    create_enhanced_excel_summary(results, os.path.join(transcript_dir, _safe_filename(f"01.1_土地增值稅_程式試算_{tag}") + ".xlsx"),
+                                  title="土 地 增 值 稅 試 算 列 表（程 式 計 算）")
+    ok = [r for r in results if r.get("status") == "成功"]
+    total_once, total_general = _print_list_and_total(results, f"稅額統計摘要（{len(ok)}/{len(results)} 組算出）")
+    if ok and not total_general and not total_once:
+        flush_print("（稅額為 0：公告現值沒有超過物價調整後的前次移轉現值，沒有漲價）", "important")
+    other_dir = os.path.join(outdir_root, "4.其他相關")
+    _compare_calc_with_last_web(results, other_dir)
+    try:
+        os.makedirs(other_dir, exist_ok=True)
+        summary = {"自用住宅稅額": total_once, "一般土地稅額": total_general, "計算日期": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+                   "來源": "程式試算", "地段": section_name, "地號": lot_number,
+                   "詳細資料": [{"所有權人": r["owner_name"], "統一編號": r["owner_id"], "組別": f"第{r['group_number']}組",
+                                 "地號": r.get("lot_display", ""),
+                                 "自用稅額": r["tax_amounts"]["自用稅額"], "一般稅額": r["tax_amounts"]["一般稅額"]} for r in ok]}
+        with open(os.path.join(other_dir, "財政部_tax_result.json"), "w", encoding="utf-8") as f:   # 物件編輯器讀這個檔名
+            json.dump(summary, f, ensure_ascii=False, indent=2)
+        flush_print("  → 【物件資料編輯器】可讀取此結果自動帶入稅額", "important")
+    except Exception as e:
+        flush_print(f"儲存稅額結果失敗：{e}", "important")
+    flush_print("土地增值稅程式試算完成", "important")
+
 
 def enhanced_main():
     """增強版主程式，包含PDF合併和稅額統計功能"""
@@ -2998,6 +3327,7 @@ def enhanced_main():
     parser.add_argument("--show", action="store_true", help="顯示瀏覽器視窗")
     parser.add_argument("--headless", action="store_true", help="使用無頭模式")
     parser.add_argument("--base-dir", help="主程式目錄", default=None)  # 🔥 支援 BASE_DIR 架構
+    parser.add_argument("--calc", action="store_true", help="程式試算：不開財政部網站，照稅法自己算")
     args = parser.parse_args()
     
     json_path = args.json
@@ -3112,6 +3442,10 @@ def enhanced_main():
     os.makedirs(transcript_dir, exist_ok=True)
     flush_print(f"輸出目錄：{transcript_dir}")
 
+    if args.calc:
+        run_calc_mode(payloads, global_cpi_data, transcript_dir, outdir_root, section0, p0)
+        return
+
     # 步驟4: 啟動瀏覽器
     flush_print("\n啟動瀏覽器，請稍侯…", "important")
     show_gui_mode = not args.headless
@@ -3163,6 +3497,11 @@ def enhanced_main():
 
             # 🔥 標記已處理的公同共有群組
             processed_co_ownership_groups = set()
+            try:                                  # 給最後「與程式試算比對」用
+                _area_f = float(str(payload.get("area", "")).replace("平方公尺", "").replace(",", "").strip() or 0)
+            except ValueError:
+                _area_f = 0
+            _lt = determine_land_type(payload)[0]
             
             for oi, owner in enumerate(owners, 1):
                 # 🔥 檢查是否為公同共有成員
@@ -3234,10 +3573,29 @@ def enhanced_main():
                                 owner_id = owner_record.get("統一編號", "")
                         
                         # 填寫表單（使用當前組資料）
-                        fill_result, filled_pdf_path, _ = fill_form_interactive_finance_fixed(
-                            driver, payload, owner, transcript_dir, sequence_num, 
-                            global_cpi_data, form_data
-                        )
+                        # ★每組開始前都重新整理網頁(以前換下一筆土地沒重整，表單還停在上一筆結果，
+                        #   偶爾欄位填不進去 → 那筆被跳過)；填不完整再重整重填一次
+                        for _try in (1, 2):
+                            if sequence_num > 1 or _try > 1:
+                                try:
+                                    driver.refresh()
+                                    wait_for_form_elements(driver, timeout=15)
+                                    time.sleep(0.5)
+                                except Exception:
+                                    pass
+                            fill_result, filled_pdf_path, _ = fill_form_interactive_finance_fixed(
+                                driver, payload, owner, transcript_dir, sequence_num,
+                                global_cpi_data, form_data
+                            )
+                            if fill_result == "filled":
+                                break
+                            if filled_pdf_path and os.path.exists(filled_pdf_path):   # 沒填完整的結果頁別併進報告
+                                try:
+                                    os.remove(filled_pdf_path)
+                                except OSError:
+                                    pass
+                            if _try == 1:
+                                flush_print("↻ 這筆沒填完整，重新整理網頁再填一次…", "important")
                         
                         if fill_result == "filled":
                             if filled_pdf_path:
@@ -3269,15 +3627,11 @@ def enhanced_main():
                                 "status": "成功" if submit_success else "填寫成功但提交失敗",
                                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
                                 "tax_amounts": tax_amounts,
-                                "payload_data": form_data
+                                "payload_data": form_data,
+                                "_area": _area_f, "_land_type": _lt,
                             }
                             
                             results.append(result)
-                            
-                            # 重新載入準備下一組
-                            if record_idx < len(all_records) or oi < len(owners):
-                                driver.refresh()
-                                time.sleep(0.5)
                         else:
                             # 🔥 失敗情況也加入統一編號
                             result = {
@@ -3292,7 +3646,8 @@ def enhanced_main():
                                 "area": payload.get("area", ""),
                                 "status": "跳過",
                                 "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-                                "tax_amounts": {"一般稅額": "", "自用稅額": ""}
+                                "tax_amounts": {"一般稅額": "", "自用稅額": ""},
+                                "_form": form_data, "_area": _area_f, "_land_type": _lt,
                             }
                             results.append(result)
                         
@@ -3379,14 +3734,13 @@ def enhanced_main():
         
         total_general = sum([int(str(r.get('tax_amounts', {}).get('一般稅額', 0)).replace(',', '') or 0) for r in results])
         total_once = sum([int(str(r.get('tax_amounts', {}).get('自用稅額', 0)).replace(',', '') or 0) for r in results])
-        
-        # 🔥 一定顯示總稅額(原本兩者都是 0 就不印 → 使用者以為沒算出來)；0 元附說明
-        if success_count > 0:
-            flush_print(f"\n=== 稅額統計摘要 ===", "important")
-            flush_print(f"\033[93m自用稅額總計：{total_once:,} 元\033[0m", "important")
-            flush_print(f"\033[93m一般稅額總計：{total_general:,} 元\033[0m", "important")
-            if not total_general and not total_once:
+
+        # 🔥 逐筆列出＋合計(原本兩者都是 0 就不印 → 使用者以為沒算出來)；0 元附說明
+        if results:
+            _print_list_and_total(results, f"稅額統計摘要（{success_count}/{len(results)} 組算出）")
+            if success_count and not total_general and not total_once:
                 flush_print("（官方試算稅額為 0：目前公告現值沒有超過物價調整後的前次移轉現值，沒有漲價，不用繳土地增值稅）", "important")
+            _compare_web_with_calc(results, global_cpi_data)
         
         # 🔥 將稅額結果寫入 JSON 供 main.py 使用
         try:
@@ -3412,6 +3766,7 @@ def enhanced_main():
                         "所有權人": result.get('owner_name', ''),
                         "統一編號": result.get('owner_id', ''),
                         "組別": f"第{result.get('group_number', 0)}組",
+                        "地號": result.get('lot_display', ''),
                         "自用稅額": result.get('tax_amounts', {}).get('自用稅額', 0),
                         "一般稅額": result.get('tax_amounts', {}).get('一般稅額', 0)
                     }
@@ -3419,7 +3774,11 @@ def enhanced_main():
             
             with open(tax_result_file, 'w', encoding='utf-8') as f:
                 json.dump(tax_summary, f, ensure_ascii=False, indent=2)
-            
+            # 另存一份網站版專用(程式試算會覆蓋上面那個檔，下次程式試算拿這份來比對)
+            tax_summary["來源"] = "財政部網站"
+            with open(os.path.join(other_dir, "財政部_網站版_tax_result.json"), 'w', encoding='utf-8') as f:
+                json.dump(tax_summary, f, ensure_ascii=False, indent=2)
+
             flush_print(f"\n\033[96m✓ 稅額結果已儲存：{tax_result_file}\033[0m", "important")
             flush_print(f"  → 【物件資料編輯器】可讀取此檔案自動帶入稅額", "important")
             

@@ -22,6 +22,9 @@ NO_WINDOW = 0x08000000
 FAM = "Microsoft JhengHei"
 INK, INK2, MUTED = "#0F172A", "#334155", "#64748B"
 GREEN, ORANGE, RED, BLUE = "#15803D", "#B45309", "#B91C1C", "#0A6CDB"
+TODO_BG = "#FFF1E0"                       # 還沒查(缺)的那一行底色
+RUN_BG = ("#CFE3FF", "#F0F7FF")           # 執行中：兩色交替(一閃一閃)
+FAIL_BG = "#FDECEC"
 
 # key, 名稱, 子程式, 參數方式, 預排答案, 逾時秒, 縣市限制, 檔案(相對案件資料夾), 說明
 ITEMS = [
@@ -172,6 +175,35 @@ def nodata_at(item, case):
     return os.path.getmtime(p) if "NODATA" in txt or "查無" in txt[-800:] else None
 
 
+def _ids_all_masked(json_path):
+    """謄本結構化裡每個所有權人的統一編號都有「*」(第二類謄本遮住) → True；讀不到回 None"""
+    try:
+        with open(json_path, encoding="utf-8") as f:
+            data = json.load(f)
+        ids = [str(o.get("統一編號", "")) for rec in (data if isinstance(data, list) else [data])
+               for o in (rec.get("所有權部") or []) if isinstance(o, dict)]
+    except Exception:
+        return None
+    ids = [x for x in ids if x.strip()]
+    return all("*" in x or "＊" in x for x in ids) if ids else None
+
+
+def not_needed(item, case, json_path=None):
+    """這個案件可以不用查(或查不了)的原因；需要查回 ""(使用者 11-10：選用的項目別卡住進度)"""
+    k = item["key"]
+    if k == "luz":                      # 高雄有都市計畫(07)就夠了；其他縣市還是要
+        c = (case.get("city") or "").replace("臺", "台")
+        if c == "高雄市" and found_files(ITEMS[[i["key"] for i in ITEMS].index("urbangis")], case):
+            return "已有高雄都市計畫，可以不用"
+    elif k == "ftax":                   # 土增稅已用程式試算過；要跟官方網站核對再跑
+        if glob.glob(os.path.join(case["folder"], "1.基本資料", "01_土地增值稅_程式試算*")):
+            return "已有程式試算，要跟財政部網站核對再勾"
+    elif k == "ktax":                   # 高雄市稅捐處要完整統一編號(第一類謄本，或公司等不遮的)
+        if json_path and _ids_all_masked(json_path):
+            return "統一編號被遮住（第二類謄本），高雄市版要完整統一編號才能算"
+    return ""
+
+
 def _kill_child_chrome(pid):
     ps = ("Get-CimInstance Win32_Process -Filter \"Name='chromedriver.exe' AND ParentProcessId=%d\" | "
           "ForEach-Object { $_.ProcessId }" % int(pid))
@@ -190,10 +222,25 @@ _ANSI = re.compile(r"\x1b\[[0-9;]*m")
 
 # 子程式單獨執行時給人看的鍵盤提示；連續模式是程式自動回答，秀出來會讓人以為要自己按(紀錄檔仍保留)
 _KEY_PROMPT = re.compile(r"退出程式|按\s*ENTER|\[ENTER\]|\[q\]|選擇操作|手動調整網頁|請輸入選項", re.I)
+# 子程式在等輸入(最後一行是問句)：安靜 ASK_QUIET 秒就回答，不用等滿 idle 秒(以前每個問題白等 12～45 秒)
+_ASK_LINE = re.compile(r"請輸入|請選擇|按\s*[【\[]?\s*enter|退出程式|選擇操作|選擇.{0,6}編號|[QＱ]\s*結束|\(y/n\)|\[y/n\]", re.I)
+ASK_QUIET = 1.5
+
+
+PARALLEL = 3                                 # 同時跑幾項(每項一個背景 Chrome)
+
+
+def _prep_chromedriver():
+    """同時開好幾個 Chrome 前先確認 chromedriver 版本(Chrome 剛自動更新時，避免三個子程式同時去換 chromedriver.exe)"""
+    try:
+        import webdriver_helper as W
+        W.check_and_update_chromedriver(W.get_resource_path("chromedriver.exe"))
+    except Exception:
+        pass
 
 
 class Runner:
-    """在背景執行緒逐項跑；訊息丟進 q 給畫面"""
+    """在背景執行緒跑(同時 PARALLEL 項)；訊息丟進 q 給畫面"""
 
     def __init__(self, case, items, show_browser, deal, q, json_path=None):
         self.case, self.items, self.show, self.deal, self.q = case, items, show_browser, deal, q
@@ -202,10 +249,12 @@ class Runner:
         self.proc = None
         self.waiting = False                 # 這一項要等使用者操作(按繼續或主程式輸入欄 Enter)
 
-    def send(self, text):
+    def send(self, text, proc=None):
+        """proc＝要回答的那個子程式(同時跑好幾項時一定要指定；沒指定＝最後開的那個，給主程式輸入欄用)"""
         try:
-            self.proc.stdin.write((text + "\n").encode("utf-8"))
-            self.proc.stdin.flush()
+            p = proc or self.proc
+            p.stdin.write((text + "\n").encode("utf-8"))
+            p.stdin.flush()
         except Exception:
             pass
 
@@ -235,7 +284,7 @@ class Runner:
                 args.append(item["hide_flag"])
         t0 = time.time()
         before = {p: os.path.getmtime(p) for p in found_files(item, c)}
-        lines, last = [], [time.time()]
+        lines, stamped, last, ask = [], [], [time.time()], [False]
         self.waiting = interactive
         self.proc = p = subprocess.Popen(args, cwd=internal, env=env, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                          stderr=subprocess.STDOUT, creationflags=NO_WINDOW)
@@ -245,23 +294,32 @@ class Runner:
                 t = _ANSI.sub("", b.decode("utf-8", "replace")).strip()
                 if t and not t.startswith(("__PROGRESS__", "__GUI_PREFILL__")):
                     lines.append(t)
+                    stamped.append(f"[{time.time() - t0:6.1f}] {t}")
                     last[0] = time.time()
+                    ask[0] = bool(_ASK_LINE.search(t))
                     if not t.startswith("[DEBUG]") and (interactive or not _KEY_PROMPT.search(t)):
                         self.q.put(("line", item["key"], t))
         threading.Thread(target=rd, daemon=True).start()
         answers, sent, hushed = list(item.get("answers") or []), 0, False
+        tick = 0
         while p.poll() is None and time.time() - t0 < item["timeout"] and not self.stop:
-            time.sleep(1)
-            self.q.put(("tick", item["key"], int(time.time() - t0)))
+            time.sleep(0.25)
+            if int(time.time() - t0) != tick:
+                tick = int(time.time() - t0)
+                self.q.put(("tick", item["key"], tick))
             if interactive:                                  # 全國土地使用分區：使用者在畫面按「繼續」才送 Enter
                 continue
             if not interactive and not hushed and time.time() - last[0] > 90:
                 hushed = True
                 self.q.put(("line", item["key"], "這項已經 90 秒沒有新進度，可能在等網站回應；超過時間會自動中止，換下一項"))
-            if not item.get("wrap") and time.time() - last[0] > item.get("idle", 12) and sent < item.get("max_send", 8):
+            quiet = time.time() - last[0]
+            if not item.get("wrap") and (quiet > item.get("idle", 12) or (ask[0] and quiet > ASK_QUIET)) \
+                    and sent < item.get("max_send", 8):
                 ans = answers.pop(0) if answers else item.get("default", "q")
-                self.send(ans)
+                self.send(ans, p)
+                stamped.append(f"[{time.time() - t0:6.1f}] >>> 自動回答「{ans}」")
                 last[0] = time.time()
+                ask[0] = False
                 sent += 1
         self.waiting = False
         timed_out = p.poll() is None
@@ -274,7 +332,7 @@ class Runner:
             os.makedirs(os.path.join(c["folder"], "4.其他相關", "連續模式紀錄"), exist_ok=True)
             with open(os.path.join(c["folder"], "4.其他相關", "連續模式紀錄", item["key"] + ".txt"), "w",
                       encoding="utf-8") as f:
-                f.write(txt)
+                f.write("\n".join(stamped))        # 每行前面是第幾秒(看哪一步慢)
         except Exception:
             pass
         new = [x for x in found_files(item, c) if x not in before or os.path.getmtime(x) > before[x] + 1]
@@ -296,20 +354,39 @@ class Runner:
             return "failed", f"超過 {item['timeout']} 秒沒完成，已中止", sec
         return "failed", "沒有產生檔案（紀錄在 4.其他相關\\連續模式紀錄）", sec
 
+    def _one(self, item, n, total, inter=False):
+        self.q.put(("start", item["key"], n, total, inter))
+        try:
+            st, msg, sec = self.run_one(item, interactive=inter)
+        except Exception as e:
+            st, msg, sec = "failed", str(e)[:60], 0
+        self.q.put(("end", item["key"], st, msg, sec))
+
     def run(self):
-        normal = [i for i in self.items if i["key"] != "luz"]
+        """各項是不同網站、存不同檔案 → 同時跑 PARALLEL 項(久的先開跑)；要人操作的(全國土地使用分區)最後自己跑"""
+        normal = sorted((i for i in self.items if i["key"] != "luz"), key=lambda i: -est_sec(i["key"]))
         luz = [i for i in self.items if i["key"] == "luz"]
         total = len(self.items)
-        for n, item in enumerate(normal + luz, 1):
-            if self.stop:
-                break
-            inter = item["key"] == "luz"
-            self.q.put(("start", item["key"], n, total, inter))
-            try:
-                st, msg, sec = self.run_one(item, interactive=inter)
-            except Exception as e:
-                st, msg, sec = "failed", str(e)[:60], 0
-            self.q.put(("end", item["key"], st, msg, sec))
+        _prep_chromedriver()
+        todo = list(enumerate(normal, 1))
+        lock = threading.Lock()
+
+        def worker():
+            while not self.stop:
+                with lock:
+                    if not todo:
+                        return
+                    n, item = todo.pop(0)
+                self._one(item, n, total)
+        ths = [threading.Thread(target=worker, daemon=True) for _ in range(min(PARALLEL, len(normal)))]
+        for i, th in enumerate(ths):
+            th.start()
+            time.sleep(2 if i < len(ths) - 1 else 0)        # 錯開一點，不要同一秒開好幾個 Chrome
+        for th in ths:
+            th.join()
+        for item in luz:
+            if not self.stop:
+                self._one(item, total, total, inter=True)
         self.q.put(("alldone",))
 
 
@@ -641,43 +718,87 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         t = nodata_at(item, case)
         if t:
             return f"— 查無資料（{time.strftime('%m/%d %H:%M', time.localtime(t))}）", INK2
+        if not_needed(item, case, cur_json()):
+            return "— 可以不用查", INK2
         return "□ 還沒查", ORANGE
 
     def add_row(parent, item, warn=False, default=None):
         ok = applicable(item, case["city"])
         locked = bool(item.get("json") and ok and tax_reason)      # 土增稅沒有這案的結構化資料：不能選
-        ok = ok and not locked
-        fr = tk.Frame(parent, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=6)
-        fr.pack(fill=tk.X, pady=3)
+        skip = "" if found_files(item, case) else not_needed(item, case, cur_json())
+        cant = item["key"] == "ktax" and bool(skip)                  # 統一編號遮住：高雄市版跑了也算不出來
+        ok = ok and not locked and not cant
         st, col = status_text(item)
+        todo = ok and st.startswith("□")                             # 缺的：整行淡橘底＋橘框，一眼看到
+        rb = TODO_BG if todo else "white"
+        fr = tk.Frame(parent, bg=rb, highlightthickness=2 if todo else 1,
+                      highlightbackground=ORANGE if todo else "#CBD5E1", padx=10, pady=6)
+        fr.pack(fill=tk.X, pady=3)
         over = limited(item, case["city"])
-        dv = ok and not found_files(item, case) and not nodata_at(item, case) and not warn and not over
+        dv = ok and not found_files(item, case) and not nodata_at(item, case) and not warn and not over and not skip
         if default is not None:
             dv = dv and default
         v = tk.BooleanVar(master=win, value=dv)
         cb = ui.big_check(fr, v, enabled=ok)
         cb.pack(side=tk.LEFT)
-        mid = tk.Frame(fr, bg="white")
+        mid = tk.Frame(fr, bg=rb)
         mid.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 0))
-        nm = tk.Frame(mid, bg="white")
+        nm = tk.Frame(mid, bg=rb)
         nm.pack(anchor="w")
-        tk.Label(nm, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg="white", anchor="w").pack(side=tk.LEFT)
+        tk.Label(nm, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg=rb, anchor="w").pack(side=tk.LEFT)
         if ok:
-            tk.Label(nm, text=f"　⏱ 約 {fmt_sec(est_sec(item['key']))}", font=(FAM, 11), fg=INK2, bg="white").pack(side=tk.LEFT)
+            tk.Label(nm, text=f"　⏱ 約 {fmt_sec(est_sec(item['key']))}", font=(FAM, 11), fg=INK2, bg=rb).pack(side=tk.LEFT)
         if over:
             tk.Label(mid, text=f"{item['home']}以外有查詢限制，只有當月免費區查得到；要查請自己勾", font=(FAM, 11),
-                     fg=ORANGE, bg="white", anchor="w").pack(anchor="w")
+                     fg=ORANGE, bg=rb, anchor="w").pack(anchor="w")
         if item.get("note"):
-            tk.Label(mid, text=item["note"], font=(FAM, 11), fg=ORANGE if warn else INK2, bg="white", anchor="w").pack(anchor="w")
+            tk.Label(mid, text=item["note"], font=(FAM, 11), fg=ORANGE if warn else INK2, bg=rb, anchor="w").pack(anchor="w")
+        if skip and not locked:
+            tk.Label(mid, text="ⓘ " + skip, font=(FAM, 12, "bold"), fg=BLUE, bg=rb, anchor="w").pack(anchor="w")
         if locked:
-            tk.Label(mid, text="⚠ " + tax_reason, font=(FAM, 12, "bold"), fg=RED, bg="white", anchor="w", justify="left",
+            tk.Label(mid, text="⚠ " + tax_reason, font=(FAM, 12, "bold"), fg=RED, bg=rb, anchor="w", justify="left",
                      wraplength=max(300, W - 380)).pack(anchor="w")
-        sl = tk.Label(fr, text=st, font=(FAM, 13, "bold"), fg=col, bg="white", width=22, anchor="e")
+        sl = tk.Label(fr, text=st, font=(FAM, 13, "bold"), fg=col, bg=rb, width=22, anchor="e")
         sl.pack(side=tk.LEFT, padx=(6, 6))
         b = ui.button(fr, "單跑", lambda it=item: start([it]), "ghost", padx=10, pady=2)
         if ok:
             b.pack(side=tk.LEFT)
         rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item, ok=ok)
+        R = rows[item["key"]]
+
+        def paint(bg, border, thick=2, R=R, fr=fr):
+            for w in [fr, cb, mid, nm, sl] + [w for x in (mid, nm) for w in x.winfo_children()]:
+                try:
+                    w.configure(bg=bg)
+                except tk.TclError:
+                    pass
+            fr.configure(highlightthickness=thick, highlightbackground=border)
+
+        def plain(R=R):
+            """跑完(有檔或查無)：這行恢復白底"""
+            R["run"] = False
+            paint("white", "#CBD5E1", 1)
+
+        def failed(R=R):
+            R["run"] = False
+            paint(FAIL_BG, RED)
+
+        def running(R=R, sl=sl):
+            """執行中：整行淡藍底、外框藍色一閃一閃，右邊秒數一直跳"""
+            R["run"] = True
+            t0 = time.time()
+
+            def pulse(n=0):
+                if not R.get("run"):
+                    return
+                try:
+                    paint(RUN_BG[n % 2], BLUE if n % 2 == 0 else "#7FB2F0", 3)
+                    sl.configure(text=f"⏳ 執行中 {fmt_sec(time.time() - t0)}", fg=BLUE)
+                    win.after(600, pulse, n + 1)
+                except tk.TclError:
+                    pass
+            pulse()
+        R.update(plain=plain, failed=failed, running=running)
         v.trace_add("write", lambda *_: upd_total())
         if ok and item["key"] != "luz":
             v.trace_add("write", lambda *_: sync_all())
@@ -848,7 +969,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
             else:
                 jp = cur_json()
                 say(f"[連續模式] 土增稅使用結構化資料：{os.path.basename(jp)}")
-        state.update(done=0, total=len(items), results=[], t_all=time.time(), left=[i["key"] for i in items], title="")
+        state.update(done=0, total=len(items), results=[], t_all=time.time(), left=[i["key"] for i in items], title="", running=[])
         prog.pack(fill=tk.X, side=tk.BOTTOM, before=foot)
         bar_all.configure(maximum=len(items), value=0)
         r = Runner(case, items, show_var.get(), deal_var.get(), q, json_path=jp)
@@ -861,11 +982,15 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
             runner_box[0].stop = True
             prog_lbl.configure(text="正在停止…（等目前這一項結束）")
 
+    def run_title():
+        names = [rows[k]["item"]["name"] for k in state.get("running", [])]
+        return f"已完成 {state.get('done', 0)}/{state.get('total', 0)} 項｜同時在跑：" + "、".join(names)
+
     def time_line(key, sec):
-        """本項已用(約幾秒)｜全部已用，還剩約幾分"""
+        """全部已用，還剩約幾分(同時跑 PARALLEL 項，剩下的時間大約除以 PARALLEL)"""
         used = time.time() - state.get("t_all", time.time())
-        rest = sum(est_sec(k) for k in state.get("left", []) if k != key) + max(0, est_sec(key) - sec)
-        return f"本項 {fmt_sec(sec)}（約 {fmt_sec(est_sec(key))}）｜全部已 {fmt_sec(used)}，還剩約 {fmt_sec(rest)}"
+        rest = (sum(est_sec(k) for k in state.get("left", []) if k != key) + max(0, est_sec(key) - sec)) / PARALLEL
+        return f"全部已 {fmt_sec(used)}，還剩約 {fmt_sec(rest)}"
 
     def pump():
         try:
@@ -875,9 +1000,11 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                 if kind == "start":
                     _, key, n, total, inter = m
                     state["cur"] = key
+                    state.setdefault("running", []).append(key)
                     rows[key]["status"].configure(text="⏳ 執行中…", fg=BLUE)
+                    rows[key]["running"]()
                     rows[key]["frame"].configure(highlightbackground=BLUE, highlightthickness=2)
-                    state["title"] = f"第 {n}/{total} 項：{rows[key]['item']['name']}"
+                    state["title"] = run_title()
                     prog_lbl.configure(text=state["title"] + "\n" + time_line(key, 0))
                     bar_item.start(12)
                     say(f"[連續模式] 第 {n}/{total} 項：{rows[key]['item']['name']} 開始")
@@ -891,8 +1018,10 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     if key == state["cur"]:
                         prog_lbl.configure(text=state["title"] + "\n" + time_line(key, sec))
                 elif kind == "line":
-                    line_lbl.configure(text="→ " + m[2][:120])
-                    say("  " + m[2])
+                    tag = f"【{rows[m[1]]['item']['name'][3:] if rows[m[1]]['item']['name'][:2].isdigit() else rows[m[1]]['item']['name']}】" \
+                        if len(state.get("running", [])) > 1 and m[1] in rows else ""     # 同時跑好幾項：每行標是哪一項
+                    line_lbl.configure(text="→ " + tag + m[2][:120])
+                    say("  " + tag + m[2])
                     if float_box[0] is not None:
                         try:
                             _t = m[2].strip().strip("═=─-—").strip()      # 分隔線不顯示(會撐高提示框、擠掉按鈕)
@@ -902,7 +1031,13 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                             pass
                 elif kind == "end":
                     _, key, st, msg, sec = m
-                    bar_item.stop()
+                    if key in state.get("running", []):
+                        state["running"].remove(key)
+                    if state.get("running"):                  # 還有別項在跑
+                        state["cur"] = state["running"][-1]
+                        state["title"] = run_title()
+                    else:
+                        bar_item.stop()
                     cont_btn.pack_forget()
                     hide_float()
                     _txt = {"done": "✓ 完成", "nodata": "— 官方查無資料", "stopped": "■ 已停止"}.get(st, "✗ 失敗")
@@ -916,12 +1051,15 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     rows[key]["frame"].configure(highlightbackground="#CBD5E1", highlightthickness=1)
                     if st == "done":
                         rows[key]["status"].configure(text=f"✓ 完成（{sec} 秒）" + (" ⚠" if msg else ""), fg=GREEN)
+                        rows[key]["plain"]()
                         rows[key]["var"].set(False)
                     elif st == "nodata":
                         rows[key]["status"].configure(text="— 官方查無資料", fg=INK2)
+                        rows[key]["plain"]()
                         rows[key]["var"].set(False)
                     else:
                         rows[key]["status"].configure(text=f"✗ {msg[:18]}", fg=RED)
+                        rows[key]["failed"]()
                     state["results"].append((rows[key]["item"]["name"], st, msg))
                 elif kind == "mline":
                     line_lbl.configure(text=m[1][:120])
@@ -929,6 +1067,10 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     merged(*m[1:])
                 elif kind == "alldone":
                     runner_box[0] = ACTIVE[0] = None
+                    for r_ in rows.values():              # 保險：還在閃的(被停止的)恢復原狀
+                        if r_.get("run"):
+                            r_["plain"]()
+                            r_["status"].configure(text="⏹ 已停止", fg=INK2)
                     refresh_run()
                     bar_item.stop()
                     ok = sum(1 for _, s, _m in state["results"] if s == "done")

@@ -217,6 +217,9 @@ def _step_template(root, facts, state, suggest, sc, W):
         if key == "factory" and state.get("theme") == "fzt":     # 工業版預設工業咖啡；還是可以在下面換色系
             state["theme"] = "ind"
             paint_themes()
+        elif key in ("land", "farm") and state.get("theme") == "fzt":    # 土地・農地預設森林綠
+            state["theme"] = "green"
+            paint_themes()
         paint_cards()
 
     for i, (key, (icon, name, fits, pages, ok)) in enumerate(TEMPLATES.items()):
@@ -702,11 +705,16 @@ def _preview(root, path, title):
 
 
 def _factory_extra(root, sec, on):
-    """工業版：分割方案(最多 4 區)、應注意事項。存在案件資料夾，下次打開帶回"""
-    import marketing_deck_factory as mf
+    """工業版：分割方案(最多 4 區)、應注意事項；土地・農地版：分割方案、利多消息／現況說明。存在案件資料夾，下次打開帶回"""
+    if sec.get("mod") == "land":
+        import marketing_deck_land as mf
+        notes_title = mf.notes_label(sec.get("farm"))
+    else:
+        import marketing_deck_factory as mf
+        notes_title = "應注意事項（一行一點，例：地質敏感地區、集水區）"
     data = mf.load_extra(sec["case_dir"])
     dlg = tk.Toplevel(root)
-    dlg.title("工業版資料")
+    dlg.title("土地版資料" if sec.get("mod") == "land" else "工業版資料")
     dlg.configure(bg="white")
     dlg.transient(root)
     box = tk.Frame(dlg, bg="white", padx=20, pady=16)
@@ -722,7 +730,7 @@ def _factory_extra(root, sec, on):
         for c, (v, w) in enumerate(zip(vs, (10, 10, 10, 26))):
             tk.Entry(box, textvariable=v, font=(FAM, 15), width=w, relief="solid", bd=1).grid(row=2 + i, column=c, padx=4, pady=3, sticky="we")
         rows.append(vs)
-    tk.Label(box, text="應注意事項（一行一點，例：地質敏感地區、集水區）", font=(FAM, 16, "bold"), fg=INK, bg="white").grid(row=6, column=0, columnspan=4, sticky="w", pady=(14, 4))
+    tk.Label(box, text=notes_title, font=(FAM, 16, "bold"), fg=INK, bg="white").grid(row=6, column=0, columnspan=4, sticky="w", pady=(14, 4))
     txt = tk.Text(box, font=(FAM, 15), width=60, height=5, relief="solid", bd=1)
     txt.grid(row=7, column=0, columnspan=4, sticky="we")
     txt.insert("1.0", data.get("notes") or "")
@@ -732,7 +740,7 @@ def _factory_extra(root, sec, on):
         data["split"] = [r for r in split if r["area"] or r["unit"]]
         data["notes"] = txt.get("1.0", "end").strip()
         mf.save_extra(sec["case_dir"], data)
-        if data["split"] and sec["key"] == "split":
+        if (data["split"] and sec["key"] == "split") or (data["notes"] and sec["key"] == "notes"):
             on.set(True)
         dlg.destroy()
     btn = tk.Frame(box, bg="white")
@@ -885,6 +893,8 @@ def _step_arrange(root, photos, facts, state, sc, W):
         PHOTO_PAGES = STREET_PHOTO_PAGES
     elif state.get("template") == "factory":
         from marketing_deck import FACTORY_PHOTO_PAGES as PHOTO_PAGES
+    elif state.get("template") in ("land", "farm"):
+        from marketing_deck import LAND_PHOTO_PAGES as PHOTO_PAGES
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)

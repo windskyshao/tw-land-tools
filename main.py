@@ -94,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9n"
-BUILD_DATE = "2026-11-06"
+VERSION = "1.1.9o"
+BUILD_DATE = "2026-11-10"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1909,9 +1909,19 @@ def kill_subprocess_and_children(process):
         print(f"終止進程時發生錯誤: {e}", flush=True)
 
 # 🔒 子程式在問密碼／PIN／身分證時：輸入框打字遮成 ●，送出後訊息欄不顯示內容(以前會印「成功發送: 密碼」)
-_SENSITIVE_RE = re.compile(r"密碼|PIN|pin碼|身分證|身份證|統一編號|憑證碼", re.I)
+_SENSITIVE_RE = re.compile(r"密碼|\bPIN\b|pin碼|身分證|身份證|統一編號|憑證碼", re.I)
 _recent_out = []            # 子程式最近印的幾行(判斷現在在問什麼)
 _mask_input = False
+
+
+def _is_prompt(line):
+    """這行是在問使用者(請輸入…、以冒號結尾)，不是「填入【用戶密碼】」「統一編號: A12…」這種進度訊息"""
+    s = re.sub(r"\033\[[0-9;]*m", "", line).strip()
+    return "請輸入" in s or "請重新輸入" in s or s.endswith((":", "："))
+
+
+def _is_secret_prompt(line):
+    return _is_prompt(line) and bool(_SENSITIVE_RE.search(line))
 
 
 def _apply_input_mask(on):
@@ -1978,8 +1988,10 @@ def read_output(process):
 
                 _recent_out.append(output_str)
                 del _recent_out[:-3]
-                if _SENSITIVE_RE.search(output_str) and not _mask_input:
-                    root.after(0, lambda: _apply_input_mask(True))
+                if _is_prompt(output_str):          # 問密碼才遮；改問別的(例：Y/N/A/Q)就不遮
+                    _secret = _is_secret_prompt(output_str)
+                    if _secret != _mask_input:
+                        root.after(0, lambda v=_secret: _apply_input_mask(v))
                 update_message(output_str)
                 if "已完成執行" in output_str:
                     update_message("[完成] 該程序正常結束")
@@ -2280,6 +2292,91 @@ except Exception as e:
 # 🔥 使用物理像素設定 tkinter 視窗（因為已啟用 SetProcessDpiAwareness(2)）
 root.geometry(f"{window_width_for_tk}x{window_height_for_tk}+{window_x_for_tk}+{window_y_for_tk}")
 
+# 🔒 主視窗設計就是「右邊 1/3」(Chrome 開在左邊 2/3)：
+#   1. 固定大小 → 放大鈕變灰、拉邊框/拖到螢幕頂端都不會變大
+#   2. 被拖走 → 放開滑鼠就自動彈回原位，跳一個幾秒後自己消失的提示(不用按確定)
+_HOME_XY = (window_x_for_tk, window_y_for_tk)
+_home_bar = {"job": None, "tip": None}
+if not _UI_SIM:
+    root.resizable(False, False)
+
+
+def _home_off():
+    try:
+        if root.state() != "normal":
+            return False
+        _, x, y = root.geometry().split("+")
+        return abs(int(x) - _HOME_XY[0]) > 30 or abs(int(y) - _HOME_XY[1]) > 30
+    except Exception:
+        return False
+
+
+def _home_tip():
+    old = _home_bar["tip"]
+    if old is not None:
+        try:
+            old.destroy()
+        except Exception:
+            pass
+    t = _home_bar["tip"] = tk.Toplevel(root)
+    t.overrideredirect(True)
+    t.attributes("-topmost", True)
+    f = tk.Frame(t, bg="#FEF3C7", highlightthickness=2, highlightbackground="#B45309", padx=16, pady=12)
+    f.pack()
+    tk.Label(f, text="主程式固定在螢幕右邊，已自動放回", bg="#FEF3C7", fg="#78350F",
+             font=("Microsoft JhengHei", 13, "bold")).pack(anchor="w")
+    tk.Label(f, text="左邊要留給查詢時開的網頁。\n要看後面的東西，請按右上角「－」先縮小。",
+             bg="#FEF3C7", fg="#1F2937", font=("Microsoft JhengHei", 12), justify="left").pack(anchor="w", pady=(4, 0))
+    t.update_idletasks()
+    x = root.winfo_rootx() + (root.winfo_width() - t.winfo_width()) // 2
+    t.geometry(f"+{max(0, x)}+{root.winfo_rooty() + 60}")
+    close = lambda e=None: (t.destroy() if t.winfo_exists() else None)
+    t.bind("<Button-1>", close)
+    for w in f.winfo_children():
+        w.bind("<Button-1>", close)
+    t.after(5000, close)
+
+
+def _home_check():
+    _home_bar["job"] = None
+    if not _home_off():
+        return
+    try:                                  # 滑鼠還按著(還在拖) → 等放開再彈回
+        if ctypes.windll.user32.GetAsyncKeyState(0x01) & 0x8000:
+            _home_bar["job"] = root.after(150, _home_check)
+            return
+    except Exception:
+        pass
+    try:
+        root.geometry(f"+{_HOME_XY[0]}+{_HOME_XY[1]}")
+    except Exception:
+        return
+    _home_tip()
+
+
+def _home_on_move(e):
+    if e.widget is not root or _UI_SIM:
+        return
+    if _home_bar["job"]:
+        root.after_cancel(_home_bar["job"])
+    _home_bar["job"] = root.after(300, _home_check)
+
+
+root.bind("<Configure>", _home_on_move, add="+")
+
+
+def _home_watch():
+    """保險：每秒看一次位置(上面的 Configure 綁定曾被別的視窗關掉時一起清掉 → 拖走不會彈回)"""
+    try:
+        if not _UI_SIM and not _home_bar["job"] and _home_off():
+            _home_check()
+    except Exception:
+        pass
+    root.after(1000, _home_watch)
+
+
+root.after(3000, _home_watch)
+
 # 🔥 根據 DPI 和視窗寬度決定標題格式（避免高 DPI 下標題被截斷）
 BASE_TITLE = "地籍資料查詢系統"  # 修改基礎名稱
 if dpi_scale >= 1.75:
@@ -2439,9 +2536,49 @@ _cc_text.pack(side=tk.LEFT, fill=tk.X, expand=True)
 case_caption_label = tk.Label(_cc_text, text="目前案件", font=("Microsoft JhengHei", max(9, message_font_size - 3)),
                               fg="#E6F0FF", bg=_CASE_BG, anchor="w")
 case_caption_label.pack(anchor="w")
-case_name_label = tk.Label(_cc_text, text="尚未建立案件", font=("Microsoft JhengHei", message_font_size + 2, "bold"),
+_cc_name_row = tk.Frame(_cc_text, bg=_CASE_BG)
+_cc_name_row.pack(anchor="w", fill=tk.X)
+case_name_label = tk.Label(_cc_name_row, text="尚未建立案件", font=("Microsoft JhengHei", message_font_size + 2, "bold"),
                            fg="#FFFFFF", bg=_CASE_BG, anchor="w")
-case_name_label.pack(anchor="w", fill=tk.X)
+case_name_label.pack(side=tk.LEFT)
+# 名稱右邊 📂 小圓鈕＝開其他案件(從資料夾挑)；點名稱本身＝打開這個案件的資料夾
+open_other_button = M.IconButton(_cc_name_row, "📂", lambda: load_data_json_from_folder(), "#B45309", size=_icon_size)
+open_other_button.pack(side=tk.RIGHT, padx=(M.px(8), 0))     # 靠右
+
+
+# 點案件名稱(地段地號)＝打開這個案件的工作資料夾；滑鼠移過去出現底線＋提示
+def _case_name_open(_e=None):
+    try:
+        if _cf_blank_active():
+            update_message("🆕 新案件還沒建立資料夾：查好地號或門牌就會建立")
+            return
+        folder, name = _current_case_folder()
+        if folder and os.path.isdir(folder):
+            os.startfile(folder)
+            update_message(f"📂 已開啟案件資料夾：{name}")
+        else:
+            update_message("還沒有案件資料夾：查好地號或門牌就會建立")
+    except Exception as e:
+        update_message(f"開啟資料夾失敗：{e}")
+
+
+_CASE_NAME_FONT = ("Microsoft JhengHei", message_font_size + 2, "bold")
+
+
+def _case_name_hover(on):
+    case_name_label.configure(font=_CASE_NAME_FONT + (("underline",) if on else ()))
+
+
+case_name_label.configure(cursor="hand2")
+case_name_label.bind("<Button-1>", _case_name_open)
+case_name_label.bind("<Enter>", lambda e: _case_name_hover(True), add="+")
+case_name_label.bind("<Leave>", lambda e: _case_name_hover(False), add="+")
+try:
+    from case_flow import Tip as _CaseTip
+    _CaseTip(case_name_label, "點一下打開這個案件的工作資料夾\n（謄本、照片、附件、行情都在裡面）")
+    _CaseTip(open_other_button, "📂 開其他案件\n（從案件資料夾挑一個載入）")
+except Exception:
+    pass
 # 謄本結構化狀態(原本的 json_status_label，綠/橘小標籤)
 json_status_label = M.StatusChip(_cc, font=("Microsoft JhengHei", max(9, message_font_size - 3), "bold"))
 json_status_label.pack(side=tk.BOTTOM, fill=tk.X, pady=(M.px(4), 0), before=_cc_icons)    # 排在小圓鈕下面，佔滿整張卡的寬
@@ -3311,9 +3448,9 @@ def _trans_norm_lot(s):
         return s
 
 
-def _find_output_trans(data_list):
+def _find_output_trans(data_list, newer_than=0):
     """在 output/ 找這個案件的謄本結構化檔：看檔案內容的「區＋地段＋地號」，
-    涵蓋案件地號最多、最新的那份；都對不上回 None"""
+    涵蓋案件地號最多、最新的那份；都對不上回 None。newer_than：比這個時間舊的不要(同地號舊案件的謄本)"""
     import glob
     import re as _re
     want = set()
@@ -3339,11 +3476,47 @@ def _find_output_trans(data_list):
             place, lot = m.group(1), _trans_norm_lot(m.group(2))
             hit += any(place.endswith(sec) and (not area or area in place) and lot == l
                        for area, sec, l in want)
-        if hit:
+        if hit and os.path.getmtime(p) >= newer_than:
             key = (hit, os.path.getmtime(p))
             if best_key is None or key > best_key:
                 best, best_key = p, key
     return best
+
+
+def _swap_back_aside(data_json_path):
+    """選到改名留存的舊案件(xxx_舊20261109)：子程式都用「區段-地號」找資料夾，所以跟現在用正式名稱的那個對調名字。
+    回(對調後的)data.json 路徑；對調失敗回 None"""
+    folder = os.path.dirname(os.path.dirname(data_json_path))
+    try:
+        with open(data_json_path, encoding="utf-8") as f:
+            d0 = json.load(f)[0]
+        name = f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}"
+    except Exception:
+        return data_json_path
+    base = os.path.basename(folder)
+    if (os.path.normcase(os.path.dirname(folder)) != os.path.normcase(PROGRAM_DIR)
+            or not base.startswith(name + "_舊")):
+        return data_json_path
+    std = get_work_folder(name)
+    import quick_case
+    moved = None
+    try:
+        if os.path.exists(std):
+            moved = quick_case.set_aside(std)
+        os.rename(folder, std)
+        if moved:
+            update_message(f"📦 「{name}」先改名留存：{os.path.basename(moved)}")
+    except OSError as e:
+        if moved and not os.path.exists(std):
+            try:
+                os.rename(moved, std)       # 改回去，不要兩個都不是正式名稱
+            except OSError:
+                pass
+        show_large_message("切換案件", f"「{base}」改回正式名稱失敗，可能有檔案正在開著，或檔案總管停在那個資料夾。\n\n"
+                                      f"把它們關掉再試一次。\n（{e}）")
+        return None
+    update_message(f"📂 「{base}」已改回「{name}」")
+    return os.path.join(std, "4.其他相關", "data.json")
 
 
 def _load_case_data_json(data_json_path, show_dialog=True):
@@ -3352,6 +3525,9 @@ def _load_case_data_json(data_json_path, show_dialog=True):
     global json_status_label, selected_json_path
     import glob
     try:
+        data_json_path = _swap_back_aside(data_json_path)
+        if not data_json_path:
+            return False
         # 讀取並複製到程式目錄
         import shutil
         shutil.copy2(data_json_path, os.path.join(PROGRAM_DIR, "data.json"))
@@ -3375,6 +3551,8 @@ def _load_case_data_json(data_json_path, show_dialog=True):
                 root.update_idletasks()
 
                 # 🔥 更新主視窗標題
+                if "_cfw" in globals():
+                    _cfw["blank"] = None            # 「新案件」空白畫面 → 換成剛開的案件
                 update_title_from_data_json()
 
                 # 🔥 NEW：同步更新 selected_json_path（指向該案件的結構化 trans_*.json）
@@ -3399,7 +3577,10 @@ def _load_case_data_json(data_json_path, show_dialog=True):
                 else:
                     # 2. 退而到 output/ 找：看檔案內容的「地段＋地號」(不看檔名，免得 41 對到 4101)，
                     #    找到就複製一份進案件的 4.其他相關，之後這個案件自己就帶著
-                    cand_name = _find_output_trans(data_list)
+                    _case_dir = os.path.dirname(case_other_dir)
+                    _asides = glob.glob(glob.escape(_case_dir) + "_舊*")
+                    # 同地號有改名留存的舊案件 → output 裡比這個案件資料夾還舊的謄本是舊案件的，不要拿
+                    cand_name = _find_output_trans(data_list, os.path.getctime(_case_dir) if _asides and os.path.isdir(_case_dir) else 0)
                     if cand_name:
                         found_trans = cand_name
                         try:
@@ -5043,6 +5224,8 @@ def handle_read_json_function():
 
 def update_json_status_display():
     """更新JSON狀態顯示"""
+    if _cf_blank_active():
+        return
     if selected_json_path:
         filename = os.path.basename(selected_json_path)
         try:
@@ -5532,6 +5715,8 @@ def disable_other_buttons(active_button):
 def enable_all_buttons():
     for button in all_buttons:
         button.config(state=tk.NORMAL)
+    if _mask_input:                         # 程式結束了還在遮 ● → 解除(不然提示字「請在此輸入...」也變成 ●●●)
+        _apply_input_mask(False)
 
 # 🔥 主頁面按鈕（重新分配）
 # 左邊 4 個 - 🔥 地籍便民系統使用特殊樣式，謄本與土增稅在其下方
@@ -6954,6 +7139,8 @@ def start_subprocess(button, script_name):
                 cmd += ['--json', selected_json_path]
             else:
                 cmd += ['--json-dir', json_dir or JSON_DIR_DEFAULT]
+        if script_name == 'finance_tax.py':
+            cmd += ['--calc']           # 主程式按鈕：程式直接算(不開財政部網站)；連續模式的附件查詢仍走財政部網站
 
         # 🔥 設定環境變數以隔離 Python 路徑
         env = os.environ.copy()
@@ -7907,6 +8094,20 @@ def _adopt_files_from_wrong_case():
     update_divider()
 
 
+def _unlink_trans(why):
+    """解除目前選用的謄本結構化 JSON(不刪檔)"""
+    global selected_json_path
+    selected_json_path = None
+    try:
+        cfg = load_config() or {}
+        cfg["selected_json"] = ""
+        save_config(cfg, show_message=False)
+    except Exception:
+        pass
+    json_status_label.config(text="尚未謄本結構化", fg='#FF8C00')
+    update_message(f"   {why}")
+
+
 def _recheck_transcript_link(unlink=True):
     """data.json(目前案件)換了之後，檢查目前選用的謄本結構化 JSON 是不是同一個案件。
     完全不同地段 → unlink=True：解除連結(不刪檔)並提示重新結構化；unlink=False：只把狀態標籤標成「不符」"""
@@ -7967,10 +8168,11 @@ def open_quick_lookup(text):
     def on_saved(entries, mode, folder):
         if isinstance(entries, dict):
             entries = [entries]
+        _cf_blank_off()                     # 「新案件」空白畫面收掉：標題、結構化標籤改成新案件的
+        did = {"new": "建立新案件", "keep": "加入原本的案件"}.get(mode, "加入目前案件")
         update_message("")
-        update_message(f"\033[92m✓ 已{'建立新案件' if mode == 'new' else '加入目前案件'}"
-                       f"（{len(entries)} 筆）：\033[0m" if len(entries) > 1 else
-                       f"\033[92m✓ 已{'建立新案件' if mode == 'new' else '加入目前案件'}：\033[0m")
+        update_message(f"\033[92m✓ 已{did}（{len(entries)} 筆）：\033[0m" if len(entries) > 1 else
+                       f"\033[92m✓ 已{did}：\033[0m")
         for entry in entries:
             update_message(f"\033[92m   {entry['area']}{entry['section']} {entry['lot_number']}地號\033[0m")
             if entry.get("build_no"):
@@ -7979,7 +8181,12 @@ def open_quick_lookup(text):
                 update_message(f"\033[92m      社區：{entry['community']}\033[0m")
         update_message(f"   資料夾：{folder}")
         update_message("   接下來可直接執行各查詢功能（data.json 已更新）")
-        if mode == "new":
+        if mode == "keep":                  # 同名的舊案件接著用：跟「開其他案件」一樣載入(連它的謄本結構化)
+            root.after(300, lambda: _load_case_data_json(os.path.join(folder, "4.其他相關", "data.json"), show_dialog=False))
+        elif mode == "new" and quick_case.LAST_ASIDE[0]:
+            quick_case.LAST_ASIDE[0] = None     # 同地號舊案件剛改名留存：它的謄本結構化是舊的，不接到新案件
+            _unlink_trans("同一個地號的舊案件已改名留存，新案件要重新調謄本、做謄本結構化")
+        elif mode == "new":
             root.after(300, lambda: _recheck_transcript_link(unlink=True))
         try:
             update_title_from_data_json()
@@ -8030,6 +8237,8 @@ def show_quick_intro(force=False, intent=None):
         import quick_case
         if intent:
             quick_case.set_intent(intent, quick_case.case_name(os.path.join(PROGRAM_DIR, 'data.json')))
+        if intent == "new" and _cfw.get("on"):
+            _cf_blank_on()
         quick_case.show_intro(root, input_field, PROGRAM_DIR, force=force, on_query=_panel_query, case_info=_case_info)
     except Exception as e:
         print(f"[萬用查詢面板] 無法顯示：{e}")
@@ -8085,7 +8294,7 @@ def send_input(event=None):
         # 🔥 如果是 placeholder，當作空字串
         if user_input == "請在此輸入...":
             user_input = ""
-        secret = _mask_input or any(_SENSITIVE_RE.search(x) for x in _recent_out[-2:])
+        secret = _mask_input or any(_is_secret_prompt(x) for x in _recent_out[-2:])
         _apply_input_mask(False)
         input_field.delete(0, tk.END)
         # 🔥 重新加上 placeholder
@@ -8536,8 +8745,8 @@ class _UpdateProgressWin:
         self.note = tk.Label(f, text="", font=("Microsoft JhengHei", 12, "bold"), fg="#B45309", bg="white",
                              wraplength=480, justify="left")
         self.note.pack(anchor="w", pady=(4, 0))
-        tk.Label(f, text="下載時可以繼續使用其他功能；下載完會自動關閉程式、更新、重新開啟。",
-                 font=("Microsoft JhengHei", 11), fg="#4B5563", bg="white", wraplength=480,
+        tk.Label(f, text="更新中主畫面先暫停使用（避免做到一半被關掉）；\n下載完會自動關閉程式、更新、重新開啟。",
+                 font=("Microsoft JhengHei", 12), fg="#374151", bg="white", wraplength=480,
                  justify="left").pack(anchor="w", pady=(12, 0))
         tk.Button(f, text="取消更新", font=("Microsoft JhengHei", 12), command=self._ask_cancel,
                   relief="groove", padx=14).pack(anchor="e", pady=(12, 0))
@@ -8545,6 +8754,11 @@ class _UpdateProgressWin:
         x = root.winfo_rootx() + (root.winfo_width() - w.winfo_width()) // 2
         y = root.winfo_rooty() + (root.winfo_height() - w.winfo_height()) // 3
         w.geometry(f"+{max(0, x)}+{max(0, y)}")
+        # ★下載完程式會自動關閉重開：主畫面這段時間點不動，免得開了查詢做到一半被關掉
+        try:
+            root.attributes('-disabled', True)
+        except Exception:
+            pass
 
     def _ask_cancel(self):
         if show_large_yesno("取消更新", "確定要取消這次更新嗎？\n（原本的程式不會被動到，之後可以再按更新）"):
@@ -8579,6 +8793,10 @@ class _UpdateProgressWin:
             pass
 
     def close(self):
+        try:
+            root.attributes('-disabled', False)
+        except Exception:
+            pass
         try:
             self.bar.stop()
             self.win.destroy()
@@ -9687,6 +9905,8 @@ def update_title_from_data_json():
     從 data.json 讀取資料並更新視窗標題
     當 land.py 執行完成後，即時更新標題而不需重啟程式
     """
+    if _cf_blank_active():
+        return
     try:
         # 讀取 data.json
         data_json_path = get_data_json_path()
@@ -9931,7 +10151,7 @@ except Exception as _e:
 # ===================== 新版介面(試用)：案件進度表(case_flow)取代上方按鈕區，訊息框/輸入框照舊 =====================
 # 大家都能用(右上 ✨ 切換，預設舊版)；按鈕都接回舊版同一顆按鈕/函式，行為跟舊版一樣
 _UI_PREF = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "地籍資料查詢系統", "ui_pref.json")
-_cfw = {"flow": None, "on": False, "sig": None, "acct": None, "attach": None}
+_cfw = {"flow": None, "on": False, "sig": None, "acct": None, "attach": None, "blank": None}
 
 
 def _ui_pref(key=None, value=None):
@@ -9951,8 +10171,54 @@ def _ui_pref(key=None, value=None):
         pass
 
 
+def _cf_blank_on():
+    """按了「新案件」：右邊、標題、訊息框都像全新的(舊案件資料不動，開始卡/最近的案件找得到)；
+    建好新案件或切回別的案件就恢復"""
+    folder = _current_case_folder()[0] or ""
+    if _cfw.get("blank") == folder:
+        return                              # 已經是新案件畫面
+    _cfw["blank"] = folder
+    _root_title_orig(TITLE_WITH_LOCATION.format(version=VERSION, location="新案件"))
+    case_name_label.config(text="🆕 新案件", fg="#FFE0B2")
+    try:
+        json_status_label.config(text="還沒建立案件：查好地號或門牌就會建立", fg='#FF8C00')
+    except Exception:
+        pass
+    try:
+        message_box.config(state=tk.NORMAL)
+        message_box.delete("1.0", tk.END)
+    except Exception:
+        pass
+    update_message("🆕 新案件：在萬用查詢選單查，或在最下面輸入框打地址、門牌、地號。建好後會先問「已委託／開發中」。")
+    _cf_refresh(force=True)
+
+
+def _cf_blank_active():
+    """「新案件」空白畫面中(案件還沒換)：標題、結構化標籤先別改回舊案件"""
+    try:
+        return _cfw.get("blank") is not None and _cfw["blank"] == (_current_case_folder()[0] or "")
+    except NameError:                       # 主介面還沒建好
+        return False
+
+
+def _cf_blank_off(restore=True):
+    if _cfw.get("blank") is None:
+        return
+    _cfw["blank"] = None
+    if restore:
+        try:
+            update_title_from_data_json()
+            update_json_status_display()
+        except Exception:
+            pass
+
+
 def _cf_case():
-    """目前案件 → case_flow 要的 dict；沒有案件回 None"""
+    """目前案件 → case_flow 要的 dict；沒有案件(或按了「新案件」還沒建好)回 None"""
+    if _cfw.get("blank") is not None:
+        if _cfw["blank"] == (_current_case_folder()[0] or ""):
+            return None
+        _cf_blank_off()                     # 案件已經換了(別處建好/載入)
     try:
         with open(get_data_json_path(), 'r', encoding='utf-8') as f:
             d0 = json.load(f)[0]
@@ -10197,6 +10463,7 @@ def _start_progress(folder, data_json):
 
 
 def _start_continue():
+    _cf_blank_off()
     folder, name = _current_case_folder()
     if folder and os.path.isdir(folder):
         update_message(f"📂 接著做：{name}")
@@ -10208,6 +10475,7 @@ def _start_switch(data_json):
         show_large_message("請稍等", "目前有功能正在執行，等它結束再切換案件。")
         return
     if _load_case_data_json(data_json, show_dialog=False):
+        _cf_blank_off()
         _, name = _current_case_folder()
         update_message(f"📂 已切到案件：{name}")
         _cf_refresh(force=True)
@@ -10359,12 +10627,15 @@ def _cf_refresh(force=False):
             busy = current_running_button.cget("text").replace("關閉 ", "")
         case = _cf_case()
         if not case:
-            sig = ("empty", bool(_cfw["acct"]), busy)
+            blank = _cfw.get("blank") is not None
+            sig = ("empty", bool(_cfw["acct"]), busy, blank)
             if force or sig != _cfw["sig"]:
                 _cfw["sig"] = sig
                 f.busy = busy
                 f.show_empty("先建立案件：在最下面輸入框打地址、門牌或「地段 地號」按 Enter～",
-                             "📋 打開查詢選單建立案件", open_quick_panel, account=_cfw["acct"])
+                             "📋 打開查詢選單建立新案件" if blank else "📋 打開查詢選單建立案件",
+                             lambda: show_quick_intro(force=True, intent="new") if blank else open_quick_panel(),
+                             account=_cfw["acct"])
             return
         import case_flow as CF
         st = _cf_state(case)
@@ -10392,6 +10663,8 @@ def _cf_switch(on, announce=True):
     """切換新版/舊版介面(記住選擇)；announce＝在訊息框說一聲(啟動時自動切就不說)"""
     _ui_pref("ui", "new" if on else "classic")
     _cfw["on"] = on
+    if not on:
+        _cf_blank_off()                     # 舊版沒有「新案件」空白畫面
     if on:
         if _cfw["flow"] is None:
             try:

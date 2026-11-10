@@ -60,6 +60,8 @@ def _attach_items(case):
     out = []
     for it in CA.ITEMS + [CA.LUZ]:
         have = bool(CA.found_files(it, case))
+        if not have and getattr(CA, "not_needed", None) and CA.not_needed(it, case):    # 選用項目(如高雄已有都計就不用全國分區)不算缺
+            continue
         if CA.applicable(it, case.get("city", "")) and (have or not CA.limited(it, case.get("city", ""))):
             out.append((it["name"].split(" ", 1)[-1], bool(CA.found_files(it, case)), bool(CA.nodata_at(it, case))))
     return out
@@ -158,16 +160,17 @@ def scan(case, stage="委託", running=None, account=None):
             [("結構化", "struct", bool(got))], tip="把謄本 PDF 轉成資料：面積、持分、所有權人、前次移轉現值…")
 
     # ⑤ 土地增值稅
+    pt = _glob(f, "1.基本資料/01_土地增值稅_程式試算*")
     ft = _glob(f, "1.基本資料/01_土地增值稅_財政部版*")
     kt = _glob(f, "1.基本資料/01-1_土地增值稅_高雄市版*")
-    if ft or kt:
+    if pt or ft or kt:
         add("tax", "調", "土地增值稅", "done",
-            "　".join(x for x in ("財政部 ✓" if ft else "", "高雄市 ✓" if kt else "") if x),
-            [("財政部", "tax_fin", False), ("高雄版", "tax_kh", False)], tip="用結構化資料自動試算，不用再手打。")
+            "　".join(x for x in ("試算 ✓" if pt else "", "財政部 ✓" if ft else "", "高雄市 ✓" if kt else "") if x),
+            [("重算", "tax_fin", False), ("高雄版", "tax_kh", False)], tip="用結構化資料自動試算，不用再手打。")
     else:
         add("tax", "調", "土地增值稅", "lock" if not js else "todo",
             "結構化後就能算" if not js else "可以試算了",
-            [("試算", "tax_fin", bool(js))], tip="用結構化資料自動試算（預設財政部版，高雄的案子可以加算高雄市版）。")
+            [("試算", "tax_fin", bool(js))], tip="用結構化資料，程式照財政部公式直接算（幾秒鐘，不用開網站）。")
 
     # ⑥ 地籍圖標註
     marked = [p for p in cad if "_標註" in os.path.basename(p)]
@@ -192,17 +195,22 @@ def scan(case, stage="委託", running=None, account=None):
     # 物件資料(data_final.json)是物調表的內容來源，不另列一格；沒存過就由「物件編輯器」大按鈕帶去填
     docs = [("物調表", bool(_glob(f, "物件個案調查表*.docx", "物件個案調查表*.pdf")), "doc_survey"),
             ("簡報", bool(_glob(f, "*不動產行銷報告*.pptx", "*不動產行銷報告*.pdf")), "doc_deck")]
+    # 業績分配表：呈報公司時就要附(使用者 11-10)→ 委託時算進這步要做的；開發階段先不用
+    perf = ("業績分配表", bool(_glob(f, "**/業績分配表_*.pdf")), "doc_perf")
+    if not dev:
+        docs.append(perf)
     done_n = sum(d[1] for d in docs)
     req_n = len(docs)
-    # 業績分配表、租賃申報書都是成交時才做(存 6.成交)：列出來可以點，但不算進這步有沒有做完(不然委託中永遠不會打勾)
-    docs.append(("業績分配表(成交時)", bool(_glob(f, "**/業績分配表_*.pdf")), "doc_perf", True))
+    if dev:
+        docs.append(perf + (True,))
+    # 租賃申報書是成交、簽好租約才做：列出來可以點，但不算進這步有沒有做完
     if rent:
         docs.append(("申報書(成交時)", bool(_glob(f, "**/實價登錄申報書*.pdf")), "doc_rent", True))
     add("editor", "做", "物件資料與文件", "done" if done_n == req_n else ("skip" if dev and not done_n else "todo"),
         "　".join(f"{n}\u00a0{'✓' if ok else '□'}" for n, ok, _ in (d[:3] for d in docs[:req_n])) if (done_n or not dev) else later,
         [("物件編輯器", "editor", not fin and not dev)],
         tip="物件編輯器：謄本、分區、使照的資料會自動帶進來，補上售價、格局、車位等。\n"
-            "物調表、簡報做好這步就打勾；業績分配表、申報書成交時再做（存在 6.成交），不影響打勾。",
+            "物調表、簡報、業績分配表做好這步就打勾（業績分配表呈報公司時要附）；\n申報書成交、簽好租約再做，不影響打勾。",
         items=docs if (done_n or not dev) else None)
 
     # ⑩ 交件
@@ -1048,7 +1056,7 @@ GUIDE_HELP = {
     "tax": "用結構化資料自動算土地增值稅。",
     "map": "在地籍圖標出邊長、臨路路名和路寬。",
     "photo": "照片放進「2.照片」：直接拖進主程式視窗也可以。",
-    "editor": "在物件編輯器補上售價、格局、車位，做好物調表、簡報這步就完成；業績分配表成交時再做。",
+    "editor": "在物件編輯器補上售價、格局、車位，做好物調表、簡報、業績分配表這步就完成（業績分配表呈報公司時要附）。",
     "deliver": "把做好的檔案合成一份 PDF。",
 }
 
@@ -1185,7 +1193,7 @@ class Guide(tk.Frame):
 
     ITEM_TIPS = {"doc_survey": "物件個案調查表(Word/PDF)：先在物件編輯器填好售價、格局、車位、屋況，\n再按「生成物件調查表」。",
 "doc_deck": "不動產行銷報告簡報(PPT/PDF)",
-                 "doc_perf": "業績分配表 PDF：成交時再做，會存到 6.成交", "doc_rent": "實價登錄申報書(租賃) PDF：成交、簽好租約後再做，會存到 6.成交"}
+                 "doc_perf": "業績分配表 PDF：呈報公司時要附上", "doc_rent": "實價登錄申報書(租賃) PDF：成交、簽好租約後再做，會存到 6.成交"}
 
     def _draw_items(self, box, items, pad):
         """一項一格：做好=綠底 ✓，還沒做=白底橘框 □；點了直接去做那一項"""
@@ -1370,8 +1378,8 @@ class Guide(tk.Frame):
     def _ask_stage(self, box, pad):
         self.stage_box = box                         # 功能提示要指這裡
         self._head(box, "先問一下：這件已經委託了嗎？")
-        _autowrap(tk.Label(box, text="● 已委託：" + STAGE_HELP["委託"].split("：", 1)[1] + "\n\n"
-                                     "● 開發中：" + STAGE_HELP["開發"].split("：", 1)[1] + "\n\n"
+        _autowrap(tk.Label(box, text="●已委託：" + STAGE_HELP["委託"].split("：", 1)[1] + "\n\n"     # ● 後面不空格：不然換行會把 ● 單獨留一行
+                                     "●開發中：" + STAGE_HELP["開發"].split("：", 1)[1] + "\n\n"
                                      "選錯沒關係，之後隨時可以在最上面「已委託／開發中」切換。",
                            font=(FAM, 14), bg=ORANGE_BG, fg=INK, anchor="w", justify="left")).pack(
             fill=tk.X, pady=(M.px(2), 0), **pad)

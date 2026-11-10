@@ -300,7 +300,8 @@ def message(parent, title, text, kind="info", ok="確定", cancel="取消"):
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
         pw, ph = parent.winfo_width(), parent.winfo_height()
         w, h = top.winfo_reqwidth(), top.winfo_reqheight()
-        top.geometry(f"+{max(0, px + (pw - w) // 2)}+{max(0, py + (ph - h) // 3)}")
+        x = min(max(0, px + (pw - w) // 2), top.winfo_screenwidth() - w)     # 不要超出螢幕右邊
+        top.geometry(f"+{max(0, x)}+{max(0, py + (ph - h) // 3)}")
     except Exception:
         pass
     top.deiconify()
@@ -346,7 +347,8 @@ def choice(parent, title, text, buttons, kind="ask", default=0):
         px, py = parent.winfo_rootx(), parent.winfo_rooty()
         pw, ph = parent.winfo_width(), parent.winfo_height()
         w, h = top.winfo_reqwidth(), top.winfo_reqheight()
-        top.geometry(f"+{max(0, px + (pw - w) // 2)}+{max(0, py + (ph - h) // 3)}")
+        x = min(max(0, px + (pw - w) // 2), top.winfo_screenwidth() - w)     # 不要超出螢幕右邊
+        top.geometry(f"+{max(0, x)}+{max(0, py + (ph - h) // 3)}")
     except Exception:
         pass
     top.deiconify()
