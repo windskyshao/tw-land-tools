@@ -1301,6 +1301,68 @@ def setup_manual_query():
     return True
 
 
+def _tainan_supplement(area, section, lot_number, data_list):
+    """台南補查：新地號＋重測前舊地號查台南工務局 blis，結果印出並存成一頁 PDF（用 Chrome printToPDF）。
+    查到回 True。失敗不影響後面的 NBUPIC 查詢。"""
+    LB, Y, BL, RST = "\033[96m", "\033[93m", "\033[94m", "\033[0m"
+    print(f"\n{LB}[台南工務局補查] 國土署系統只有近年的執照，先查台南工務局（含重測前舊地號）...{RST}", flush=True)
+    try:
+        import tainan_permit as tp
+        rows, olds = tp.lookup(area, section, lot_number, log=lambda m: print(m, flush=True))
+    except Exception as e:
+        print(f"  [台南工務局補查] 失敗（不影響後面查詢）：{e}", flush=True)
+        return False
+    if olds:
+        print(f"{Y}  重測前舊地號：{'、'.join(f'{a}{s} {l}' for a, s, l in olds)}{RST}", flush=True)
+    if not rows:
+        print(f"{Y}  台南工務局：新、舊地號都查無執照{RST}", flush=True)
+        return False
+    print(f"\n{Y}台南工務局查到 {len(rows)} 筆（★=使用執照）：{RST}", flush=True)
+    for i, r in enumerate(rows, 1):
+        star = "★ " if tp.is_usage(r["license_no"]) else "  "
+        addr = f"｜{r['address']}" if r["address"] else ""
+        print(f"{BL}  {i}. {star}{r['license_no']}{addr}｜{r['applicant']}｜{r['via']}{RST}", flush=True)
+
+    first = data_list[0]
+    base_directory = get_work_folder(f"{first.get('area', '')}{first.get('section', '')}-{first.get('lot_number', '')}")
+    pdf_dir = os.path.join(base_directory, "1.基本資料")
+    os.makedirs(pdf_dir, exist_ok=True)
+    tag = re.sub(r'[\\/:"*?<>|]+', '_', f"{area}{section}{lot_number}")
+    pdf_path = os.path.join(pdf_dir, f"02_使用執照-台南工務局清單-{tag}.pdf")
+    html_path = os.path.join(pdf_dir, f"_tmp_tainan_permit_{int(time.time())}.html")
+    main_handle = new_handle = None
+    try:
+        with open(html_path, "w", encoding="utf-8") as f:
+            f.write(tp.results_html(f"建築執照查詢結果：臺南市{area}{section} {lot_number} 地號", rows, olds))
+        main_handle = driver.current_window_handle
+        driver.switch_to.new_window('tab')
+        new_handle = driver.current_window_handle
+        driver.get("file:///" + html_path.replace("\\", "/"))
+        time.sleep(0.8)
+        result = driver.execute_cdp_cmd("Page.printToPDF", {
+            "landscape": True, "printBackground": True,
+            "marginTop": 0.4, "marginBottom": 0.4, "marginLeft": 0.4, "marginRight": 0.4})
+        with open(pdf_path, "wb") as f:
+            f.write(base64.b64decode(result["data"]))
+        print(f"  {Y}已保存 PDF：{os.path.basename(pdf_path)}{RST}", flush=True)
+        return True
+    except Exception as e:
+        print(f"  保存台南工務局清單 PDF 失敗：{e}", flush=True)
+        return True     # 有查到，只是沒存成檔
+    finally:
+        try:
+            if new_handle:
+                driver.close()
+            if main_handle:
+                driver.switch_to.window(main_handle)
+        except Exception:
+            pass
+        try:
+            os.remove(html_path)
+        except Exception:
+            pass
+
+
 def main():
     global driver
 
@@ -1406,8 +1468,12 @@ def main():
         print(f"  [警告] Chrome 視窗定位失敗（不影響功能）：{e}", flush=True)
 
     try:
+        _found_any = False   # 連續模式 --until-found：台南補查或 NBUPIC 任一查到就停
         # 🔥 多筆地號逐筆查詢（mode 2/3 或單筆時迴圈只跑一次）
         for _idx, _entry in enumerate(selected_entries, 1):
+            if _found_any and args.until_found:
+                print("已查到執照，其餘地號不再查", flush=True)
+                break
             # 覆蓋外層 area/section/lot_number/address，讓後續邏輯沿用相同變數名
             area = _entry.get("area", "")
             section = _entry.get("section", "")
@@ -1416,6 +1482,11 @@ def main():
 
             if len(selected_entries) > 1:
                 print(f"\n\033[96m===== 第 {_idx}/{len(selected_entries)} 筆：{area}{section} {lot_number} =====\033[0m", flush=True)
+
+            # 🔥 台南：NBUPIC 只有近年執照，老建物要到台南工務局系統用「重測前舊地號」查（純 HTTP 先補查）
+            if mode == "1" and city.replace("台", "臺") == "臺南市":
+                if _tainan_supplement(area, section, lot_number, data_list):
+                    _found_any = True
 
             # ===== 4. 開頁面（用對應縣市的 organ）+ 設定 LICENSING_UNIT =====
             if not open_nbupic(city):
@@ -1617,6 +1688,8 @@ def main():
 
             print(f"\n\033[92m✓ 此筆完成：成功下載 {success_count}/{len(choices)} 筆\033[0m", flush=True)
 
+            if success_count:
+                _found_any = True
             if success_count and args.until_found:
                 print("已查到執照，其餘地號不再查", flush=True)
                 break

@@ -90,7 +90,8 @@ def compare(contacts, roster):
             continue
         if c["phone"] and r["phone"] and c["phone"] != r["phone"]:
             d["phone"].append(dict(name=nm, old=c["phone"], new=r["phone"]))
-        if c["store"] and r["store"] and c["store"] != r["store"]:
+        # 會計/行政(沒編號)常調店但名冊通常不改，以通訊錄為準，不列換店(使用者 11-12)
+        if c["code"] and c["store"] and r["store"] and c["store"] != r["store"]:
             d["store"].append(dict(name=nm, old=c["store"], new=r["store"]))
     for c in contacts:
         if c["active"] and c["store"] != "總公司管理部" and c["name"] not in ros and c["name"] not in renamed_from:

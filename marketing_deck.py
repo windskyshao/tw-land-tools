@@ -59,23 +59,40 @@ PAGE_CHOICES = [("a4l", "A4 橫式", "印成 A4 滿版（建議）", 297, 210, T
 # 版型(依物件型式)：key → (圖示, 名稱, 適用, 包含頁面, 可用)
 TEMPLATES = {
     "building": ("🏢", "大樓・華廈", "公寓、華廈、大樓、套房", "封面・基本資料・總覽・成果圖・室內・景觀・公設・行情", True),
-    "villa": ("🏪", "透天・店面", "透天厝、透天店面、別墅", "滿版封面・物件亮點・樓層配置・周邊機能・街景（不用公司外框）", True),
-    "office": ("🏬", "辦公・店面", "辦公室、商辦、店面", "樓層・面寬・管理・適合行業・商圈", False),
+    # 透天店面算透天(一整棟)；店面・商辦是大樓一樓店面、辦公室(使用者 11-11：兩個都叫「店面」分不清)
+    "villa": ("🏠", "透天・別墅", "透天厝、透天店面、別墅", "滿版封面・物件亮點・樓層配置・周邊機能・街景（不用公司外框）", True),
+    # 店面、商辦分開(使用者 11-11)：店面看面寬臨路、商圈、適合行業；商辦多在大樓，看樓層坪數、管理、車位，沒有面寬
+    "shop": ("🏪", "店面", "一樓店面、騎樓店面、店舖", "滿版封面・面寬臨路・適合行業・商圈・街景（不用公司外框）", True),
+    "office": ("🏬", "商辦", "辦公室、商辦大樓、辦公大樓", "封面・基本資料(管理費、公設比)・總覽・成果圖・辦公空間・景觀", True),
     "factory": ("🏭", "工業・廠房", "廠房、廠辦、倉庫、工業用地", "滿版實景・分割方案・交通・法規・周邊廠商・團隊", True),
-    "land": ("🗺", "土地・建地", "建地、重劃區土地", "滿版空拍・地籍・使用分區・開發試算・利多消息", True),
-    "farm": ("🌾", "農地", "農牧用地、田地", "滿版空拍・地籍・農舍條件・現況說明・周邊", True),
+    # 土地、農地合併成一個版型：農牧用地/農業區自動加「農地資訊(農舍條件)」頁、面積加寫公頃
+    "land": ("🗺", "土地", "建地、重劃區土地、農地、田地", "滿版空拍・地籍・使用分區・開發試算或農舍條件・利多消息", True),
 }
+TEMPLATE_ALIAS = {"farm": "land"}       # 舊設定存的「農地」版 → 土地版
 
 
-def suggest_template(kind, zone=""):
-    """依物件編輯器的「型式」建議版型；使用分區是工業區/丁建也算工業版"""
+def is_farm(d):
+    """農牧用地(非都市)或都市計畫農業區 → 土地版做成農地內容"""
+    return bool(re.search(r"農牧|養殖|農業區", f'{d.get("非都市土地使用地類別", "")} {d.get("都市土地使用分區", "")}'))
+
+
+def suggest_template(kind, zone="", use=""):
+    """依物件編輯器的「型式」建議版型；使用分區是工業區/丁建也算工業版。
+    use＝「用途」：大樓裡的辦公室、一樓店面型式寫「大樓」，要看用途才分得出商辦、店面(透天店面仍走透天版)"""
     k = str(kind or "")
+    u = str(use or "")
+    if not re.search(r"透天|別墅|墅|土地|建地|廠|倉庫|農|田", k):
+        if re.search(r"辦公|商辦|寫字樓", u):
+            return "office"
+        if "店" in u:
+            return "shop"
     if re.search(r"工業|丁種", str(zone or "")) and not re.search(r"透天|大樓|華廈|公寓", k):
         return "factory"
     if re.search(r"農牧|農業區", str(zone or "")) and not re.search(r"透天|大樓|華廈|公寓|廠", k):     # 型式只寫「土地」的農地
-        return "farm"
-    for key, words in (("factory", ("廠", "倉庫")), ("farm", ("農", "田")), ("land", ("土地", "建地")),
-                       ("villa", ("透天", "別墅", "墅")), ("office", ("辦公", "店面", "商辦", "店"))):
+        return "land"
+    for key, words in (("factory", ("廠", "倉庫")), ("land", ("土地", "建地", "農", "田")),
+                       ("villa", ("透天", "別墅", "墅")), ("office", ("辦公", "商辦", "寫字樓")),
+                       ("shop", ("店面", "店舖", "店"))):
         if any(w in k for w in words):
             return key
     return "building"
@@ -111,6 +128,9 @@ THEMES["ind"] = dict(name="工業咖啡", desc="工業地產團隊・沉穩大�
 THEME = "fzt"
 
 
+COVER_STYLE = "A"          # 土地版封面樣式(A 底部漸層/B 左側直欄/C 上照片下白卡/D 左下小卡)，步驟①選
+
+
 def set_theme(key):
     """換色系：改掉全域配色(版面程式都讀這幾個常數)"""
     global THEME, SKY, SKY_DK, NUM, BG, PANEL, LINE
@@ -135,11 +155,35 @@ SHOP_CAT = "店面空間"
 CATS = ["封面", "空拍", EXT_CAT, STREET_CAT, "廠房內部", "卸貨區", "辦公室", "騎樓", SHOP_CAT, "大廳公設",
         "客廳", "廳堂", "餐廳廚房", "臥室", "書房", "和室", "佛堂", "衛浴", "儲藏室", "樓梯間", "其他空間",
         "陽台景觀", "前後陽台", "頂樓露台", "庭院", "車位", "車庫",
+        "基地現況", "臨路・道路", "地界・界樁", "周邊建物", "地上物・農作物", "水圳・灌溉",
         LAYOUT_CAT, "不使用"]
+# 土地版的照片分類(沒有建物：不列客廳、臥室…)；選單跟著版型換
+LAND_CATS = ["封面", "空拍", "基地現況", "臨路・道路", "地界・界樁", "周邊建物", "地上物・農作物", "水圳・灌溉", STREET_CAT]
 CAT_RENAME = {"大樓外觀": EXT_CAT}
 CAT_SEP = "──────────"       # 下拉選單裡的分隔線(選到會自動退回)，把「格局平面圖」跟照片分類隔開
-CAT_MENU = CATS[:-2] + [CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
+_BUILDING_CATS = [c for c in CATS[:-2] if c not in LAND_CATS or c in ("封面", "空拍", STREET_CAT)]
+CAT_MENU = _BUILDING_CATS + [CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
+LAND_CAT_MENU = LAND_CATS + [CAT_SEP, "不使用"]
+
+
+# 店面、商辦不是住家：選單不列臥室、和室、佛堂…(真的有也能放「其他空間」)
+SHOP_CAT_MENU = ["封面", "空拍", EXT_CAT, "騎樓", SHOP_CAT, STREET_CAT, "辦公室", "其他空間", "衛浴", "儲藏室",
+                 "樓梯間", "頂樓露台", "大廳公設", "車位", "車庫", CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
+OFFICE_CAT_MENU = ["封面", "空拍", EXT_CAT, "大廳公設", "辦公室", "其他空間", "衛浴", "儲藏室", "陽台景觀", "前後陽台",
+                   "頂樓露台", "車位", "車庫", STREET_CAT, CAT_SEP, LAYOUT_CAT, CAT_SEP, "不使用"]
+
+
+def cat_menu(template):
+    return {"land": LAND_CAT_MENU, "farm": LAND_CAT_MENU, "shop": SHOP_CAT_MENU,
+            "office": OFFICE_CAT_MENU}.get(template, CAT_MENU)
+
+
 _GUESS = [
+    ("地界・界樁", ("界樁", "地界", "鑑界", "界址")),
+    ("水圳・灌溉", ("水圳", "灌溉", "溝渠")),
+    ("地上物・農作物", ("地上物", "農作", "作物", "果樹")),
+    ("臨路・道路", ("臨路", "路寬", "農路")),
+    ("基地現況", ("基地", "土地現況", "空地")),
     ("空拍", ("空拍", "航拍", "drone")),
     (EXT_CAT, ("廠房外觀", "廠外")),
     ("卸貨區", ("卸貨", "碼頭", "貨櫃", "裝卸")),
@@ -215,7 +259,14 @@ def _cn_int(s):
 
 
 def find_export_dir(case_dir, base_dir):
-    """物件編輯器「匯出」過的資料夾(照片常放那邊)：config.json export_settings 對得上這個案件才用"""
+    """物件編輯器「匯出」過的資料夾(照片常放那邊)：先看這一件自己的匯出紀錄；舊版才用 config.json(只記最後一件)"""
+    try:
+        import case_export
+        ex = case_export.find(case_dir)
+        if ex and os.path.isdir(ex.get("path") or ""):
+            return ex["path"]
+    except Exception:
+        pass
     for root in (base_dir, os.path.dirname(case_dir)):
         try:
             with open(os.path.join(root, "config.json"), "r", encoding="utf-8") as f:
@@ -312,7 +363,8 @@ def load_settings(case_dir, photos):
     return st
 
 
-def save_settings(case_dir, photos, page, template="building", show_agents=True, back_cover=False, theme="fzt", sections=None):
+def save_settings(case_dir, photos, page, template="building", show_agents=True, back_cover=False, theme="fzt", sections=None,
+                  cover_style="A"):
     """記住這次挑的照片分類/說明/版面(存在案件資料夾 4.其他相關)"""
     st = {"version": 2, "saved": datetime.now().strftime("%Y-%m-%d %H:%M"), "page": page, "template": template,
           "photos": {p["name"].lower(): dict({"cat": p["cat"]}, **({"cap": p["cap"]} if "cap" in p else {}),
@@ -320,7 +372,7 @@ def save_settings(case_dir, photos, page, template="building", show_agents=True,
                                              **({"prev": p["prev"]} if "prev" in p else {}))
                      for p in photos},      # 說明只記「使用者改過的」，沒改過的下次依分類/檔名自動帶
           "extra": [p["path"] for p in photos if p.get("added")],
-          "show_agents": show_agents, "back_cover": back_cover, "theme": theme,
+          "show_agents": show_agents, "back_cover": back_cover, "theme": theme, "cover_style": cover_style,
           "sections": sections or {}}
     try:
         os.makedirs(os.path.dirname(settings_path(case_dir)), exist_ok=True)
@@ -344,14 +396,34 @@ STREET_PHOTO_PAGES = [("外觀・周邊街景", (EXT_CAT, STREET_CAT, "騎樓", 
                       ("景觀・陽台・頂樓", ("陽台景觀", "前後陽台", "頂樓露台", "庭院", "大廳公設"), 3)]
 
 
+# 店面版：外觀騎樓、營業空間排前面
+SHOP_PHOTO_PAGES = [("店面外觀・騎樓", (EXT_CAT, "騎樓"), 4),
+                    ("店面・營業空間", (SHOP_CAT, "辦公室"), 4),
+                    ("周邊街景・商圈", (STREET_CAT, "空拍"), 4),
+                    ("其他空間", ("其他空間", "衛浴", "儲藏室", "樓梯間", "大廳公設", "車位", "車庫", "頂樓露台",
+                                "客廳", "廳堂", "餐廳廚房", "臥室"), 4)]
+# 商辦版：大樓外觀大廳 → 辦公空間 → 景觀 → 車位街景
+OFFICE_PHOTO_PAGES = [("大樓外觀・大廳公設", (EXT_CAT, "大廳公設", "空拍"), 4),
+                      ("辦公空間", ("辦公室", "其他空間", "客廳", "廳堂", "儲藏室", "衛浴"), 4),
+                      ("景觀・陽台", ("陽台景觀", "前後陽台", "頂樓露台"), 3),
+                      ("車位・周邊街景", ("車位", "車庫", "騎樓", SHOP_CAT, STREET_CAT), 4)]
+
+
+def photo_pages_for(template):
+    return {"villa": STREET_PHOTO_PAGES, "shop": SHOP_PHOTO_PAGES, "office": OFFICE_PHOTO_PAGES,
+            "factory": FACTORY_PHOTO_PAGES, "land": LAND_PHOTO_PAGES, "farm": LAND_PHOTO_PAGES}.get(template, PHOTO_PAGES)
+
+
 FACTORY_PHOTO_PAGES = [("空拍・外觀", ("空拍", EXT_CAT, STREET_CAT), 4),
                        ("廠房內部", ("廠房內部", "卸貨區"), 4),
                        ("辦公・其他空間", ("辦公室", "其他空間", "車位", "庭院"), 4)]
 
 
 # 土地・農地版：沒有室內，只有空拍、現況、街景
-LAND_PHOTO_PAGES = [("空拍・現況", ("空拍", EXT_CAT, "庭院"), 4),
-                    ("周邊環境・街景", (STREET_CAT, "其他空間"), 4)]
+LAND_PHOTO_PAGES = [("空拍・基地現況", ("空拍", "基地現況", EXT_CAT, "庭院"), 4),
+                    ("臨路・地界", ("臨路・道路", "地界・界樁"), 4),
+                    ("地上物・水圳", ("地上物・農作物", "水圳・灌溉"), 4),
+                    ("周邊建物・環境", ("周邊建物", STREET_CAT, "其他空間"), 4)]
 
 
 def split_pages(n, cap):
@@ -573,9 +645,9 @@ def _facts_dict(d, door, door_short, floor, total_fl, age, layout, park_txt, poi
         "park_ping": ((d.get("車位") or {}).get("坪數", "") if isinstance(d.get("車位"), dict) and park_txt else ""),
         "struct": d.get("建築結構", ""), "facing": d.get("座向", ""),
         "fee": f"{_fmt_money_wan(d.get('管理費'))} 元/月" if d.get("管理費") else "",
-        "zone": d.get("都市土地使用分區", "") or d.get("非都市土地使用分區", ""),
+        "zone": d.get("都市土地使用分區", "") or d.get("非都市土地使用分區", ""), "farm": is_farm(d),
         "elev": elev, "school": d.get("鄰近學校", ""), "district": d.get("所在商圈", ""),
-        "points": points, "type": d.get("型式", ""), "agents": d.get("承辦人列表") or [],
+        "points": points, "type": d.get("型式", ""), "use": d.get("用途", ""), "agents": d.get("承辦人列表") or [],
         "lots": re.sub(r"^(臺|台)?..[市縣]", "", _fw2hw(d.get("土地標示", ""))).strip(),
         "bcr_far": (f"{d.get('建蔽率')}% ／ {d.get('容積率')}%" if d.get("建蔽率") and d.get("容積率") else ""),
     }
@@ -1365,8 +1437,14 @@ def slide_cover(deck, cover, phones, show_agents=True):
 def slide_basic(deck):
     f = deck.f
     s = deck.new("基本資料")
+    office = f.get("tpl") == "office"
     cards = [(f["price_label"], f"{f['price']}", f["price_unit"]), ("權狀坪數", f"{f['area']}", "坪"), ("格局", f["layout"] or "—", ""),
              ("樓層", f["floor"] or "—", ""), ("屋齡", f["age"] or "—", ""), ("車位", f["park"] or "無", "")]
+    pub_ratio = ""
+    if _num(f.get("public")) and _num(f.get("area")):
+        pub_ratio = f"{_num(f['public']) / _num(f['area']) * 100:.1f}%"
+    if office:                                   # 商辦：不看格局，看管理費
+        cards[2] = ("管理費", f["fee"] or "—", "")
     # 上半部卡片縮小一點，空間讓給下面的明細(也是重點)
     x0, y0, cw, chh, gx, gy = Inches(0.5), Inches(1.2), Inches(3.95), Inches(1.12), Inches(0.24), Inches(0.16)
     for i, (k, v, unit) in enumerate(cards):
@@ -1393,8 +1471,12 @@ def slide_basic(deck):
             ("竣工日期", f["built"]), ("鄰近學校", f["school"]), ("所在商圈", f["district"])]
     rows = [(k, v) for k, v in rows if str(v).strip() and not str(v).strip().startswith(" 坪") and str(v).strip() != "坪"
             and not _zero(v)]
+    if office:                                   # 商辦在大樓裡：沒有面寬、學區；加公設比，管理費已在上面卡片
+        rows = [(k, v) for k, v in rows if k not in ("面寬／深度", "鄰近學校", "管理費")]
+        if pub_ratio:
+            rows.insert(3, ("公設比", pub_ratio))
     extra = []                                   # 各層面積在成果圖頁已逐層列出，這裡不重複(字太多會被縮得很小)
-    if f.get("road_w"):
+    if f.get("road_w") and not office:
         extra.append(("面臨道路", f["road_w"]))
     if f.get("trades"):
         extra.append(("適合行業", "、".join(f["trades"])))
@@ -1854,6 +1936,7 @@ def slide_back(deck, phones):
 def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_cover=False, template="building", sel=None):
     """sel＝「頁面內容」步驟的選擇 {單元: {on, pick}}；None＝照預設自動帶"""
     f = facts(d, case_dir)
+    f["tpl"] = template
     try:
         load_captions([p["path"] for p in chosen if p.get("path")])
     except Exception as e:
@@ -1865,25 +1948,26 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
         import marketing_deck_factory
         return marketing_deck_factory.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
                                             show_agents=show_agents, sel=sel)
-    if template in ("land", "farm"):         # 土地・農地版也只有橫式(滿版空拍)
+    if template in ("land", "farm"):         # 土地版也只有橫式(滿版空拍)
         if REAL_H > REAL_W:
-            log("（土地・農地版目前只有橫式，已改用 A4 橫式）")
+            log("（土地版目前只有橫式，已改用 A4 橫式）")
             set_page("a4l")
         import marketing_deck_land
         return marketing_deck_land.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
-                                         show_agents=show_agents, sel=sel, farm=template == "farm")
+                                         show_agents=show_agents, sel=sel, farm=is_farm(d))
     if REAL_H > REAL_W:                     # A4 直式：另一套直式排版(保留富住通外框、LOGO、售/租章、封底)
         import marketing_deck_portrait
         return marketing_deck_portrait.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
                                              show_agents=show_agents, back_cover=True, sel=sel, template=template)
-    if template == "villa":
+    if template in ("villa", "shop"):       # 店面版用透天版的版面(滿版封面、亮點數字)，內容換成店面的重點
         import marketing_deck_street
         return marketing_deck_street.build(sys.modules[__name__], case_dir, base_dir, d, exp, chosen, out_path, f,
-                                           show_agents=show_agents, sel=sel)
+                                           show_agents=show_agents, sel=sel, kind=template)
+    f["tpl"] = template                     # 商辦版：大樓版的版面，基本資料換成管理費、公設比，照片頁換辦公空間
     tmp = tempfile.mkdtemp(prefix="deck_")
     deck = Deck(f, tmp)
     by = {c: ordered([p for p in chosen if p["cat"] == c]) for c in CATS}
-    cover = (by["封面"] or by["陽台景觀"] or by[EXT_CAT] or by["客廳"] or [None])[0]
+    cover = (by["封面"] or by["陽台景觀"] or by[EXT_CAT] or by["客廳"] or by["辦公室"] or [None])[0]
     roots = [r for r in (case_dir, exp) if r]
 
     def first(pattern):
@@ -1963,7 +2047,7 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
     for i, src in enumerate(layouts[:6]):
         log(f"製作：格局平面圖（{os.path.basename(src)}）"); slide_layout(deck, src, cont=i > 0)
     log("製作：照片頁")
-    for title, cats, cap in PHOTO_PAGES:
+    for title, cats, cap in photo_pages_for(template):
         items = ordered([p for p in chosen if p["cat"] in cats])
         note = None
         if "陽台景觀" in cats:
@@ -2039,7 +2123,7 @@ def collect_sections(case_dir, exp, template, d):
     f = facts(d, case_dir)
     roots = [r for r in (case_dir, exp) if r]
     rent = f["deal"] == "租"
-    villa = template == "villa"
+    villa = template in ("villa", "shop")         # 店面版用透天版的頁面(亮點、周邊機能、使用分區)
     out = []
 
     def add(key, title, desc, cands=None, pick=None, multi=False, on=True, empty=""):
@@ -2075,7 +2159,7 @@ def collect_sections(case_dir, exp, template, d):
         return out
     if template in ("land", "farm"):
         import marketing_deck_land as ml
-        farm = template == "farm"
+        farm = is_farm(d)
         ex = ml.load_extra(case_dir)
         cads = [c for c in _globs(roots, os.path.join("0.謄本", "*地籍圖*標註*.pdf"), os.path.join("0.謄本", "*地籍圖*.pdf"))
                 if "合併" not in os.path.basename(c) and "_temp" not in os.path.basename(c)]
@@ -2300,9 +2384,30 @@ def export_pdf(pptx_path):
         shutil.rmtree(tmpd, ignore_errors=True)
 
 
+def export_png(pdf_path, width=1920):
+    """PDF 每頁另存一張 PNG(貼 LINE、FB、591 用)，存在簡報旁邊：<檔名>_第01頁.png…；同名舊圖先清掉(頁數變少時不留殘頁)"""
+    import fitz
+    base = os.path.splitext(pdf_path)[0]
+    for old in glob.glob(glob.escape(base) + "_第*頁.png"):
+        try:
+            os.remove(old)
+        except OSError:
+            pass
+    out = []
+    with fitz.open(pdf_path) as doc:
+        for i, page in enumerate(doc, 1):
+            z = width / page.rect.width
+            p = f"{base}_第{i:02d}頁.png"
+            page.get_pixmap(matrix=fitz.Matrix(z, z), alpha=False).save(p)
+            out.append(p)
+    return out
+
+
 def default_out_path(case_dir, exp, d):
+    """存到案件資料夾的「7.行銷簡報」(PPTX、PDF、每頁 PNG 放一起)"""
     f = facts(d, case_dir)
-    folder = exp or case_dir
+    folder = os.path.join(exp or case_dir, "7.行銷簡報")
+    os.makedirs(folder, exist_ok=True)
     name = re.sub(r'[\\/:*?"<>|]', "", f["door"] or os.path.basename(case_dir))
     p = os.path.join(folder, f"{name}_不動產行銷報告.pptx")
     if os.path.exists(p):
@@ -2330,21 +2435,27 @@ def main():
     else:
         import marketing_deck_ui
         last = load_settings(a.case_dir, photos)
-        sug = suggest_template(d.get("型式", ""), f'{d.get("非都市土地使用地類別", "")} {d.get("都市土地使用分區", "")}')
+        sug = suggest_template(d.get("型式", ""), f'{d.get("非都市土地使用地類別", "")} {d.get("都市土地使用分區", "")}',
+                               d.get("用途", ""))
         res = marketing_deck_ui.pick(photos, facts(d, a.case_dir), default_out_path(a.case_dir, exp, d), last.get("page") or a.page,
-                                     on_save=lambda pg, tp, ag, bc, th, sec: save_settings(a.case_dir, photos, pg, tp, ag, bc, th, sec),
+                                     on_save=lambda pg, tp, ag, bc, th, sec, cs: save_settings(a.case_dir, photos, pg, tp, ag, bc, th,
+                                                                                               sec, cs),
                                      get_sections=lambda tp: apply_saved_sections(collect_sections(a.case_dir, exp, tp, d),
                                                                                   last.get("sections")),
-                                     template=last.get("template") or "building", suggest=sug,
+                                     template=TEMPLATE_ALIAS.get(last.get("template"), last.get("template")) or
+                                     (sug if TEMPLATES[sug][4] else "building"), suggest=sug,
                                      show_agents=last.get("show_agents", True), back_cover=last.get("back_cover", False),
-                                     theme=last.get("theme") or "fzt")
+                                     theme=last.get("theme") or "fzt", cover_style=last.get("cover_style") or "A")
         if not res:
             log("已取消（版型、照片分類與說明已記住，下次打開會帶回）")
             return
-        chosen, out, page, template, show_agents, back_cover, theme, sel = res
+        chosen, out, page, template, show_agents, back_cover, theme, sel, cover_style = res
+        global COVER_STYLE
+        COVER_STYLE = cover_style
         set_page(page)
         set_theme(theme)
         log(f"版型：{TEMPLATES.get(template, TEMPLATES['building'])[1]}　版面：{PAGES[page][0]}　色系：{THEMES[THEME]['name']}")
+    os.makedirs(os.path.dirname(os.path.abspath(out)), exist_ok=True)
     n = build(a.case_dir, a.base_dir, d, exp, chosen, out, show_agents if not a.auto else True,
               back_cover if not a.auto else False, template if not a.auto else a.template, None if a.auto else sel)
     log(f"✓ 行銷簡報完成（{n} 頁）：{out}")
@@ -2352,6 +2463,11 @@ def main():
     pdf = export_pdf(out)
     if pdf:
         log(f"✓ PDF：{pdf}")
+        try:
+            pngs = export_png(pdf)
+            log(f"✓ 每頁圖檔 PNG：{len(pngs)} 張（{os.path.dirname(pdf)}）")
+        except Exception as e:
+            log(f"（另存 PNG 失敗：{e}）")
     else:
         log("（這台電腦沒有 PowerPoint 或轉檔失敗，未產生 PDF；可用 PowerPoint 開啟後「另存為 PDF」）")
     if not a.no_open:

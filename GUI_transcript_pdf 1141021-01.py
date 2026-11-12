@@ -314,9 +314,11 @@ class ModernStyle:
 # 🔥 基準目錄設定
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
 
-TOOL_VERSION = "2.5"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
+TOOL_VERSION = "2.6"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
 UPDATE_REPO = "windskyshao/tw-transcript-structurer"   # 主程式的自動更新也是看這個 repo
 LAUNCHED_BY_MAIN = "--base-dir" in sys.argv            # 由「地籍資料查詢系統」主程式開的
+# 主程式帶 --source-dir＝這個案件的「0.謄本」→ 一開就進那個資料夾，並自動選好裡面的電子謄本
+CASE_SOURCE_DIR = sys.argv[sys.argv.index("--source-dir") + 1] if "--source-dir" in sys.argv[:-1] else None
 
 # 🔥 雙重保險：確保 BASE_DIR 不是 _internal 目錄
 if '_internal' in BASE_DIR or BASE_DIR.endswith('_internal'):
@@ -1497,6 +1499,60 @@ class ModernTranscriptGUI:
         # 單獨開啟時，啟動後背景檢查新版(由主程式開的不查：主程式啟動時已經幫它查過、更新過)
         if not LAUNCHED_BY_MAIN:
             self.master.after(6000, lambda: self.check_update(silent=True))
+        # 主程式開的、而且開在案件的「0.謄本」→ 自動把裡面的電子謄本選好(按批次處理就能開始)
+        if CASE_SOURCE_DIR and self.current_folder == CASE_SOURCE_DIR:
+            self.master.after(800, self.auto_select_case_transcripts)
+
+    @staticmethod
+    def _is_electronic_transcript(pdf_path):
+        """第一頁有「土地/建物登記第X類謄本」且沒有電傳標記 → 電子謄本(同電傳工具的判斷規則)"""
+        try:
+            doc = fitz.open(pdf_path)
+            txt = doc[0].get_text() if doc.page_count > 0 else ""
+            doc.close()
+        except Exception:
+            return False, ""
+        if any(k in txt for k in ('電傳', '全方位', 'pqt-kcgetw', '地政電傳')):
+            return False, ""
+        # 只認「土地/建物登記第X類謄本」(地籍圖、成果圖也有「謄本種類」字樣，不能拿來認)
+        return bool(re.search(r'(土地|建物)登記第[一二三]類謄本', txt)), txt
+
+    def auto_select_case_transcripts(self):
+        """案件「0.謄本」裡的電子謄本全部選起來；同一種謄本、同一筆地建號調過好幾次的(檔名加 _1 那種)只選最新的一份"""
+        try:
+            folder = self.current_folder
+            newest = {}
+            for n in os.listdir(folder):
+                if not n.lower().endswith('.pdf'):
+                    continue
+                p = os.path.join(folder, n)
+                ok, txt = self._is_electronic_transcript(p)
+                if not ok:
+                    continue
+                # 第一頁抬頭(謄本種類＋地建號，到「列印時間」前)當作「同一份」的依據
+                key = re.sub(r'\s+', '', txt.split('列印時間')[0])[:200]
+                mt = os.path.getmtime(p)
+                if key not in newest or mt > newest[key][0]:
+                    newest[key] = (mt, n)
+            picked = sorted(n for _mt, n in newest.values())
+            if not picked:
+                self.progress_indicator.set_status("這個案件的「0.謄本」裡還沒有電子謄本", "ready")
+                return
+            items = [it for it in self.file_tree.get_children("")
+                     if self.file_tree.item(it, 'text')[2:] in picked]
+            if not items:
+                return
+            self.file_tree.selection_set(items)
+            self.file_tree.see(items[0])
+            self.current_selection = [os.path.join(folder, n) for n in picked]
+            if hasattr(self, 'selected_info_label'):
+                self.selected_info_label.config(text=f"已選擇: {len(items)} 個項目")
+            self.on_file_selection_changed()
+            self.progress_indicator.set_status(
+                f"已自動選好 {len(items)} 份電子謄本，按「📋 批次處理」就開始", "ready")
+            self.smart_preview()
+        except Exception as e:
+            print(f"[自動選電子謄本] 失敗：{e}", flush=True)
 
     # 🔧 加入這些新方法
     def comprehensive_debug_theme_switch(self):
@@ -1921,7 +1977,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.5 (2026-11-02) | 電子謄本功能測試版",
+                               text="v2.6 (2026-11-12) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2407,7 +2463,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.5 (2026-11-02) | {status_text}",
+                            text=f"v2.6 (2026-11-12) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -3349,7 +3405,7 @@ class ModernTranscriptGUI:
         self.selected_info_label.pack(side="right")
         
         # 初始化
-        self.current_folder = PDF_DIR
+        self.current_folder = CASE_SOURCE_DIR if CASE_SOURCE_DIR and os.path.isdir(CASE_SOURCE_DIR) else PDF_DIR
         self.view_mode = "details"  # details 或 list
         # 🔧 設定預設排序：修改日期降序
         self.sort_column = "modified"
@@ -4551,7 +4607,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.5 (2026-11-02) | 電子謄本功能測試版",
+                            text="v2.6 (2026-11-12) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
@@ -8978,6 +9034,11 @@ def main():
         root = tk.Tk()
         root.withdraw()
         splash, splash_status = _make_splash(root)
+        try:
+            import pyi_splash      # exe 解壓時的啟動畫面(只有打包版有)，交棒給上面這個
+            pyi_splash.close()
+        except Exception:
+            pass
 
         def _boot(msg):
             print(msg, flush=True)

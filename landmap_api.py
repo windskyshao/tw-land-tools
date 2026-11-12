@@ -455,7 +455,9 @@ def _resolve_address_easymap(t, raw, door, em):
     builds = _builds_from(m)
     bno = str(int(em["bno8"][:5])) + (f"-{int(em['bno8'][5:])}" if em["bno8"] and int(em["bno8"][5:]) else "") \
         if em["bno8"] else ""
-    if bno and len(builds) > 1:                          # 有寫樓層：地籍便民直接告訴我們是哪一戶
+    # 有寫樓層：地籍便民直接告訴我們是哪一戶。沒寫樓層時它只回同門牌的第一個建號(例：內埔鄉永田路7號有 281、282
+    # 兩個建號卻只回 281)，不能拿來篩，要全部列出來給使用者挑
+    if bno and len(builds) > 1 and re.search(r"樓", door):
         same = [b for b in builds if str(b.get("build_no")) == bno]
         builds = same or builds
     res["builds"] = builds

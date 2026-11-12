@@ -56,8 +56,8 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     _chrome(M, deck, C, f)
     extra = load_extra(case_dir)
     by = {c: M.ordered([p for p in chosen if p["cat"] == c]) for c in M.CATS}
-    cover = (by["封面"] or by["空拍"] or by[M.EXT_CAT] or by[M.STREET_CAT] or [None])[0]
-    side = (by["空拍"] or by[M.EXT_CAT] or by[M.STREET_CAT] or [cover])[0]
+    cover = (by["封面"] or by["空拍"] or by["基地現況"] or by[M.EXT_CAT] or by[M.STREET_CAT] or [None])[0]
+    side = (by["空拍"] or by["基地現況"] or by[M.EXT_CAT] or by[M.STREET_CAT] or [cover])[0]
     roots = [r for r in (case_dir, exp) if r]
     ll = mf._coords(M, case_dir, base_dir, d)
     cads = M.sel_paths(sel, "cadastral", [c for c in M._globs(roots, os.path.join("0.謄本", "*地籍圖*標註*.pdf"),
@@ -158,18 +158,117 @@ def _price_text(M, f, d):
     return main, (f"{unit:g} 萬/坪" if unit else "")
 
 
-# ---------------------------------------------------------------- 封面：滿版空拍/航照＋半透明圓襯標題
+# ---------------------------------------------------------------- 封面：四種樣式給使用者選(步驟① 選封面樣式)
+COVER_STYLES = {"A": ("底部漸層", "照片幾乎全露，最下面漸暗放字"),
+                "B": ("左側直欄", "左邊色塊寫資料，字最清楚"),
+                "C": ("上照片下白卡", "照片不遮，資料放下方白底"),
+                "D": ("左下小卡", "照片完整，資料放左下白卡")}
+PHOTO_H = 0.68                 # C 樣式照片佔上面 68%
+
+
+def cover_background(im, style, w, h, accent):
+    """封面底圖(PIL)：照片＋該樣式的遮罩/色塊，半透明都合成進圖片(iPad/手機不漏圖)。im=照片(已裁成 w×h)或 None"""
+    from PIL import Image, ImageDraw, ImageOps
+    if im is None:
+        im = Image.new("RGB", (w, h), accent)
+    if style == "C":
+        out = Image.new("RGB", (w, h), "white")
+        ph = int(h * PHOTO_H)
+        out.paste(ImageOps.fit(im, (w, ph), Image.LANCZOS), (0, 0))
+        ImageDraw.Draw(out).rectangle((0, ph, w, ph + max(4, h // 110)), fill=accent)
+        return out
+    lay = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    d = ImageDraw.Draw(lay)
+    if style == "B":
+        d.rectangle((0, 0, int(w * 0.38), h), fill=tuple(accent) + (225,))
+    elif style == "D":
+        x0, y0, x1, y1 = w * 0.0375, h * 0.545, w * 0.49, h * 0.915
+        d.rounded_rectangle((x0, y0, x1, y1), radius=int(h * 0.025), fill=(255, 255, 255, 235))
+        d.rectangle((x0, y0 + h * 0.035, x0 + max(4, w * 0.006), y1 - h * 0.035), fill=tuple(accent) + (255,))
+    else:                                       # A：下半部由透明漸漸變暗
+        top = int(h * 0.5)
+        for y in range(top, h):
+            d.line((0, y, w, y), fill=(10, 18, 12, int(215 * ((y - top) / (h - top)) ** 0.8)))
+    return Image.alpha_composite(im.convert("RGBA"), lay).convert("RGB")
+
+
+def cover_lines(f, kind, phones, show_agents):
+    try:
+        lv = float(str(f.get("land") or "").replace(",", "").replace("坪", "").strip() or 0)
+    except ValueError:
+        lv = 0
+    land = f"土地 {lv:g} 坪" if lv else ""
+    title = f["title"] if len(f["title"]) <= 16 else f["short"]
+    return dict(title=title, kind=f"{kind}{'出租' if f['deal'] == '租' else '銷售'}報告書", land=land,
+                zone=f.get("zone") or "", agents=[f"{nm}　{phones.get(nm, '')}".strip() for nm in f["agents"][:2]] if show_agents else [])
+
+
+# 各樣式文字位置(佔頁面寬高的比例)：(x, y, w, h, 字級, 粗體, 顏色鍵, 對齊)
+_LAYOUT = {
+    "A": [("title", .045, .63, .62, .11, 40, "w", "l"), ("sub", .047, .745, .62, .06, 18, "w", "l"),
+          ("agents", .58, .70, .375, .12, 16, "w", "r")],
+    "B": [("title", .04, .22, .32, .12, 32, "w", "l"), ("kind", .04, .37, .32, .07, 22, "w", "l"),
+          ("land", .04, .45, .32, .055, 17, "w", "l"), ("zone", .04, .505, .32, .055, 17, "w", "l"),
+          ("agents", .04, .64, .32, .12, 16, "w", "l")],
+    "C": [("title", .045, .705, .58, .1, 34, "ink", "l"), ("sub", .047, .81, .58, .06, 16, "ink2", "l"),
+          ("agents", .6, .71, .355, .12, 16, "accent", "r")],
+    "D": [("title", .065, .565, .41, .09, 28, "ink", "l"), ("kind", .066, .655, .41, .06, 18, "accent", "l"),
+          ("sub2", .066, .715, .41, .05, 14, "ink2", "l"), ("agents", .066, .775, .41, .11, 15, "ink", "l")],
+}
+
+
+def _texts(L, key):
+    sub = "　｜　".join(x for x in (L["kind"], "　".join(y for y in (L["land"], L["zone"]) if y)) if x)
+    return {"title": L["title"], "kind": L["kind"], "land": L["land"], "zone": L["zone"], "sub": sub,
+            "sub2": "　".join(y for y in (L["land"], L["zone"]) if y), "agents": "\n".join(L["agents"])}[key]
+
+
+def cover_preview(photo_path, style, f, kind, accent_hex, w=320, h=180):
+    """步驟①封面樣式的縮圖(PIL)：用這個案件的封面照片，字的位置跟正式簡報一樣"""
+    from PIL import Image, ImageDraw, ImageFont, ImageOps
+    acc = tuple(int(accent_hex[i:i + 2], 16) for i in (0, 2, 4))
+    im = None
+    if photo_path:
+        try:
+            src = Image.open(photo_path)
+            src.draft("RGB", (w * 2, h * 2))                    # JPEG 先縮小解碼，縮圖秒出
+            im = ImageOps.fit(ImageOps.exif_transpose(src).convert("RGB"), (w * 2, h * 2), Image.LANCZOS)
+        except Exception:
+            im = None
+    W2, H2 = w * 2, h * 2
+    bg = cover_background(im, style, W2, H2, acc)
+    dr = ImageDraw.Draw(bg)
+    L = cover_lines(f, kind, {}, True)
+    L["agents"] = [a.split("　")[0] + "　09xx-xxx-xxx" for a in L["agents"]] or ["經紀人　09xx-xxx-xxx"]
+    col = {"w": (255, 255, 255), "ink": (31, 41, 51), "ink2": (63, 74, 86), "accent": acc}
+    try:
+        font = lambda sz: ImageFont.truetype("C:/Windows/Fonts/msjhbd.ttc", sz)
+        font(10)
+    except Exception:
+        font = lambda sz: ImageFont.load_default()
+    for key, x, y, bw, bh, sz, ck, al in _LAYOUT.get(style, _LAYOUT["A"]):
+        t = _texts(L, key)
+        if not t:
+            continue
+        px = max(9, int(sz * H2 / 540 * 1.0))
+        X = W2 * (x + bw) if al == "r" else W2 * x
+        dr.multiline_text((X, H2 * y), t, font=font(px), fill=col[ck], anchor="ra" if al == "r" else "la",
+                          align="right" if al == "r" else "left", spacing=4)
+    dr.rounded_rectangle((W2 * .02, H2 * .035, W2 * .075, H2 * .13), radius=6, fill=(200, 40, 40))     # 售
+    dr.rectangle((0, H2 - max(6, H2 // 26), W2, H2), fill=acc)                                          # 頁尾
+    return bg.resize((w, h), Image.LANCZOS)
+
+
 def cover_slide(M, deck, C, f, cover, ll, phones, show_agents, kind):
     from pptx.util import Inches
     from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
+    style = getattr(M, "COVER_STYLE", "A")
+    style = style if style in COVER_STYLES else "A"
     s = deck.new()
     wp, hp = 2400, int(2400 * M.SH / M.SW)
+    acc = C["dark_rgb"]
     im = mf._base_image(M, cover, ll, wp, hp)
-    if im is None:
-        from PIL import Image
-        im = Image.new("RGB", (wp, hp), C["dark_rgb"])
-    r = wp * 0.31
-    im = mf._veil(im, [("ellipse", (wp / 2 - r, hp * 0.27, wp / 2 + r, hp * 0.27 + r * 2), (22, 30, 24), 200)])
+    im = cover_background(im, style, wp, hp, acc)
     p = os.path.join(deck.tmp, "land_cover.jpg")
     im.save(p, quality=90)
     s.shapes.add_picture(p, 0, 0, M.REAL_W, M.REAL_H)
@@ -177,19 +276,18 @@ def cover_slide(M, deck, C, f, cover, ll, phones, show_agents, kind):
     st.adjustments[0] = 0.12
     M.text(s, Inches(0.45), Inches(0.4), Inches(1.05), Inches(1.05), f["deal"], 54, True, C["white"], PP_ALIGN.CENTER,
            MSO_ANCHOR.MIDDLE)
-    x, w = Inches(3.1), M.SW - Inches(6.2)
-    title = f["title"] if len(f["title"]) <= 16 else f["short"]
-    M.text(s, x, Inches(2.45), w, Inches(0.95), title, 36 if len(title) <= 12 else 28, True, C["white"], PP_ALIGN.CENTER,
-           MSO_ANCHOR.MIDDLE)
-    M.text(s, x, Inches(3.4), w, Inches(0.8), f"{kind}{'出租' if f['deal'] == '租' else '銷售'}報告書", 34, True, C["white"],
-           PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
-    land = M._num(f.get("land"))
-    sub = "　".join(x_ for x_ in (f"土地 {land:g} 坪" if land else "", f.get("zone") or "") if x_)
-    if sub:
-        M.text(s, x, Inches(4.2), w, Inches(0.5), sub, 18, True, C["white"], PP_ALIGN.CENTER, MSO_ANCHOR.MIDDLE)
-    agents = [f"{nm}　{phones.get(nm, '')}".strip() for nm in f["agents"][:2]] if show_agents else []
-    if agents:
-        M.text(s, x, Inches(4.8), w, Inches(0.9), "\n".join(agents), 17, True, C["white"], PP_ALIGN.CENTER, spacing=1.05)
+    L = cover_lines(f, kind, phones, show_agents)
+    col = {"w": C["white"], "ink": C["ink"], "ink2": C["ink2"], "accent": C["dark"]}
+    for key, x, y, bw, bh, sz, ck, al in _LAYOUT[style]:
+        t = _texts(L, key)
+        if not t:
+            continue
+        if key == "title" and len(t) > 12:
+            sz = int(sz * 0.8)
+        M.text(s, int(M.SW * x), int(M.SH * y), int(M.SW * bw), int(M.SH * bh), t, sz, True, col[ck],
+               PP_ALIGN.RIGHT if al == "r" else PP_ALIGN.LEFT, MSO_ANCHOR.TOP, spacing=1.05)
+    if style == "B":                            # 標題下的金色短線
+        M.box(s, int(M.SW * .04), int(M.SH * .345), int(M.SW * .075), int(M.SH * .008), M.RGBColor.from_string("FFC850"))
     deck.footer(s)
 
 

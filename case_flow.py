@@ -194,7 +194,8 @@ def scan(case, stage="委託", running=None, account=None):
     rent = "租" in str(case.get("deal", ""))
     # 物件資料(data_final.json)是物調表的內容來源，不另列一格；沒存過就由「物件編輯器」大按鈕帶去填
     docs = [("物調表", bool(_glob(f, "物件個案調查表*.docx", "物件個案調查表*.pdf")), "doc_survey"),
-            ("簡報", bool(_glob(f, "*不動產行銷報告*.pptx", "*不動產行銷報告*.pdf")), "doc_deck")]
+            ("簡報", bool(_glob(f, "*不動產行銷報告*.pptx", "*不動產行銷報告*.pdf", "7.行銷簡報/*不動產行銷報告*.pptx",
+                                   "7.行銷簡報/*不動產行銷報告*.pdf")), "doc_deck")]
     # 業績分配表：呈報公司時就要附(使用者 11-10)→ 委託時算進這步要做的；開發階段先不用
     perf = ("業績分配表", bool(_glob(f, "**/業績分配表_*.pdf")), "doc_perf")
     if not dev:
@@ -209,9 +210,12 @@ def scan(case, stage="委託", running=None, account=None):
     add("editor", "做", "物件資料與文件", "done" if done_n == req_n else ("skip" if dev and not done_n else "todo"),
         "　".join(f"{n}\u00a0{'✓' if ok else '□'}" for n, ok, _ in (d[:3] for d in docs[:req_n])) if (done_n or not dev) else later,
         [("物件編輯器", "editor", not fin and not dev)],
-        tip="物件編輯器：謄本、分區、使照的資料會自動帶進來，補上售價、格局、車位等。\n"
+        tip=f"物件編輯器：謄本、分區、使照的資料會自動帶進來，補上{'租金' if rent else '售價'}、格局、車位等。\n"
             "物調表、簡報、業績分配表做好這步就打勾（業績分配表呈報公司時要附）；\n申報書成交、簽好租約再做，不影響打勾。",
         items=docs if (done_n or not dev) else None)
+    # 大卡片的說明：租件要說「租金」不是「售價」(使用者 11-11)
+    steps[-1]["help"] = (f"在物件編輯器補上{'租金' if rent else '售價'}、格局、車位，做好物調表、簡報"
+                         + ("、業績分配表這步就完成（業績分配表呈報公司時要附）。" if not dev else "這步就完成。"))
 
     # ⑩ 交件
     merged = _glob(f, "1.基本資料/00_合併列印_*.pdf")
@@ -227,6 +231,54 @@ def scan(case, stage="委託", running=None, account=None):
             "已合併列印" if merged else "所有做好的檔案合成一份 PDF 上繳",
             [("📑 合併列印", "merge", not merged), ("📂", "folder", False)],
             tip="把謄本、附件、行情、物調表等全部依順序合併成一份 PDF（會先讓你勾選、預覽）。")
+
+    # ⑪ 匯出(使用者 11-11)：匯出不等於歸檔，兩邊都還在用 → 看哪邊有比較新的檔案
+    try:
+        import case_export as CE
+        ex = CE.find(f)
+    except Exception:
+        CE, ex = None, None
+    exp_tip = ("把整個案件資料夾複製一份到公司共用的地方（資料夾名稱會加上日期和門牌）。\n"
+               "匯出後兩邊都可以繼續放檔案：這裡會比對哪一邊有比較新的檔案，\n"
+               "按一下就把兩邊補齊（只補缺的、留比較新的，不會刪檔）。")
+    if not ex:
+        add("export", "交", "匯出", "todo", "還沒匯出", [("📤 匯出", "export", True)], tip=exp_tip)
+    elif ex.get("missing"):
+        add("export", "交", "匯出", "todo", "找不到上次匯出的資料夾（可能搬走或刪掉了）",
+            [("📤 重新匯出", "export", True)], tip=exp_tip)
+    else:
+        when = CE.roc_date(ex.get("date"))
+        where = os.path.basename(ex["path"])
+        if os.path.isdir(ex["path"]):
+            push, pull = CE.compare(f, ex["path"], cache_sec=20)
+            acts, bits = [], []
+            if push:
+                bits.append(f"這裡有 {len(push)} 個新檔案還沒匯出")
+                acts.append(("📤 更新匯出", "export_push", True))
+            if pull:
+                bits.append(f"匯出的資料夾有 {len(pull)} 個新檔案")
+                acts.append(("📥 拿回來", "export_pull", True))
+            acts.append(("📂", "export_open", False))
+            acts.append(("換地方匯出", "export_new", False,
+                         "重新選匯出格式和位置（以前在物件編輯器按住 Shift 點「匯出封存」）"))
+            add("export", "交", "匯出", "todo" if bits else "done",
+                "　".join(bits) if bits else f"已匯出 {when}・兩邊一樣", acts,
+                tip=exp_tip + f"\n\n匯出的資料夾：{where}")
+        else:                                       # 只匯出 ZIP：比不了內容，要更新就重新匯出
+            add("export", "交", "匯出", "done", f"已匯出 {when}（ZIP 壓縮檔）",
+                [("📤 重新匯出", "export", False), ("📂", "export_open", False), ("換地方匯出", "export_new", False)],
+                tip=exp_tip + f"\n\n{where}")
+
+    # 匯出過＝這件算完成(使用者 11-11：一般人匯出就覺得夠了)：沒做的步驟不再推，只在卡片列出「沒有做：○○」
+    if ex and not ex.get("missing"):
+        missing = []
+        for s in steps:
+            if s["key"] == "export" or s["state"] not in ("todo", "lock"):
+                continue
+            s["state"], s["after_export"] = "skip", True
+            its = [it for it in (s.get("items") or []) if len(it) < 4 and not it[1]]     # 選做的(申報書)不算
+            missing += [it[0] for it in its] if s.get("items") else [s["title"]]
+        steps[-1]["missing"] = missing
 
     # 委託：謄本一定會調 → 謄本、結構化、土增稅排前面(結構化好門牌、建號、面積也齊了)，附件查詢放到土增稅後面；
     # 開發：免費的附件查詢先做，看有沒有希望再付費調謄本
@@ -256,7 +308,8 @@ def cat_line(steps, stage):
         return "idle", {"query": "先免費查查看有沒有希望", "trans": "有希望就調謄本吧", "struct": "謄本到了，我來轉成資料",
                         "tax": "可以算土增稅了", "map": "地籍圖到了，來標邊長和路寬", "photo": "拍完照片拖進來就好",
                         "editor": "打開物件編輯器補一補", "docs": "物調表、簡報、業績分配表一鍵產生",
-                        "deliver": "都好了，合成一份交給公司" if stage == "委託" else "產生一份行情資料給屋主看"
+                        "deliver": "都好了，合成一份交給公司" if stage == "委託" else "產生一份行情資料給屋主看",
+                        "export": "最後匯出一份到公司共用資料夾"
                         }.get(nxt["key"], f"下一步：{nxt['title']}")
     return "done", "這件都齊了！辛苦了 🎉"
 
@@ -738,6 +791,7 @@ class BigButton(tk.Canvas):
         self.size, self.fg = size, fg
         self.color = color or ORANGE
         self.text, self.command, self.hover = text, command, False
+        self.inset, self.glow = (2, 2), False       # 彈跳動畫用：按鈕圖形往內縮/往外撐、亮一下
         self.bind("<Configure>", lambda e: self._draw())
         self.bind("<Enter>", lambda e: self._h(True))
         self.bind("<Leave>", lambda e: self._h(False))
@@ -752,10 +806,29 @@ class BigButton(tk.Canvas):
         w, h = self.winfo_width(), int(self.cget("height"))
         if w < 20:
             return
-        M.round_rect(self, 2, 2, w - 2, h - 2, M.px(14), fill=M.mix(self.color, "#000000", 0.18) if self.hover else self.color,
-                     outline="")
+        ix, iy = self.inset
+        fill = M.mix(self.color, "#000000", 0.18) if self.hover else self.color
+        if self.glow:
+            fill = M.mix(self.color, "#FFFFFF", 0.35)
+        M.round_rect(self, ix, iy, w - ix, h - iy, M.px(14), fill=fill, outline="")
         self.create_text(w / 2, h / 2, text=self.text, font=(FAM, self.size, "bold"), fill=self.fg, width=w - M.px(16),
                          justify="center")
+
+    def bounce(self, times=2):
+        """點了清單那一行 → 這顆按鈕像被按一下再彈起來(只動按鈕本身，不搖整張卡片)"""
+        seq = [((10, 6), False), ((0, 0), True), ((5, 3), True), ((1, 1), False), ((2, 2), False)] * times
+
+        def tick(i):
+            try:
+                if not self.winfo_exists():
+                    return
+                self.inset, self.glow = seq[i] if i < len(seq) else ((2, 2), False)
+                self._draw()
+            except tk.TclError:
+                return
+            if i < len(seq):
+                self.after(75, tick, i + 1)
+        tick(0)
 
 
 TOOLBOX = [   # 只放「步驟」裡沒有的：各項查詢在第 2 步「清單」(連續模式)可以單跑，謄本/土增稅/物件編輯器在各步驟
@@ -768,7 +841,7 @@ TOOLBOX = [   # 只放「步驟」裡沒有的：各項查詢在第 2 步「清�
     ("案件檔案", "#0A6CDB", [
         ("📂", "開其他案件", "選案件資料夾，程式自己找資料", "load_case"),
         ("🗂", "開啟工作資料夾", "所有案件放在這裡", "folder"),
-        ("📤", "匯出封存", "把案件打包帶走", "export_arc"),
+        ("📤", "匯出", "複製一份到公司共用資料夾", "export_arc"),
         ("📥", "匯入封存", "把封存檔還原成案件", "import_arc"),
         ("🧾", "讀取結構化 JSON", "手動選謄本結構化檔（進階）", "read_json")]),
     ("阿生地圖", "#2F7D63", [
@@ -1058,6 +1131,7 @@ GUIDE_HELP = {
     "photo": "照片放進「2.照片」：直接拖進主程式視窗也可以。",
     "editor": "在物件編輯器補上售價、格局、車位，做好物調表、簡報、業績分配表這步就完成（業績分配表呈報公司時要附）。",
     "deliver": "把做好的檔案合成一份 PDF。",
+    "export": "把案件資料夾匯出一份到公司共用的地方；之後兩邊都能放檔案，這裡會幫你補齊。",
 }
 
 
@@ -1146,6 +1220,7 @@ class Guide(tk.Frame):
                 "deliver": "owner_pack" if self.stage == "開發" else "merge",   # 合併列印會先讓你勾選、預覽
                 "struct": "struct" if st != "done" else None,
                 "tax": "tax_fin" if st != "done" else None,
+                "export": "export_open" if st == "done" else None,
                 }.get(k)
 
     def _open_step(self, s):
@@ -1156,10 +1231,24 @@ class Guide(tk.Frame):
             self.on_action(act)
 
     def _flash(self, n=4):
-        """大卡片框線閃幾下：點了清單，看得出上面換了"""
+        """點了清單：上面大卡片的主要按鈕彈兩下(使用者 11-11：整張卡片閃的範圍太大)；卡片沒有按鈕才閃框線"""
         box = next(iter(self.cur.winfo_children()), None)
         if not box:
             return
+
+        def first_btn(w):
+            for c in w.winfo_children():
+                if isinstance(c, BigButton):
+                    return c
+                hit = first_btn(c)
+                if hit:
+                    return hit
+            return None
+        btn = first_btn(box)
+        if btn:
+            btn.bounce()
+            return
+        n = 2
         def tick(i):
             try:
                 box.configure(highlightbackground=("#2F7D63" if i % 2 == 0 else ORANGE), highlightthickness=M.px(4) if i % 2 == 0 else 2)
@@ -1222,6 +1311,18 @@ class Guide(tk.Frame):
             self._ask_stage(box, pad)
             return
         if not cur:
+            ex = next((s for s in main if s["key"] == "export"), None)
+            miss = (ex or {}).get("missing")
+            if miss is not None and (ex or {}).get("state") == "done":       # 匯出過：算完成，只提一下沒做的
+                self._head(box, "🎉 已匯出，這件完成了", GREEN)
+                if miss:
+                    _autowrap(tk.Label(box, text=f"這件沒有做：{'、'.join(miss)}", font=(FAM, 15, "bold"), bg=ORANGE_BG,
+                                       fg=INK, anchor="w", justify="left")).pack(fill=tk.X, pady=(M.px(4), 0), **pad)
+                tk.Label(box, text="要補做或重做哪一步，點下面清單那一行就好。", font=(FAM, 14), bg=ORANGE_BG, fg=INK2).pack(
+                    anchor="w", pady=(M.px(4), M.px(10)), **pad)
+                BigButton(box, "📂 打開案件資料夾", lambda: self.on_action("folder"), height=M.px(54), size=17).pack(
+                    fill=tk.X, pady=(0, M.px(12)), **pad)
+                return
             self._head(box, "🎉 全部做好了", GREEN)
             tk.Label(box, text="想重做哪一步，點下面清單那一行就好。", font=(FAM, 14), bg=ORANGE_BG, fg=INK2).pack(
                 anchor="w", pady=(M.px(4), M.px(10)), **pad)
@@ -1242,11 +1343,12 @@ class Guide(tk.Frame):
             if cur["detail"] and not cur.get("items"):   # 跟「目前」併成一行，省下高度給訊息框
                 msg += f"　{cur['detail']}"
         elif st in ("skipped", "skip"):
-            msg, col = "這步目前不用做。要做的話按下面的按鈕。", INK2
+            msg, col = ("已匯出，這步沒做也算完成。要補做的話按下面的按鈕。" if cur.get("after_export")
+                        else "這步目前不用做。要做的話按下面的按鈕。"), INK2
         elif st == "lock":
             msg, col = f"還不能做：{cur['detail']}", RED
         else:
-            msg, col = GUIDE_HELP.get(cur["key"], cur.get("tip", "")), INK
+            msg, col = cur.get("help") or GUIDE_HELP.get(cur["key"], cur.get("tip", "")), INK
         _autowrap(tk.Label(box, text=msg, font=(FAM, 14), bg=ORANGE_BG, fg=col, anchor="w", justify="left")).pack(
             fill=tk.X, pady=(M.px(2), 0), **pad)
         if cur.get("items"):
@@ -1307,7 +1409,8 @@ class Guide(tk.Frame):
             ws[1].pack(side=tk.LEFT, fill=tk.X, expand=True)
             for w in [row] + ws:
                 w.bind("<Button-1>", lambda e, s_=s: self._open_step(s_))
-            Tip(row, {"done": "做好了", "skipped": "設成不用做", "skip": "委託後再做", "lock": "還不能做：" + s["detail"]}.get(st, "還沒做"))
+            Tip(row, "已匯出，這步沒做也算完成；要補做點這一行" if s.get("after_export") else
+                {"done": "做好了", "skipped": "設成不用做", "skip": "委託後再做", "lock": "還不能做：" + s["detail"]}.get(st, "還沒做"))
 
     def _draw_foot(self, stage=True):
         """最上面一排：左「已委託／開發中」、右「其他功能／新案件」(同一排，不多佔一行)；說明在滑鼠提示裡"""

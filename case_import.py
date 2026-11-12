@@ -9,7 +9,7 @@ import sys
 import json
 import zipfile
 
-TARGETS = ["0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "根目錄"]
+TARGETS = ["0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "7.行銷簡報", "根目錄"]
 IMG = (".jpg", ".jpeg", ".png", ".heic", ".webp", ".bmp", ".gif", ".tif", ".tiff")
 SKIP_NAMES = {"thumbs.db", "desktop.ini", ".ds_store"}
 
@@ -19,7 +19,7 @@ RULES = [
     ("6.成交", "實價登錄申報書", ["實價登錄申報書", "不動產成交案件實際資訊申報書", "成交案件實際資訊申報"]),
     ("6.成交", "業績分配表", ["業績分配表"]),
     ("根目錄", "物件調查表", ["物件個案調查表", "物調表", "不動產說明書"]),
-    ("根目錄", "行銷簡報", ["不動產行銷報告", "行銷簡報", "行銷報告"]),
+    ("7.行銷簡報", "行銷簡報", ["不動產行銷報告", "行銷簡報", "行銷報告"]),
     ("5.委託", "委託契約書", ["委託銷售契約", "委託租賃契約", "專任委託", "一般委託", "委託契約書", "委託書", "委任契約"]),
     ("5.委託", "斡旋／要約", ["斡旋", "要約書", "買方出價"]),
     ("6.成交", "買賣／租賃契約", ["不動產買賣契約", "買賣契約書", "房屋租賃契約", "租賃契約書", "租約", "類公證",
@@ -203,7 +203,7 @@ def classify(path, rel_dirs=(), ocr=None):
         if any(k in dirs for k in keys):
             return dict(target=target, kind="依資料夾名稱", reason=f"放在「{dirs}」", conf="低", lot=lot)
     if low.endswith(".pptx"):
-        return dict(target="根目錄", kind="簡報", reason="PowerPoint 檔", conf="低", lot=lot)
+        return dict(target="7.行銷簡報", kind="簡報", reason="PowerPoint 檔", conf="低", lot=lot)
     return dict(target="4.其他相關", kind="其他", reason="看不出類別", conf="低", lot=lot)
 
 

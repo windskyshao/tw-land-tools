@@ -71,7 +71,7 @@ EMOJI = "Segoe UI Emoji"
 
 
 def pick(photos, facts, default_out, page="a4l", on_save=None, template="building", suggest="building", show_agents=True,
-         back_cover=False, theme="fzt", get_sections=None):
+         back_cover=False, theme="fzt", get_sections=None, cover_style="A"):
     from marketing_deck import TEMPLATES
     try:
         import ctypes
@@ -91,11 +91,11 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
     sc = max(1.0, root.winfo_fpixels("1i") / 96)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     W, H = min(int(1180 * sc), sw - 60), min(int(900 * sc), sh - 90)
-    root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 2 - 20)}")
+    W = ui.place_window(root, W, H, min_w=int(980 * sc))  # 放主程式左邊，不被它壓住(回傳實際寬度)
     if not TEMPLATES.get(template, (0, 0, 0, 0, False))[4]:
         template = "building"
     state = {"page": page, "template": template, "out": default_out, "show_agents": show_agents, "back_cover": back_cover,
-             "theme": theme, "sections": None, "sections_tp": None}
+             "theme": theme, "sections": None, "sections_tp": None, "cover": cover_style or "A"}
 
     def sel():
         from marketing_deck import sections_to_sel
@@ -103,12 +103,13 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
 
     def save():
         if on_save:
-            on_save(state["page"], state["template"], state["show_agents"], state["back_cover"], state["theme"], sel() or {})
+            on_save(state["page"], state["template"], state["show_agents"], state["back_cover"], state["theme"], sel() or {},
+                    state["cover"])
 
     step = 1
     while True:
         if step == 1:
-            r = _step_template(root, facts, state, suggest, sc, W)
+            r = _step_template(root, facts, state, suggest, sc, W, photos)
             step = 2 if r == "next" else 0
         elif step == 2:
             if get_sections and state["sections_tp"] != state["template"]:     # 換了版型 → 單元不同，重新收集
@@ -137,7 +138,7 @@ def pick(photos, facts, default_out, page="a4l", on_save=None, template="buildin
                 return None
             chosen = [p for p in photos if p["cat"] != "不使用"]
             return (chosen, state["out"], state["page"], state["template"], state["show_agents"], state["back_cover"],
-                    state["theme"], sel())
+                    state["theme"], sel(), state["cover"])
         if step == 0:
             save()
             _close(root)
@@ -168,7 +169,7 @@ def _steps_bar(parent, active):
 
 
 # ---------------------------------------------------------------- ① 版型與版面
-def _step_template(root, facts, state, suggest, sc, W):
+def _step_template(root, facts, state, suggest, sc, W, photos=()):
     from marketing_deck import TEMPLATES, PAGE_CHOICES, THEMES
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
@@ -184,7 +185,8 @@ def _step_template(root, facts, state, suggest, sc, W):
     hd.pack(fill=tk.X, pady=(4, 8))
     tk.Label(hd, text="選擇版型", font=(FAM, 20, "bold"), fg=INK, bg=ui.BG).pack(side=tk.LEFT)
     sname = TEMPLATES.get(suggest, TEMPLATES["building"])[1]
-    tip = f"依物件型式「{facts.get('type') or '—'}」建議：{sname}"
+    tp_ = "・".join(x for x in (facts.get('type'), facts.get('use')) if x) or '—'
+    tip = f"依物件「{tp_}」建議：{sname}"
     if not TEMPLATES.get(suggest, (0, 0, 0, 0, True))[4]:
         tip += "（製作中，先用大樓版）"
     tk.Label(hd, text=tip, font=(FAM, 14), fg=INK2, bg=ui.BG).pack(side=tk.LEFT, padx=16)
@@ -221,6 +223,7 @@ def _step_template(root, facts, state, suggest, sc, W):
             state["theme"] = "green"
             paint_themes()
         paint_cards()
+        show_covers()
 
     for i, (key, (icon, name, fits, pages, ok)) in enumerate(TEMPLATES.items()):
         fr = tk.Frame(grid, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=16, pady=14,
@@ -232,15 +235,17 @@ def _step_template(root, facts, state, suggest, sc, W):
         ic.pack(side=tk.LEFT)
         t1 = tk.Label(top, text=name, font=(FAM, 19, "bold"), fg=INK if ok else MUTED, bg="white")
         t1.pack(side=tk.LEFT, padx=(8, 0))
-        badges = tk.Frame(top, bg="white")
-        badges.pack(side=tk.RIGHT, anchor="n")
+        # 標籤放標題下一行(放標題右邊時，卡片窄會跟標題疊在一起)
+        badges = tk.Frame(fr, bg="white")
+        badges.pack(fill=tk.X, pady=(4, 0))
         fr.check = tk.Label(badges, text="", font=(FAM, 12, "bold"), fg="white", bg=BLUE)
-        fr.check.pack(side=tk.RIGHT, padx=(6, 0))
+        fr.check.pack(side=tk.LEFT, padx=(0, 6))
         if key == suggest:
-            tk.Label(badges, text=" 建議 ", font=(FAM, 12, "bold"), fg="white", bg="#5B6472").pack(side=tk.RIGHT, padx=(6, 0))
+            tk.Label(badges, text=" 建議 ", font=(FAM, 12, "bold"), fg="white", bg="#5B6472").pack(side=tk.LEFT, padx=(0, 6))
         if not ok:                                    # 能用的不必標，沒標「製作中」就是可以用
-            tk.Label(badges, text=" 製作中 ", font=(FAM, 12, "bold"), fg="white", bg=ORANGE).pack(side=tk.RIGHT)
-        t2 = tk.Label(fr, text=f"適用：{fits}", font=(FAM, 13), fg=INK2 if ok else MUTED, bg="white", anchor="w")
+            tk.Label(badges, text=" 製作中 ", font=(FAM, 12, "bold"), fg="white", bg=ORANGE).pack(side=tk.LEFT)
+        t2 = tk.Label(fr, text=f"適用：{fits}", font=(FAM, 13), fg=INK2 if ok else MUTED, bg="white", anchor="w",
+                      justify="left", wraplength=int((W - 120) / cols) - 40)
         t2.pack(fill=tk.X, pady=(6, 0))
         t3 = tk.Label(fr, text=pages, font=(FAM, 12), fg=INK2 if ok else MUTED, bg="white", anchor="w",
                       justify="left", wraplength=int((W - 120) / cols) - 40)
@@ -303,7 +308,8 @@ def _step_template(root, facts, state, suggest, sc, W):
         txt.pack(side=tk.LEFT, padx=(10, 0))
         a = tk.Label(txt, text=name, font=(FAM, 18, "bold"), fg=INK if ok else MUTED, bg="white", anchor="w")
         a.pack(anchor="w")
-        b = tk.Label(txt, text=desc, font=(FAM, 13), fg=INK2 if ok else MUTED, bg="white", anchor="w")
+        b = tk.Label(txt, text=desc, font=(FAM, 13), fg=INK2 if ok else MUTED, bg="white", anchor="w", justify="left",
+                     wraplength=max(120, int((W - 120) / len(PAGE_CHOICES)) - int(PH * 1.6) - 70))
         b.pack(anchor="w")
         c = tk.Label(txt, text="" if ok else "製作中", font=(FAM, 12, "bold"), fg=ORANGE, bg="white", anchor="w")
         c.pack(anchor="w")
@@ -319,7 +325,8 @@ def _step_template(root, facts, state, suggest, sc, W):
              bg=ui.BG).pack(side=tk.LEFT, padx=16)
     trow = tk.Frame(body, bg=ui.BG)
     trow.pack(fill=tk.X, pady=(0, 10))
-    for c in range(len(THEMES)):
+    TCOLS = 4                                         # 色系兩排各 4 個(一排 8 個太擠，字會被切掉)
+    for c in range(TCOLS):
         trow.grid_columnconfigure(c, weight=1, uniform="th")
     ttiles = {}
     TW_, TH_ = int(150 * sc), int(84 * sc)            # 小色卡(一頁簡報的縮圖)
@@ -364,24 +371,91 @@ def _step_template(root, facts, state, suggest, sc, W):
     def choose_theme(key):
         state["theme"] = key
         paint_themes()
+        show_covers()
 
     for i, (key, t) in enumerate(THEMES.items()):
         fr = tk.Frame(trow, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=10,
                       cursor="hand2")
-        fr.grid(row=0, column=i, padx=6, pady=6, sticky="nsew")
+        fr.grid(row=i // TCOLS, column=i % TCOLS, padx=6, pady=6, sticky="nsew")
         cv = tk.Canvas(fr, width=TW_, height=TH_, highlightthickness=0, bg="white")
         cv.pack()
         draw_swatch(cv, t)
         a = tk.Label(fr, text=t["name"], font=(FAM, 15, "bold"), fg=INK, bg="white")
         a.pack(pady=(6, 0))
-        b = tk.Label(fr, text=t["desc"], font=(FAM, 12), fg=INK2, bg="white")
+        b = tk.Label(fr, text=t["desc"], font=(FAM, 12), fg=INK2, bg="white", justify="center",
+                     wraplength=int((W - 120) / TCOLS) - 40)
         b.pack()
         ttiles[key] = (fr, cv, [a, b])
         for w in (fr, cv, a, b):
             w.bind("<Button-1>", lambda e, k=key: choose_theme(k))
+    # ---- 封面樣式(土地・農地版)：用這個案件的封面照片做四張縮圖，點選 ----
+    cov_box = tk.Frame(body, bg=ui.BG)
+    cov_box.pack(fill=tk.X)
+    CW_, CH_ = int(250 * sc), int(141 * sc)
+    cov = {"imgs": [], "key": None}
+
+    def cover_photo():
+        for cat in ("封面", "空拍"):
+            for p in photos:
+                if p.get("cat") == cat and p.get("path"):
+                    return p["path"]
+        return next((p["path"] for p in photos if p.get("path") and p.get("cat") != "不使用"), None)
+
+    def show_covers():
+        tp = state["template"]
+        key = (tp, state.get("theme"), state["cover"]) if tp in ("land", "farm") else None
+        if key == cov["key"]:
+            return
+        cov["key"] = key
+        for w in cov_box.winfo_children():
+            w.destroy()
+        cov["imgs"] = []
+        if not key:
+            return
+        try:
+            import marketing_deck_land as ml
+            from PIL import ImageTk
+        except Exception:
+            return
+        hd4 = tk.Frame(cov_box, bg=ui.BG)
+        hd4.pack(fill=tk.X, pady=(16, 6))
+        tk.Label(hd4, text="選擇封面樣式", font=(FAM, 20, "bold"), fg=INK, bg=ui.BG).pack(side=tk.LEFT)
+        tk.Label(hd4, text="用這個案件的封面照片示範；字的位置跟做出來的簡報一樣", font=(FAM, 14), fg=INK2,
+                 bg=ui.BG).pack(side=tk.LEFT, padx=16)
+        row = tk.Frame(cov_box, bg=ui.BG)
+        row.pack(fill=tk.X, pady=(0, 10))
+        kind = "農地" if facts.get("farm") or tp == "farm" else ("建地" if facts.get("zone") else "土地")
+        acc = THEMES.get(state.get("theme"), THEMES["fzt"])["sky_dk"]
+        ph = cover_photo()
+        for i, (k, (name, desc)) in enumerate(ml.COVER_STYLES.items()):
+            row.grid_columnconfigure(i, weight=1, uniform="cv")
+            sel = k == state["cover"]
+            bg = BLUE_BG if sel else "white"
+            fr = tk.Frame(row, bg=bg, highlightthickness=3 if sel else 1, highlightbackground=BLUE if sel else "#CBD5E1",
+                          padx=8, pady=8, cursor="hand2")
+            fr.grid(row=0, column=i, padx=6, pady=6, sticky="nsew")
+            try:
+                img = ImageTk.PhotoImage(ml.cover_preview(ph, k, facts, kind, acc, CW_, CH_), master=root)
+                cov["imgs"].append(img)
+                pic = tk.Label(fr, image=img, bg=bg)
+            except Exception as e:
+                pic = tk.Label(fr, text=f"（縮圖做不出來：{e}）", bg=bg, wraplength=CW_)
+            pic.pack()
+            a = tk.Label(fr, text=("✓ " if sel else "") + f"{k}　{name}", font=(FAM, 15, "bold"), fg=BLUE if sel else INK, bg=bg)
+            a.pack(pady=(6, 0))
+            b = tk.Label(fr, text=desc, font=(FAM, 12), fg=INK2, bg=bg, justify="center", wraplength=min(CW_, int((W - 120) / 4) - 40))
+            b.pack()
+            for w in (fr, pic, a, b):
+                w.bind("<Button-1>", lambda e, kk=k: choose_cover(kk))
+
+    def choose_cover(k):
+        state["cover"] = k
+        show_covers()
+
     paint_cards()
     paint_pages()
     paint_themes()
+    show_covers()
 
     # ---- 頁尾 ----
     tk.Label(foot, text="選好按「下一步」選頁面內容；之後也可以按「‹ 上一步」回來改", font=(FAM, 13), fg=INK2,
@@ -402,6 +476,8 @@ def _step_template(root, facts, state, suggest, sc, W):
 # ---------------------------------------------------------------- ② 挑照片
 def _step_photos(root, photos, facts, state, sc, W):
     from marketing_deck import CATS, CAT_MENU, CAT_SEP, LAYOUT_CAT, PAGES, TEMPLATES, caption_of
+    from marketing_deck import cat_menu
+    CAT_MENU = cat_menu(state.get("template"))      # 土地版只列土地用得到的分類
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)
@@ -889,12 +965,10 @@ OFF_BG = "#EEF1F5"      # 不使用區(淡灰)
 
 def _step_arrange(root, photos, facts, state, sc, W):
     from marketing_deck import CATS, CAT_MENU, CAT_SEP, LAYOUT_CAT, PAGES, TEMPLATES, PHOTO_PAGES, STREET_PHOTO_PAGES, caption_of, guess_cat, ordered, split_pages
-    if state.get("template") == "villa":                # 透天・店面版的照片頁分法不同(外觀街景在前)
-        PHOTO_PAGES = STREET_PHOTO_PAGES
-    elif state.get("template") == "factory":
-        from marketing_deck import FACTORY_PHOTO_PAGES as PHOTO_PAGES
-    elif state.get("template") in ("land", "farm"):
-        from marketing_deck import LAND_PHOTO_PAGES as PHOTO_PAGES
+    from marketing_deck import cat_menu
+    CAT_MENU = cat_menu(state.get("template"))
+    from marketing_deck import photo_pages_for
+    PHOTO_PAGES = photo_pages_for(state.get("template"))      # 各版型照片頁分法不同(透天外觀街景在前、店面營業空間…)
     stage = tk.Frame(root, bg=ui.BG)
     stage.pack(fill=tk.BOTH, expand=True)
     done = tk.StringVar(master=root)

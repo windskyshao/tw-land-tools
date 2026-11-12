@@ -11,9 +11,9 @@ import case_flow as CF
 
 FAM = CF.FAM
 CONF_COL = {"高": "#23864B", "中": "#C98A00", "低": "#C5221F"}
-SHOW = {"根目錄": "案件資料夾（物調表、簡報）"}
-LABELS = [SHOW.get(t, t) for t in ("0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "根目錄")]
-TKEY = dict(zip(LABELS, ("0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "根目錄")))
+SHOW = {"根目錄": "案件資料夾（物調表）"}
+LABELS = [SHOW.get(t, t) for t in ("0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "7.行銷簡報", "根目錄")]
+TKEY = dict(zip(LABELS, ("0.謄本", "1.基本資料", "2.照片", "3.行情", "4.其他相關", "5.委託", "6.成交", "7.行銷簡報", "根目錄")))
 
 
 def _md5(p):
@@ -97,7 +97,7 @@ def open_preview(parent, src, result, case_name, on_go=None, on_preview=None):
     for r in files:
         if not r.get("dup"):
             cnt[r["target"]] = cnt.get(r["target"], 0) + 1
-    for t in ("0.謄本", "1.基本資料", "2.照片", "3.行情", "5.委託", "6.成交", "根目錄", "4.其他相關"):
+    for t in ("0.謄本", "1.基本資料", "2.照片", "3.行情", "5.委託", "6.成交", "7.行銷簡報", "根目錄", "4.其他相關"):
         if cnt.get(t):
             tk.Label(chips, text=f"{SHOW.get(t, t).split('（')[0]} {cnt[t]}", font=(FAM, 11, "bold"), bg="#F2EFEA",
                      fg=CF.INK, padx=M.px(8), pady=M.px(2)).pack(side=tk.LEFT, padx=(0, M.px(4)))

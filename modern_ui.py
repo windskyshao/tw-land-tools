@@ -317,10 +317,11 @@ class IconButton(tk.Canvas):
     _HOVER = {"#1976D2", "#D32F2F", "#F57C00", "#388E3C"}
     _RED = {"#D32F2F", "#F44336"}
 
-    def __init__(self, parent, text="", command=None, color=BLUE, size=None, **legacy):
+    def __init__(self, parent, text="", command=None, color=BLUE, size=None, badge="", **legacy):
         size = size or px(30)
         super().__init__(parent, width=size, height=size, bg=parent.cget("bg"), highlightthickness=0, cursor="hand2")
         self.glyph, self.command, self.color, self.size = text, command, color, size
+        self.badge = badge                     # 右上角小字標(例如 📂 加「他」＝開其他案件)
         self.dot = False
         self._hover = False
         self.bind("<Button-1>", self._click)
@@ -365,6 +366,11 @@ class IconButton(tk.Canvas):
         s = self.size
         self.create_oval(1, 1, s - 1, s - 1, fill=mix(self.color, "#FFFFFF", 0.74 if self._hover else 0.87), outline="")
         self.create_text(s / 2, s / 2, text=self.glyph, font=("Segoe UI Emoji", max(8, int(s * 0.30 / S))), fill=self.color)
+        if self.badge:
+            d = max(px(15), int(s * 0.5))
+            self.create_oval(s - d, 0, s, d, fill=self.color, outline="white", width=max(1, px(1.5)))
+            self.create_text(s - d / 2, d / 2, text=self.badge, fill="white",
+                             font=("Microsoft JhengHei", max(7, int(d * 0.52 / S)), "bold"))
         if self.dot:
             d = px(9)
             self.create_oval(s - d - 1, 1, s - 1, d + 1, fill="#FF3B30", outline="white", width=max(1, px(1.5)))

@@ -243,7 +243,7 @@ def _ocr_cache_path(path):
     key = hashlib.md5(os.path.normcase(os.path.abspath(path)).encode("utf-8")).hexdigest()
     d = os.path.join(_settings_dir or SCRIPT_DIR, "ocr_cache")
     os.makedirs(d, exist_ok=True)
-    return os.path.join(d, key + ".txt")
+    return os.path.join(d, key + "_300.txt")             # _300：改 300dpi 後舊快取(200dpi 會漏行)不再用
 
 
 def ocr_pdf_lines(path, progress=None):
@@ -260,7 +260,7 @@ def ocr_pdf_lines(path, progress=None):
     for i, page in enumerate(doc):
         if progress:
             progress(f"辨識掃描檔 第 {i + 1}/{len(doc)} 頁…")
-        pix = page.get_pixmap(dpi=200)
+        pix = page.get_pixmap(dpi=300)                   # 200dpi 時左邊裝訂孔旁的整行會漏掉(租金那行)
         img = np.frombuffer(pix.samples, dtype=np.uint8).reshape(pix.h, pix.w, pix.n)[:, :, :3]
         res, _ = engine(img)
         lines += [r[1] for r in (res or [])]
@@ -302,12 +302,15 @@ def parse_lease(path, progress=None):
     flat = re.sub(r"\s+", "", text)
     res = {"承租人": [], "設備": set(), "冷氣台數": "", "類型": kind}
 
-    name_re = re.compile(r"承租人\s*\d*\s*(?:[（(]以下簡稱乙方[)）])?\s*[：:]?\s*([一-鿿]{2,4}?)(?=\s|男|女|民國|先生|小姐|$|，|,)")
+    name_re = re.compile(r"承租人\s*\d*\s*(?:[（(](?:以下簡?稱?|即)乙方[)）])?\s*[：:]?\s*([一-鿿]{2,4}?)(?=\s|男|女|民國|先生|小姐|$|，|,)")
     id_re = re.compile(r"(?:統一編號|身分證字號|身分證統一編號|身分證號|國民身分證)\s*[：:]?\s*([A-Za-z][12]\d{8}|\d{8})")
     cur = None
     seen = set()
-    for ln in lines:
+    for i, ln in enumerate(lines):
         s = ln.strip().lstrip("：:、.． ")
+        # 法院公證書 OCR：「承租人」自成一行，名字在下一行
+        if s == "承租人" and i + 1 < len(lines) and re.fullmatch(r"[一-鿿]{2,4}", lines[i + 1].strip()):
+            s = "承租人：" + lines[i + 1].strip()
         m = name_re.search(s) if s.startswith("承租人") else None
         # OCR 雜訊：跟已抓到的名字有兩個字重疊(例：謝東奇 vs 東奇奇)就當同一人
         if m and any(len(set(m.group(1)) & set(x)) >= 2 for x in seen):
@@ -331,16 +334,18 @@ def parse_lease(path, progress=None):
                 if mid:
                     cur["統編"] = mid.group(1).upper()
             if s.startswith("地址") or s.startswith("住址"):
-                ma = re.match(r"^[地住]址\s*[：:]\s*(.+?)(?:\s*電話\s*[：:]\s*([\d\-\s+]+))?$", s)
+                ma = re.match(r"^[地住]址\s*[：:]?\s*(.+?)(?:\s*電話\s*[：:]\s*([\d\-\s+]+))?$", s)
                 if ma:
                     cur["地址"] = ma.group(1).strip()
                     if ma.group(2):
                         cur["電話"] = re.sub(r"\s", "", ma.group(2))
     for t in res["承租人"]:
-        if not t["電話"]:
-            m = re.search(re.escape(t["姓名"]) + r".{0,200}?電話\s*[：:]\s*([\d\-]{9,})", flat)
-            if m:
-                t["電話"] = m.group(1)
+        if not t["電話"]:        # 名字可能出現好幾次(公證書、契約首頁、簽名欄)，取後面最近有電話的那次
+            for mo in re.finditer(re.escape(t["姓名"]), flat):
+                m = re.match(r"(?:(?!出租人|甲方|立契約).){0,80}?電話(?:或電子郵件信箱)?\s*[：:]\s*_*([\d\-]{9,})", flat[mo.end():])
+                if m:
+                    t["電話"] = m.group(1)
+                    break
 
     m = re.search(rf"自?(?:民國|中華民國)({_NUM})年({_NUM})月({_NUM})日起?[，,]?至(?:民國|中華民國)?({_NUM})年({_NUM})月({_NUM})日止", flat) or         re.search(rf"({_NUM})年({_NUM})月({_NUM})日起[，,]?至(?:民國|中華民國)?({_NUM})年({_NUM})月({_NUM})日止", flat)
     if m:
@@ -351,17 +356,29 @@ def parse_lease(path, progress=None):
     dates = re.findall(r"中華民國(\d{2,3})年(\d{1,2})月(\d{1,2})日", flat)
     if dates:
         res["訂約"] = roc_date(*dates[-1])
+    else:                    # 法院公證書：「本公證書於民國壹佰壹拾伍年壹拾壹月壹拾壹日在…」→ 用公證日
+        m = re.search(rf"公證書於(?:中華)?民國({_NUM})年({_NUM})月({_NUM})日", flat)
+        if m:
+            g = [cn2int(x) for x in m.groups()]
+            if all(x is not None for x in g):
+                res["訂約"] = roc_date(*g)
 
     m = re.search(rf"租金(?:每[個]?月)?[^。；\n]{{0,8}}?新[台臺]幣\s*(?:[（(]以下同[)）])?\s*({_MONEY})\s*元", flat) or \
         re.search(rf"每[個]?月租金(?:新[台臺]幣)?(?:[（(]以下同[)）])?({_MONEY})元", flat) or         re.search(rf"月租金(?:新[台臺]幣)?[^。元\d壹貳參肆伍陸柒捌玖一二三四五六七八九]{{0,6}}({_MONEY})元", flat)
     if m:
         res["租金"] = cn2int(m.group(1).replace("，", ""))
     m = re.search(r"管理費[^。]{0,6}?由\s*([甲乙])\s*方負擔", flat) or re.search(r"管理費[^。]{0,6}?由(出租人|承租人)負擔", flat)
+    if not m:                # 「…水電費、瓦斯費、社區大樓管理費、清潔費…由乙方負(擔)」：同一句裡找誰負擔
+        seg = next((x for x in re.split(r"[。；;]", flat) if "管理費" in x), "")
+        m = re.search(r"由\s*([甲乙])\s*方負", seg) or re.search(r"由(出租人|承租人)負", seg)
     if m:
         res["管理費由"] = "出租人" if m.group(1) in ("甲", "出租人") else "承租人"
 
     m = re.search(r"附屬?設備(?:計有|如下|包括|包含)[：:]?(.+?)。", flat) or         re.search(r"附屬?設備[：:](.{1,150}?)(?:。|第[一二三四五六七八九十]+條)", flat)
     eq_text = m.group(1) if m else ""
+    m = re.search(r"提供如下之?動產(.{0,60}?)[：:](.+?)。", flat)      # 特約：甲方提供如下之動產予乙方使用…：冷氣3臺、冰箱1臺…
+    if m:
+        eq_text += "、" + m.group(2)
     if eq_text:
         rules = [("冷氣", r"冷氣"), ("熱水器", r"熱水器"), ("洗衣機", r"洗衣機"), ("電視機", r"電視(?!台)"),
                  ("冰箱", r"冰箱"), ("瓦斯或天然氣", r"瓦斯|天然氣"), ("有線電視", r"有線電視|第四台"),
@@ -369,7 +386,7 @@ def parse_lease(path, progress=None):
         for name, pat in rules:
             if re.search(pat, eq_text):
                 res["設備"].add(name)
-        m = re.search(r"冷氣[^\d、，；]*?(\d+)\s*[台組]", eq_text)
+        m = re.search(r"冷氣[^\d、，；]*?(\d+)\s*[台臺組]", eq_text)
         if m:
             res["冷氣台數"] = m.group(1)
     return res
@@ -1001,7 +1018,7 @@ def run_dialog(case_dir, v, notes, template_path):
         return res["v"]
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     W, H = min(1250, sw - 80), min(920, sh - 100)
-    root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(10, (sh - H) // 2 - 30)}")
+    W = ui.place_window(root, W, H, min_w=1000)          # 放主程式左邊，不被它壓住(回傳實際寬度)
 
     ui.header(root, "實價登錄申報書（租賃）", os.path.basename(case_dir))
     foot = ui.footer(root)
@@ -1220,6 +1237,13 @@ def run_dialog(case_dir, v, notes, template_path):
         fr = tk.Frame(s24, bg="white", padx=12, pady=8, highlightthickness=1, highlightbackground=s24.theme[2])
         fr.grid(row=0, column=col, sticky="nsew", padx=4)
         tk.Label(fr, text=title, font=FB, fg=s24.theme[0], bg="white").pack(anchor="w", pady=(0, 4))
+
+        def fit(e):                     # 欄寬隨視窗變：文字跟著換行，不會被切掉
+            wl = max(120, e.width - 60)
+            for w in fr.winfo_children():
+                if isinstance(w, (tk.Label, tk.Checkbutton)) and str(w.cget("wraplength")) != str(wl):
+                    w.configure(wraplength=wl)
+        fr.bind("<Configure>", fit, add="+")
         return fr
 
     def rm_check(parent, key, label, value=False):
@@ -1237,7 +1261,7 @@ def run_dialog(case_dir, v, notes, template_path):
         vars_["文字_" + key] = var
 
     left = sub("①承租人 ②租金", 0)
-    tk.Label(left, text="共同承租人數：依承租人姓名自動算", font=F, fg="#444444").pack(anchor="w")
+    tk.Label(left, text="共同承租人數：依承租人姓名自動算", font=F, fg="#444444", justify="left").pack(anchor="w")
     rm_check(left, "含稅", "含稅(限非居住用或混合用)")
     tk.Label(left, text="租金含下列費用：", font=F, fg="#1a1a1a").pack(anchor="w", pady=(4, 0))
     for fname in FEES:
@@ -1255,7 +1279,7 @@ def run_dialog(case_dir, v, notes, template_path):
         if key in REMARK_TEXT:
             rm_text(right, key, "請敘明")
     for c in range(3):
-        s24.grid_columnconfigure(c, weight=1)
+        s24.grid_columnconfigure(c, weight=1, uniform="rm")     # 三欄等寬(不隨字長短撐開)
 
     result = {"ok": False}
 
@@ -1314,23 +1338,77 @@ def run_dialog(case_dir, v, notes, template_path):
         st["申報人"] = out["申報人"]
         st["代理人"] = out["代理人"]
         save_settings(st)
+        path = result.get("path")       # 重新產生：蓋掉這次剛做的那份，不要一直多出 (2)(3)
         try:
-            path = output_path(case_dir, out)
-            build_pdf(out, template_path, path)
+            if path:
+                try:
+                    build_pdf(out, template_path, path)
+                except Exception:       # PDF 還開著被鎖住 → 另存新檔
+                    path = output_path(case_dir, out)
+                    build_pdf(out, template_path, path)
+            else:
+                path = output_path(case_dir, out)
+                build_pdf(out, template_path, path)
         except Exception as e:
             big_dialog("產生失敗", str(e))
             return
         result["ok"], result["path"] = True, path
-        root.destroy()
+        print(f"[完成] 已產生：{path}", flush=True)
+        open_pdf(path)
+        paint_foot()                    # 視窗留著：要改就直接改再按「重新產生」，沒問題就按「完成，關閉」
+
+    def open_last():
+        p = result.get("path") or last_pdf
+        if p and os.path.exists(p):
+            open_pdf(p)
+
+    # 這個案件之前產生過的申報書(最新那份)：沒要改就直接打開，不用重做
+    folder = os.path.dirname(v["租約檔"]) if v.get("租約檔") else os.path.join(case_dir, "6.成交")
+    olds = glob.glob(os.path.join(glob.escape(folder), "實價登錄申報書(租)_*.pdf"))
+    last_pdf = max(olds, key=os.path.getmtime) if olds else ""
+
+    def paint_foot():
+        for w in foot.winfo_children():
+            w.destroy()
+        p = result.get("path")
+        if p:
+            msg = f"✓ 已產生並打開 PDF（存在「{os.path.basename(os.path.dirname(p))}」）\n要修改就直接改上面，再按「重新產生」"
+            fg = "#1B7A3E"
+        elif last_pdf:
+            msg = "這個案件之前做過申報書，\n沒要改可直接打開上次的 PDF"
+            fg = ui.SUB
+        else:
+            msg, fg = "產生後會自動打開 PDF，視窗會留著讓你修改", ui.SUB
+        tk.Label(foot, text=msg, font=ui.FS, fg=fg, bg=ui.CARD, justify="left").pack(side=tk.LEFT)
+        if p:
+            ui.button(foot, "完成，關閉", root.destroy).pack(side=tk.RIGHT)
+            ui.button(foot, "🔄  重新產生", lambda: on_ok(), "ghost").pack(side=tk.RIGHT, padx=10)
+            ui.button(foot, "📄  開啟 PDF", open_last, "ghost").pack(side=tk.RIGHT)
+        else:
+            ui.button(foot, "📄  產生申報書 PDF", lambda: on_ok()).pack(side=tk.RIGHT)
+            if last_pdf:
+                ui.button(foot, "📄  開啟上次的 PDF", open_last, "ghost").pack(side=tk.RIGHT, padx=10)
+            ui.button(foot, "取消", root.destroy, "ghost").pack(side=tk.RIGHT, padx=(0, 10) if last_pdf else 10)
 
     ui.repaint(body)
     ui.restyle_inputs(body)
-    bf = foot
-    tk.Label(bf, text="產生後會自動打開 PDF，每格都可再點進去改", font=ui.FS, fg=ui.SUB, bg=ui.CARD).pack(side=tk.LEFT)
-    ui.button(bf, "📄  產生申報書 PDF", lambda: on_ok()).pack(side=tk.RIGHT)
-    ui.button(bf, "取消", root.destroy, "ghost").pack(side=tk.RIGHT, padx=10)
+    paint_foot()
     root.mainloop()
     return result
+
+
+def open_pdf(path):
+    """用預設 PDF 軟體打開。別讓它繼承 _internal 工作目錄/Python 環境變數(會從 dist 載入 DLL 害打包時檔案被鎖)"""
+    keep = {k: os.environ.pop(k) for k in ("PYTHONHOME", "PYTHONPATH", "PYTHONNOUSERSITE") if k in os.environ}
+    cwd = os.getcwd()
+    try:
+        os.chdir(os.path.dirname(path))
+        os.startfile(path)
+    except Exception:
+        pass
+    finally:
+        os.chdir(cwd)
+        os.environ.update(keep)
 
 
 def gather_with_progress(case_dir, lease_path=None):
@@ -1408,15 +1486,7 @@ def main():
             continue
         break
     if res.get("ok"):
-        print(f"[完成] 已產生：{res['path']}")
-        try:
-            # 別讓 PDF 軟體繼承 _internal 工作目錄/Python 環境變數(會從 dist 載入 DLL 害打包時檔案被鎖)
-            os.chdir(os.path.dirname(res["path"]))
-            for k in ("PYTHONHOME", "PYTHONPATH", "PYTHONNOUSERSITE"):
-                os.environ.pop(k, None)
-            os.startfile(res["path"])
-        except Exception:
-            pass
+        pass                            # 「已產生」訊息與打開 PDF 在視窗裡按產生時就做了
     else:
         print("[取消] 未產生申報書")
     return 0

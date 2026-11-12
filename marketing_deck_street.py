@@ -8,7 +8,9 @@ import re
 import glob
 
 
-def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, sel=None):
+def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, sel=None, kind="villa"):
+    """kind：villa=透天・別墅、shop=店面(同一套版面，店面的數字、照片頁換成面寬、商圈、營業空間)"""
+    f["tpl"] = kind
     from pptx.dml.color import RGBColor
     t = M.THEMES[M.THEME]
     # amber=主色(細線/標籤/小方塊)、amber_dk=深主色(大數字)；名稱沿用，顏色跟著使用者選的色系
@@ -28,7 +30,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     deck.frame = None
     _street_chrome(M, deck, C, f)
     by = {c: M.ordered([p for p in chosen if p["cat"] == c]) for c in M.CATS}
-    cover = (by["封面"] or by[M.EXT_CAT] or by[M.STREET_CAT] or by["陽台景觀"] or by["客廳"] or [None])[0]
+    cover = (by["封面"] or by[M.EXT_CAT] or by[M.SHOP_CAT] or by[M.STREET_CAT] or by["陽台景觀"] or by["客廳"] or [None])[0]
     roots = [r for r in (case_dir, exp) if r]
 
     def first(pattern):
@@ -80,10 +82,10 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
             f["dims_show"] = f"約 {dm['frontage']:g}／{dm['depth']:g} 米（地籍圖量測）"
 
     phones = M.lookup_phones(f["agents"], base_dir)
-    M.log("製作：封面（透天・店面版）"); cover_slide(M, deck, C, f, cover, phones, show_agents)
+    M.log("製作：封面（" + ("店面版" if kind == "shop" else "透天版") + "）"); cover_slide(M, deck, C, f, cover, phones, show_agents)
     if M.sel_on(sel, "overview"):
         M.log("製作：物件亮點"); highlights(M, deck, C, f)
-    if f.get("floors") and M.sel_on(sel, "floors"):
+    if f.get("floors") and (kind != "shop" or len(f["floors"]) > 1) and M.sel_on(sel, "floors"):    # 店面只有一層不用這頁
         M.log("製作：樓層配置"); floors_slide(M, deck, C, f)
     ll = M.case_coords(case_dir, base_dir, d) if M.sel_on(sel, "location") else None
     if ll:
@@ -105,7 +107,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     for i, src in enumerate(layouts[:6]):
         M.log(f"製作：格局平面圖（{os.path.basename(src)}）"); M.slide_layout(deck, src, cont=i > 0)
     M.log("製作：照片頁")
-    for title, cats, cap in M.STREET_PHOTO_PAGES:
+    for title, cats, cap in M.photo_pages_for(kind):
         items = M.ordered([p for p in chosen if p["cat"] in cats])
         if items and cover in items and len(items) > 1:
             items = [p for p in items if p is not cover] + [cover]      # 封面那張放最後，避免一翻開又看到
@@ -186,7 +188,7 @@ def _logo(M, s, path, x, y, h, right=False):
 
 
 def _label(f):
-    kind = "店面" if "店" in str(f.get("use", "")) + str(f.get("type", "")) else "透天"
+    kind = "店面" if f.get("tpl") == "shop" or "店" in str(f.get("use", "")) + str(f.get("type", "")) else "透天"
     return kind + ("出租" if f["deal"] == "租" else "出售")
 
 
@@ -259,6 +261,10 @@ def highlights(M, deck, C, f):
              ("土地坪數", f"{f['land']}" if str(f.get("land", "")).strip() else "—", "坪" if str(f.get("land", "")).strip() else ""),
              ("屋齡", f.get("age") or "—", ""),
              ("使用分區", f.get("zone") or "—", "")]
+    if f.get("tpl") == "shop":          # 店面：土地持分不是重點，換成商圈；大樓一樓店面有管理費就列出來
+        tiles[5] = ("所在商圈", f.get("district") or "—", "")
+        if f.get("fee"):
+            tiles[6] = ("管理費", f["fee"], "")
     x0, y0, gx, gy = Inches(0.5), Inches(1.3), Inches(0.2), Inches(0.2)
     cw, ch = (SW - Inches(1.0) - gx * 3) // 4, Inches(1.2)
     for i, (k, v, unit) in enumerate(tiles):
@@ -296,7 +302,11 @@ def highlights(M, deck, C, f):
     M.box(s, rx, ty, rw, th, C["white"], C["line"])
     rows = [(k, v) for k, v in (("適合行業", "、".join(f.get("trades") or [])), ("格局", f.get("layout")),
                                 ("建築結構", f.get("struct")), ("座向", f.get("facing")), ("建蔽／容積", f.get("bcr_far")),
-                                ("所在商圈", f.get("district")), ("鄰近學校", f.get("school"))) if str(v or "").strip()][:6]
+                                ("所在商圈", f.get("district")), ("鄰近學校", f.get("school"))) if str(v or "").strip()]
+    if f.get("tpl") == "shop":          # 店面不看格局、學區；商圈已在上面方塊
+        rows = [(k, v) for k, v in rows if k not in ("格局", "鄰近學校", "所在商圈")] + \
+               [(k, v) for k, v in (("電梯", f.get("elev")), ("車位", f.get("park"))) if str(v or "").strip()]
+    rows = rows[:6]
     rh = min(Inches(0.5), (th - Inches(0.3)) // max(1, len(rows)))
     for i, (k, v) in enumerate(rows):
         cy = ty + Inches(0.15) + rh * i

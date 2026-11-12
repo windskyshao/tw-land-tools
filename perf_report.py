@@ -345,7 +345,7 @@ def run_dialog(case_dir, v, notes, template_path):
     ui.apply(root)
     sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
     W, H = min(1040, sw - 80), min(900, sh - 100)
-    root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(10, (sh - H) // 2 - 30)}")
+    W = ui.place_window(root, W, H, min_w=860)           # 放主程式左邊，不被它壓住(回傳實際寬度)
     root.minsize(860, 600)
 
     def big_dialog(title, msg, yesno=False):

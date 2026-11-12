@@ -251,12 +251,13 @@ def save_entry(entry, mode, data_json_path, base_dir):
 
 
 def entry_from_result(r, build=None):
-    """查詢結果 → data.json 一列。build=選定的那一戶(可為 None)"""
+    """查詢結果 → data.json 一列。build=勾選的戶：一戶(dict)、多戶(list)或 None；build_no/door 記第一戶"""
     e = {"city": r["city"], "area": r["area"], "section": r["section"], "lot_number": r["lot_number"],
          "coordinates": f"{r['lat']:.5f},{r['lng']:.5f}"}
-    if build:
-        e["build_no"], e["door"] = build["build_no"], build["door"]
-        e["builds"] = [{"build_no": build["build_no"], "door": build["door"]}]
+    blds = [build] if isinstance(build, dict) else list(build or [])
+    if blds:
+        e["build_no"], e["door"] = blds[0]["build_no"], blds[0]["door"]
+        e["builds"] = [{"build_no": b["build_no"], "door": b["door"]} for b in blds]
     elif r.get("door"):
         e["door"] = r["door"]
     if r.get("community"):
@@ -625,29 +626,62 @@ class QuickCaseWindow:
             tk.Label(self.build_box, text=note or "沒有建號資料", font=ui.F, fg=INK, bg=bg, justify="left",
                      wraplength=self.W - 120).pack(anchor="w")
             return
-        self.sel_build.set(0)
-        none_row = tk.Frame(self.build_box, bg=bg)
-        none_row.pack(anchor="w")
-        ui.big_radio(none_row, self.sel_build, -1, teal).pack(side=tk.LEFT, padx=(0, 8))
-        nl = tk.Label(none_row, text="不指定建號（純土地或之後再查）", font=ui.FS, fg=INK2, bg=bg, cursor="hand2")
-        nl.pack(side=tk.LEFT)
-        nl.bind("<Button-1>", lambda e: self.sel_build.set(-1))
+        # 複選：查到的建號預設全勾(都要建資料)，不要的自己取消；全不勾＝不指定建號
+        self.build_vars = [tk.BooleanVar(master=self.top, value=True) for _ in builds]
+        all_var = tk.BooleanVar(master=self.top, value=True)
+        top_row = tk.Frame(self.build_box, bg=bg)
+        top_row.pack(anchor="w")
+        all_cb = ui.big_check(top_row, all_var, teal)
+        all_cb.pack(side=tk.LEFT, padx=(0, 8))
+        cnt = tk.Label(top_row, font=ui.FB, fg=INK, bg=bg, cursor="hand2")
+        cnt.pack(side=tk.LEFT)
+
+        busy = [False]                         # 全選批次切換中，別讓逐戶的 refresh 反過來改全選
+
+        def refresh(*_):
+            n = sum(v.get() for v in self.build_vars)
+            if not busy[0] and all_var.get() != (n == len(builds)):
+                busy[0] = True
+                all_var.set(n == len(builds))
+                busy[0] = False
+            cnt.config(text=(f"全選　已勾 {n} / {len(builds)} 戶" if n else
+                             f"全選　一戶都沒勾＝不指定建號（純土地或之後再查）"))
+
+        def set_all(*_):
+            if busy[0]:
+                return
+            busy[0] = True
+            val = all_var.get()
+            for v in self.build_vars:
+                v.set(val)
+            busy[0] = False
+            refresh()
+        all_var.trace_add("write", set_all)
+        for v in self.build_vars:
+            v.trace_add("write", refresh)
+        cnt.bind("<Button-1>", lambda e: all_var.set(not all_var.get()))
+        refresh()
         rows = tk.Frame(self.build_box, bg=bg)
         rows.pack(fill=tk.X, pady=(2, 0))
         for i, b in enumerate(builds[:40]):
             row = tk.Frame(rows, bg="white", highlightthickness=1, highlightbackground=edge, padx=10, pady=6)
             row.pack(fill=tk.X, pady=3)
-            ui.big_radio(row, self.sel_build, i, teal).grid(row=0, column=0, rowspan=3, sticky="n", padx=(0, 10), pady=(2, 0))
+            var = self.build_vars[i]
+            cb = ui.big_check(row, var, teal)
+            cb.grid(row=0, column=0, rowspan=3, sticky="n", padx=(0, 10), pady=(2, 0))
             hd = tk.Frame(row, bg="white")
             hd.grid(row=0, column=1, sticky="w")
             tk.Label(hd, text=f"建號 {b['build_no']}", font=ui.FB, fg=teal, bg="white").pack(side=tk.LEFT)
             tk.Label(hd, text=b["door"], font=ui.F, fg=INK, bg="white").pack(side=tk.LEFT, padx=(24, 0))
             self._build_detail(row, b).grid(row=1, column=1, sticky="w", pady=(4, 0))
-            todo = [row]                       # 整列(含明細裡的字)點哪裡都能選
+            todo = [row]                       # 整列點哪裡都能勾/取消(勾勾本身自己會切，不要重複綁)
             while todo:
                 w = todo.pop()
-                todo.extend(w.winfo_children())
-                w.bind("<Button-1>", lambda e, i=i: self.sel_build.set(i))
+                todo.extend(x for x in w.winfo_children() if x is not cb)
+                w.bind("<Button-1>", lambda e, v=var: v.set(not v.get()))
+        if len(builds) > 40:
+            tk.Label(self.build_box, text=f"另有 {len(builds) - 40} 戶沒列出來，跟著上面的「全選」一起勾/不勾",
+                     font=ui.FB, fg=ui.THEMES["orange_strong"][0], bg=bg).pack(anchor="w", pady=(4, 0))
         if note and note.startswith("⚠"):           # 地號不確定：醒目警告(紅字淡橘底)，不要用淡灰小字
             tk.Label(self.build_box, text=note, font=ui.FB, fg=ui.BAD, bg="#FFF4E5", justify="left", padx=10, pady=6,
                      highlightthickness=1, highlightbackground="#F5C27A",
@@ -824,10 +858,10 @@ class QuickCaseWindow:
 
     def _save(self, mode):
         r = self.res
-        i = self.sel_build.get()
         builds = getattr(self, "cur_builds", []) or []
-        entry = entry_from_result(r, builds[i] if 0 <= i < len(builds) else None)
-        if r.get("lot_uncertain") and not (0 <= i < len(builds)):
+        chosen = [b for b, v in zip(builds, getattr(self, "build_vars", [])) if v.get()]
+        entry = entry_from_result(r, chosen)
+        if r.get("lot_uncertain") and not chosen:
             if not ui.message(self.top, "地號還沒確認",
                               f"這個門牌在附近的地號都對不到建號，{r.get('section', '')} {r.get('lot_number', '')} 地號"
                               "只是門牌定位點落在的那一筆，可能不是這棟房子的土地。\n\n"
@@ -897,9 +931,9 @@ class QuickCaseWindow:
     # ---------- 批次 ----------
     @staticmethod
     def _batch_build(r):
-        """地址查到剛好一戶 → 自動帶那一戶；多戶或地號查詢 → 不指定(之後可單筆查)"""
-        if r["kind"] == "address" and len(r["builds"]) == 1:
-            return r["builds"][0]
+        """地址查到的戶全部帶(多戶也都要建資料)；地號查詢 → 不指定(之後可單筆查)"""
+        if r["kind"] == "address" and r["builds"]:
+            return list(r["builds"])
         return None
 
     def _show_batch(self):
@@ -943,9 +977,8 @@ class QuickCaseWindow:
                      fg=ui.THEMES["blue_strong"][0], bg="white", anchor="w").grid(row=1, column=1, sticky="w")
             b = self._batch_build(r)
             if b:
-                info = f"建號 {b['build_no']}（{b['door']}）"
-            elif r["kind"] == "address" and r["builds"]:
-                info = f"符合 {len(r['builds'])} 戶，先不指定建號（要哪一戶可之後單筆查）"
+                info = "建號 " + "、".join(f"{x['build_no']}" for x in b[:8]) + (f"…共 {len(b)} 戶" if len(b) > 8 else "") \
+                    + (f"（{b[0]['door']}）" if len(b) == 1 else "")
             else:
                 info = r["build_note"] or "沒有建號資料"
             if r.get("community"):

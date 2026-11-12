@@ -94,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9o"
-BUILD_DATE = "2026-11-10"
+VERSION = "1.1.9p"
+BUILD_DATE = "2026-11-12"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -597,6 +597,11 @@ def _proc_has_window(pid):
                 owner = wintypes.DWORD()
                 u.GetWindowThreadProcessId(h, ctypes.byref(owner))
                 if owner.value in pids and u.GetWindowTextLengthW(h) > 0:
+                    # 黑色主控台視窗不算(地籍圖處理工具一開就有，會讓「正在啟動」提示馬上被關掉)
+                    cls = ctypes.create_unicode_buffer(64)
+                    u.GetClassNameW(h, cls, 64)
+                    if cls.value == "ConsoleWindowClass":
+                        return True
                     found.append(h)
                     return False
             return True
@@ -2372,6 +2377,14 @@ def _home_watch():
             _home_check()
     except Exception:
         pass
+    # 主程式不能「永遠在最上層」(會壓住左邊的行銷簡報、Chrome…)：實測開機過程某一步會讓它被設成最上層，
+    # Tk 自己的 -topmost 卻是 0 → 發現就用 Windows API 取消
+    try:
+        h = ctypes.windll.user32.GetParent(root.winfo_id()) or root.winfo_id()
+        if ctypes.windll.user32.GetWindowLongW(h, -20) & 0x8 and not int(root.attributes("-topmost")):
+            ctypes.windll.user32.SetWindowPos(h, -2, 0, 0, 0, 0, 0x0001 | 0x0002 | 0x0010)   # HWND_NOTOPMOST，不移動/不改大小/不搶焦點
+    except Exception:
+        pass
     root.after(1000, _home_watch)
 
 
@@ -2542,7 +2555,7 @@ case_name_label = tk.Label(_cc_name_row, text="尚未建立案件", font=("Micro
                            fg="#FFFFFF", bg=_CASE_BG, anchor="w")
 case_name_label.pack(side=tk.LEFT)
 # 名稱右邊 📂 小圓鈕＝開其他案件(從資料夾挑)；點名稱本身＝打開這個案件的資料夾
-open_other_button = M.IconButton(_cc_name_row, "📂", lambda: load_data_json_from_folder(), "#B45309", size=_icon_size)
+open_other_button = M.IconButton(_cc_name_row, "📂", lambda: load_data_json_from_folder(), "#B45309", size=_icon_size, badge="他")
 open_other_button.pack(side=tk.RIGHT, padx=(M.px(8), 0))     # 靠右
 
 
@@ -3324,10 +3337,53 @@ def load_data_json_from_folder():
             return
         data_json_path = _find_case_data_json(folder)
         if data_json_path:
+            data_json_path = _link_outside_case(data_json_path)
+        if data_json_path:
             _load_case_data_json(data_json_path)
     except Exception as e:
         update_message(f"[錯誤] 載入 data.json 失敗：{e}")
         show_large_message("載入失敗", f"無法載入 data.json\n\n錯誤：{e}")
+
+
+def _link_outside_case(data_json_path):
+    """選到程式資料夾以外的案件(通常是匯出的那份，例：0成交區\\115年\\115.11.11鼓山區龍華段-2165,門牌)：
+    子程式都用「程式資料夾\\區段-地號」，所以先把兩邊對齊(只補缺的、留比較新的，不刪檔)，再開工作資料夾那份；
+    工作區沒有這件就整份複製回來。之後第 10 步「匯出」會一直比對這兩邊。回工作資料夾的 data.json，失敗回 None"""
+    folder = os.path.dirname(os.path.dirname(data_json_path))
+    if os.path.normcase(os.path.dirname(os.path.abspath(folder))) == os.path.normcase(os.path.abspath(PROGRAM_DIR)):
+        return data_json_path
+    try:
+        with open(data_json_path, encoding="utf-8") as f:
+            d0 = json.load(f)[0]
+        name = f"{d0.get('area', '')}{d0.get('section', '')}-{d0.get('lot_number', '')}"
+    except Exception:
+        return data_json_path
+    if not name.strip("-") or any(c in name for c in '\\/:*?"<>|'):
+        return data_json_path
+    import shutil
+    import case_export
+    work = get_work_folder(name)
+    try:
+        if not os.path.exists(work):
+            update_message(f"📥 工作區還沒有「{name}」，從「{os.path.basename(folder)}」複製一份回來…")
+            root.update_idletasks()
+            shutil.copytree(folder, work, ignore=lambda d, fs: [x for x in fs if x.startswith("~$")])
+            got, sent, errs = -1, 0, []
+        else:
+            got, sent, errs = case_export.align(work, folder)
+        case_export.record(work, folder, "folder")
+    except Exception as e:
+        show_large_message("開啟案件", f"「{os.path.basename(folder)}」跟工作區對齊時出錯：\n{e}\n\n先開工作區裡的「{name}」。")
+        p = os.path.join(work, "4.其他相關", "data.json")
+        return p if os.path.exists(p) else None
+    if got < 0:
+        update_message(f"✓ 已複製到工作區：{name}（之後第 10 步「匯出」會比對兩邊）")
+    elif got or sent:
+        update_message(f"✓ 兩邊已補齊：從「{os.path.basename(folder)}」拿回 {got} 個、送過去 {sent} 個檔案"
+                       + (f"（{len(errs)} 個失敗）" if errs else ""))
+    else:
+        update_message(f"✓ 「{os.path.basename(folder)}」跟工作區一樣，直接開啟")
+    return os.path.join(work, "4.其他相關", "data.json")
 
 
 def _case_dj(folder):
@@ -3892,30 +3948,33 @@ def import_archive():
 
         # 檢查目標是否已存在
         if os.path.exists(dest_folder):
+            # 2026-11-11 使用者：匯出不等於歸檔，兩邊都可能有新檔案 → 不再整個刪掉覆蓋，改成補齊(只補缺的、留比較新的)
             result = show_large_yesno(
-                "資料夾已存在",
-                f"工作區已存在相同名稱的資料夾：\n{original_name}\n\n是否要覆蓋？\n\n（原有資料將被刪除）"
+                "工作區已經有這一件",
+                f"工作區已經有「{original_name}」。\n\n要把兩邊的檔案補齊嗎？\n"
+                "（只補缺的、兩邊都有的留比較新的，不會刪掉任何檔案）"
             )
-
             if not result:
-                update_message("[取消] 使用者取消覆蓋")
-                # 清理臨時目錄
+                update_message("[取消] 使用者取消匯入")
                 if temp_extract_path and os.path.exists(temp_extract_path):
                     shutil.rmtree(temp_extract_path)
                 return
-
-            # 刪除舊資料夾
-            update_message("正在刪除舊資料夾...")
-            try:
-                shutil.rmtree(dest_folder)
-                update_message("[刪除] 已刪除舊資料夾")
-            except Exception as e:
-                update_message(f"[錯誤] 刪除失敗：{e}")
-                show_large_message("錯誤", f"無法刪除舊資料夾，可能被其他程式占用：\n\n{e}")
-                # 清理臨時目錄
-                if temp_extract_path and os.path.exists(temp_extract_path):
-                    shutil.rmtree(temp_extract_path)
-                return
+            import case_export
+            if selected_type == "zip":          # 壓縮檔解開的是暫存，只拿回來，不用送過去
+                _push, _pull = case_export.compare(dest_folder, source_folder)
+                got, errs = case_export.copy_files(source_folder, dest_folder, _pull)
+                sent = 0
+            else:
+                got, sent, errs = case_export.align(dest_folder, source_folder)
+                case_export.record(dest_folder, source_folder, "folder")
+            update_message(f"[完成] 已補齊：拿回 {got} 個檔案" + (f"、送到匯出的資料夾 {sent} 個" if sent else "")
+                           + (f"（{len(errs)} 個失敗）" if errs else ""))
+            if temp_extract_path and os.path.exists(temp_extract_path):
+                shutil.rmtree(temp_extract_path, ignore_errors=True)
+            data_json_path = os.path.join(dest_folder, "4.其他相關", "data.json")
+            if os.path.exists(data_json_path):
+                _load_case_data_json(data_json_path)
+            return
 
         # 複製資料夾到工作區
         update_message("正在複製資料夾到工作區...")
@@ -3973,6 +4032,12 @@ def import_archive():
 
         progress_window.destroy()
         update_message(f"[完成] 已複製到：{dest_folder}")
+        if selected_type != "zip":              # 從匯出的資料夾匯入 → 記住兩邊的關係，第 10 步才比對得到
+            try:
+                import case_export
+                case_export.record(dest_folder, source_folder, "folder")
+            except Exception:
+                pass
 
         # 載入 data.json
         data_json_path = os.path.join(dest_folder, "4.其他相關", "data.json")
@@ -4679,6 +4744,13 @@ def convert_transcript_to_final_data(transcript_json_path):
                 return "｜".join(parts)
 
             multi_bld = len(building_transcripts) > 1
+            # 同門牌好幾個建號(例：內埔鄉永田路7號 建號281住家＋282廠房)→門牌分不出來，改用「建號281」當標籤，
+            # 否則「一層(7號)」兩棟同名互相蓋掉，少一層面積
+            _door_cnt = {}
+            for _bd in building_transcripts:
+                _md = _re_b.search(r"[0-9]+(?:之[0-9]+)?號", unicodedata.normalize("NFKC", (_bd.get("標示部", {}) or {}).get("建物門牌", "") or ""))
+                if _md:
+                    _door_cnt[_md.group(0)] = _door_cnt.get(_md.group(0), 0) + 1
 
             all_addresses = []
             total_registered_area = 0.0
@@ -4697,7 +4769,8 @@ def convert_transcript_to_final_data(transcript_json_path):
                 標示部 = building_data.get("標示部", {}) or {}
                 # 兩棟以上：樓層、附屬建物依門牌分(130號)，沒有門牌才用建號
                 _m_door = _re_b.search(r"[0-9]+(?:之[0-9]+)?號", unicodedata.normalize("NFKC", 標示部.get("建物門牌", "") or ""))
-                bld_tag = _m_door.group(0) if _m_door else bld_num
+                bld_tag = ((_m_door.group(0) if _door_cnt.get(_m_door.group(0), 0) < 2 else f"建號{bld_num}")
+                           if _m_door else bld_num)
 
                 # === 建物門牌 ===
                 address = 標示部.get("建物門牌", "")
@@ -4805,6 +4878,12 @@ def convert_transcript_to_final_data(transcript_json_path):
             primary_building = building_transcripts[0]
             primary_標示部 = primary_building.get("標示部", {}) or {}
             data_final["竣工日期"] = primary_標示部.get("建築完成日期", "")
+            _done = [(_simplify_bld_id(b.get("基本資訊", {}).get("地號建號", "")), (b.get("標示部", {}) or {}).get("建築完成日期", ""))
+                     for b in building_transcripts]
+            if len({d for _n, d in _done if d}) > 1:
+                update_message("  [注意] 這幾棟竣工日期不同（"
+                               + "、".join(f"建號{n} {d}" for n, d in _done if d)
+                               + "），物調表先帶第一棟，請在編輯器確認")
             data_final["建築結構"] = primary_標示部.get("主要建材", "")
             層數 = primary_標示部.get("層數", "")
             if 層數:
@@ -5415,7 +5494,8 @@ def start_subprocess_internal(script_name):
         cmd += ['--base-dir', base_dir]
 
         # 🔥 電傳謄本結構化：帶入本次要預設開啟的「0.謄本」資料夾（電子謄本結構化改用 settings.json，不走此參數）
-        if script_name == "GUI_telereport.py" and _transcript_source_dir and _transcript_source_dir != '__SKIP__':
+        #    電子謄本結構化 v2.6 起也吃 --source-dir(一開就進 0.謄本並自動選好電子謄本)；舊版會忽略這個參數
+        if script_name in ("GUI_telereport.py", "GUI_transcript_pdf 1141021-01.py") and _transcript_source_dir and _transcript_source_dir != '__SKIP__':
             cmd += ['--source-dir', _transcript_source_dir]
 
         # 稅務腳本帶入 JSON 參數
@@ -10288,6 +10368,81 @@ def _cf_open_photos():
     os.makedirs(d, exist_ok=True)
     os.startfile(d)
     update_message("📂 已打開「2.照片」：把現場照片複製進來（或直接拖進主程式視窗），我會自動打勾")
+    exts = (".jpg", ".jpeg", ".png", ".heic", ".webp")
+    if any(n.lower().endswith(exts) for n in os.listdir(d)):
+        return
+    # 還沒放照片：提示把照片複製進剛打開的資料夾，或直接挑照片來源資料夾幫他複製
+    ans = show_large_choice("還沒有放照片", "這個案件目前還沒有現場照片。\n\n已經幫你打開「2.照片」資料夾，"
+                            "請把現場照片複製到這個資料夾。\n\n也可以按「挑選照片」，到照片原本存放的資料夾選照片，我幫你複製進來。",
+                            [("挑選照片", "#E58135"), ("我自己複製", "#9E9E9E")])
+    if ans != 0:
+        return
+    src_dir = _ui_pref().get("photo_src") or ""
+    paths = filedialog.askopenfilenames(parent=root, title="選擇要放進案件的現場照片（可多選）",
+                                        initialdir=src_dir if os.path.isdir(src_dir) else None,
+                                        filetypes=[("照片", "*.jpg *.jpeg *.png *.heic *.webp"), ("所有檔案", "*.*")])
+    if not paths:
+        return
+    import shutil
+    _ui_pref("photo_src", os.path.dirname(paths[0]))
+    done, errs = 0, []
+    for src in paths:
+        base, ext = os.path.splitext(os.path.basename(src))
+        dest = os.path.join(d, base + ext)
+        n = 1
+        while os.path.exists(dest):
+            dest = os.path.join(d, f"{base} ({n}){ext}")
+            n += 1
+        try:
+            shutil.copy2(src, dest)
+            done += 1
+        except Exception as e:
+            errs.append(f"{os.path.basename(src)}：{e}")
+    update_message(f"📥 已把 {done} 張照片複製到「2.照片」" + (f"（{len(errs)} 張失敗）" if errs else ""))
+    if errs:
+        show_large_message("挑選照片", "有些照片沒有複製成功：\n" + "\n".join(errs[:8]))
+    try:
+        _cf_refresh(force=True)
+    except Exception:
+        pass
+    if done:
+        root.after(200, lambda: _after_drop_followup("2.照片", [os.path.basename(p) for p in paths]))
+
+
+def _cf_export_sync(way):
+    """第 10 步：push＝這裡的新檔案送到匯出的資料夾；pull＝匯出的資料夾的新檔案拿回來。只補缺的、留比較新的，不刪檔"""
+    import case_export
+    case = _cf_case()
+    if not case:
+        return
+    ex = case_export.find(case["folder"])
+    if not ex or not os.path.isdir(ex.get("path") or ""):
+        show_large_message("匯出", "找不到匯出的資料夾，請按「📤 匯出」重新匯出一次。")
+        return
+    push, pull = case_export.compare(case["folder"], ex["path"])
+    if way == "push":
+        n, errs = case_export.copy_files(case["folder"], ex["path"], push)
+        update_message(f"📤 已把 {n} 個新檔案送到匯出的資料夾「{os.path.basename(ex['path'])}」"
+                       + (f"（{len(errs)} 個失敗）" if errs else ""))
+    else:
+        n, errs = case_export.copy_files(ex["path"], case["folder"], pull)
+        update_message(f"📥 已從匯出的資料夾拿回 {n} 個新檔案" + (f"（{len(errs)} 個失敗）" if errs else ""))
+    if ex.get("moved"):                      # 匯出的資料夾改了新日期 → 紀錄跟著改
+        case_export.record(case["folder"], ex["path"], "folder")
+    if errs:
+        show_large_message("匯出", "有些檔案沒有複製成功（可能正開著）：\n" + "\n".join(errs[:8]))
+    _cf_refresh(force=True)
+
+
+def _cf_export_open():
+    import case_export
+    case = _cf_case()
+    ex = case_export.find(case["folder"]) if case else None
+    p = (ex or {}).get("path") or ""
+    if not p or not os.path.exists(p):
+        show_large_message("匯出", "找不到匯出的資料夾（可能搬走或刪掉了）。")
+        return
+    os.startfile(p if os.path.isdir(p) else os.path.dirname(p))
 
 
 def _cf_open_attach(then=None):
@@ -10387,6 +10542,11 @@ _CF_FN = {
     "load_case": lambda: utility_load_data_button.invoke(), "read_json": lambda: read_json_button.invoke(),
     "import_arc": lambda: utility_import_archive_button.invoke(),
     "export_arc": lambda: utility_export_archive_button.invoke(),
+    "export": lambda: (data_editor.export_archive(), _cf_refresh(force=True)),
+    "export_new": lambda: (data_editor.export_archive(force_reset=True), _cf_refresh(force=True)),
+    "export_push": lambda: _cf_export_sync("push"),
+    "export_pull": lambda: _cf_export_sync("pull"),
+    "export_open": lambda: _cf_export_open(),
     "cred": lambda: utility_credential_button.invoke(), "zoom": lambda: utility_zoom_button.invoke(),
     "list_toggle": lambda: _cf_list_toggle(),
     "login": _cf_login, "account": _cf_account,

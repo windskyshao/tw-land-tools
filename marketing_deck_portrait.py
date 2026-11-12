@@ -319,7 +319,7 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
 
     # ================================================================ 照片頁
     M.log("製作：照片頁")
-    pages = M.STREET_PHOTO_PAGES if template == "villa" else M.PHOTO_PAGES
+    pages = M.photo_pages_for(template)
     for title, cats, cap in pages:
         items = M.ordered([p for p in chosen if p["cat"] in cats])
         if cover in items and len(items) > 1:

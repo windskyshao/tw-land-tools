@@ -45,6 +45,33 @@ THEMES = {
 }
 
 
+def place_window(root, W, H, min_w=860):
+    """子程式主視窗的位置：主程式固定在螢幕右邊 1/3 → 放在它左邊的空間，不被主程式壓住；
+    左邊放不下 min_w 寬才照舊置中。主程式位置讀程式資料夾的 window_config.json(主程式啟動時寫的)"""
+    import os
+    import sys
+    import json
+    sw, sh = root.winfo_screenwidth(), root.winfo_screenheight()
+    here = os.path.dirname(os.path.abspath(__file__))
+    for d in (os.path.dirname(here), here, os.path.dirname(sys.executable)):     # 打包後子程式在 _internal，設定檔在上一層
+        try:
+            with open(os.path.join(d, "window_config.json"), encoding="utf-8") as f:
+                cfg = json.load(f)
+            mx = int(cfg["main_window"]["x"])
+            # 主程式記的是實際像素；子程式沒開高 DPI 時座標是縮放後的(125% 時 1920→1536)，要換算才不會放太右邊被壓住
+            if cfg.get("screen_width"):
+                mx = int(mx * sw / int(cfg["screen_width"]))
+            break
+        except Exception:
+            mx = None
+    if mx and mx - 12 >= min_w and mx < sw:
+        W = min(W, mx - 12)
+        root.geometry(f"{W}x{H}+{max(0, (mx - 12 - W) // 2)}+{max(0, (sh - H) // 2 - 20)}")
+    else:
+        root.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(10, (sh - H) // 2 - 30)}")
+    return W                            # 實際寬度(可能被主程式擠窄)：版面的換行寬度要用這個算
+
+
 def apply(root):
     root.configure(bg=BG)
     root.option_add("*Font", F)

@@ -707,6 +707,23 @@ def export_archive(force_reset=False):
 
         # 決定使用模式
         use_smart_mode = (is_same_folder and has_previous_export and not force_reset)
+        # 2026-11-11：config.json 只記最後匯出的那一件 → 改看這一件自己的匯出紀錄(4.其他相關\匯出紀錄.json)
+        if not use_smart_mode and not force_reset:
+            try:
+                import case_export
+                _ex = case_export.find(source_folder)
+                if _ex and not _ex.get("missing"):
+                    _p = _ex["path"]
+                    _fmt = _ex.get("format") or ("folder" if os.path.isdir(_p) else "zip")
+                    _nm = os.path.basename(_p)
+                    if _nm.lower().endswith(".zip"):
+                        _nm = _nm[:-4]
+                    export_settings = {'last_export_path': os.path.dirname(_p), 'last_export_format': _fmt,
+                                       'last_archive_name': _nm, 'current_folder': source_folder,
+                                       'auto_export': export_settings.get('auto_export', False)}
+                    use_smart_mode = True
+            except Exception:
+                pass
 
         if use_smart_mode:
             update_message("[模式] 智慧更新模式")
@@ -908,6 +925,16 @@ def export_archive(force_reset=False):
                                 for old_path in old_archives_to_delete:
                                     basename = os.path.basename(old_path)
                                     update_message(f"[處理] 正在刪除：{basename}")
+                                    # 舊的匯出資料夾先把這裡沒有或比較新的檔案拿回來(同事加的不會跟著丟進回收筒)
+                                    if os.path.isdir(old_path):
+                                        try:
+                                            import case_export
+                                            _pp, _pl = case_export.compare(source_folder, old_path)
+                                            if _pl:
+                                                _n, _e = case_export.copy_files(old_path, source_folder, _pl)
+                                                update_message(f"[拿回] 舊匯出裡有 {_n} 個檔案這裡沒有或比較新，已先拿回來")
+                                        except Exception as _ex:
+                                            update_message(f"[警告] 舊匯出拿回檔案失敗：{_ex}")
                                     success, msg = safe_send_to_trash(old_path, max_retries=3)
 
                                     if success:
@@ -1031,6 +1058,16 @@ def export_archive(force_reset=False):
                             for old_path in old_archives_to_delete:
                                 basename = os.path.basename(old_path)
                                 update_message(f"[處理] 正在刪除：{basename}")
+                                # 舊的匯出資料夾先把這裡沒有或比較新的檔案拿回來(同事加的不會跟著丟進回收筒)
+                                if os.path.isdir(old_path):
+                                    try:
+                                        import case_export
+                                        _pp, _pl = case_export.compare(source_folder, old_path)
+                                        if _pl:
+                                            _n, _e = case_export.copy_files(old_path, source_folder, _pl)
+                                            update_message(f"[拿回] 舊匯出裡有 {_n} 個檔案這裡沒有或比較新，已先拿回來")
+                                    except Exception as _ex:
+                                        update_message(f"[警告] 舊匯出拿回檔案失敗：{_ex}")
                                 success, msg = safe_send_to_trash(old_path, max_retries=3)
 
                                 if success:
@@ -1141,7 +1178,12 @@ def export_archive(force_reset=False):
         already_deleted = dest_path in deleted_archives
 
         # 檢查目的地是否已存在（但跳過剛剛已送到回收筒的）
-        if os.path.exists(dest_path) and not already_deleted:
+        # 2026-11-11 使用者：匯出不等於歸檔，匯出的資料夾可能有同事加的檔案 → 不整個刪掉重來，
+        # 改成只把這裡比較新或那邊沒有的檔案送過去(那邊多的、比較新的都留著)
+        merge_into = bool(selected_format in ["folder", "both"] and os.path.isdir(dest_path) and not already_deleted)
+        if merge_into:
+            update_message("[更新] 匯出的資料夾已存在：只送新檔案過去，那邊原有的檔案都保留")
+        elif os.path.exists(dest_path) and not already_deleted:
             result = show_large_yesno(
                 "資料夾已存在",
                 f"目的地已存在相同名稱的資料夾：\n{archive_name}\n\n是否要覆蓋？"
@@ -1206,7 +1248,14 @@ def export_archive(force_reset=False):
         progress_window.update()
 
         # 1. 複製資料夾（folder 或 both）
-        if selected_format in ["folder", "both"]:
+        if merge_into:
+            import case_export
+            _push, _pull = case_export.compare(source_folder, dest_path)
+            _n, _errs = case_export.copy_files(source_folder, dest_path, _push)
+            update_message(f"[完成] 已送 {_n} 個新檔案到匯出的資料夾" + (f"（{len(_errs)} 個失敗）" if _errs else "")
+                           + (f"；那邊有 {len(_pull)} 個比較新的檔案，可在第 10 步按「📥 拿回來」" if _pull else ""))
+            files_created.append(("資料夾", dest_path))
+        elif selected_format in ["folder", "both"]:
             update_message("開始複製資料夾...")
             progress_label.config(text="正在複製資料夾...")
             progress_window.update()
@@ -1319,6 +1368,13 @@ def export_archive(force_reset=False):
         config['export_settings'] = export_settings
         save_config(config)
         update_message("[設定] 已儲存匯出設定")
+        if files_created:                       # 每一件自己記匯出到哪(第 10 步、行銷簡報找照片都看這個)
+            try:
+                import case_export
+                case_export.record(source_folder, dest_path if selected_format in ["folder", "both"] else zip_path,
+                                   selected_format)
+            except Exception as _e:
+                update_message(f"[警告] 匯出紀錄沒寫成：{_e}")
 
         # 詢問是否開啟
         if files_created:
@@ -4951,25 +5007,54 @@ def open_data_editor():
         產權建坪_entry.insert(0, f"{total * _seller_ratio[0]:.2f}")
 
     if len(_bld_owners_ui) >= 2:
+        # 賣方可複選（幾位一起賣就勾幾位），持分相加後換算產權建坪；勾選結果存 data["建物賣方勾選"]
+        from fractions import Fraction as _Frac
+        import re as _reS
+
+        def _frac_of(o):
+            m = _reS.search(r"(\d+)\s*分之\s*(\d+)", str(o.get("權利範圍", "")).replace("全部", ""))
+            if m and int(m.group(1)) > 0:
+                return _Frac(int(m.group(2)), int(m.group(1)))
+            return _Frac(1) if "全部" in str(o.get("權利範圍", "")) else _Frac(str(o.get("ratio", 1.0) or 1.0)).limit_denominator(100000)
+
+        _saved = data.get("建物賣方勾選")
+        if not isinstance(_saved, list):
+            _saved = [0]
         seller_row = tk.Frame(area_frame)
         seller_row.pack(fill=tk.X, pady=2)
-        tk.Label(seller_row, text="賣方(建物持分)：", font=label_font, width=30, anchor="e").pack(side=tk.LEFT, padx=5)
-        _opts = [f"{o.get('所有權人','')}　{o.get('權利範圍','')}（{o.get('百分比','')}）" for o in _bld_owners_ui]
-        seller_var = tk.StringVar(value=_opts[0])
+        tk.Label(seller_row, text="賣方(建物持分)：", font=label_font, width=30, anchor="ne").pack(side=tk.LEFT, padx=5, anchor="n")
+        box = tk.Frame(seller_row)
+        box.pack(side=tk.LEFT, padx=5)
+        _seller_vars = []
 
-        def _on_seller(choice):
-            idx = _opts.index(choice) if choice in _opts else 0
-            o = _bld_owners_ui[idx]
-            _seller_ratio[0] = float(o.get("ratio", 1.0) or 1.0)
+        def _on_seller():
+            idx = [i for i, v in enumerate(_seller_vars) if v.get()]
+            data["建物賣方勾選"] = idx
+            chosen = [_bld_owners_ui[i] for i in idx]
+            total = sum((_frac_of(o) for o in chosen), _Frac(0))
+            _seller_ratio[0] = float(total)
+            if len(chosen) == 1:
+                o = chosen[0]
+                txt = f"{o.get('所有權人','')} {o.get('權利範圍','')}（{o.get('百分比','')}）"
+            elif chosen:
+                frac_txt = "全部" if total >= 1 else f"{total.denominator}分之{total.numerator}"
+                txt = f"{len(chosen)}人合計 {frac_txt}（{float(total)*100:.2f}%）"
+            else:
+                txt = ""
             建物權利範圍_entry.delete(0, tk.END)
-            建物權利範圍_entry.insert(0, f"{o.get('所有權人','')} {o.get('權利範圍','')}（{o.get('百分比','')}）")
+            建物權利範圍_entry.insert(0, txt)
             _update_proprietary_ping()
 
-        om = tk.OptionMenu(seller_row, seller_var, *_opts, command=_on_seller)
-        om.config(font=("Microsoft JhengHei", 11))
-        om.pack(side=tk.LEFT, padx=5)
-        tk.Label(seller_row, text="（換賣方會重算產權建坪）",
-                 font=("Microsoft JhengHei", 9), fg='#666666').pack(side=tk.LEFT)
+        for i, o in enumerate(_bld_owners_ui):
+            v = tk.BooleanVar(value=(i in _saved))
+            _seller_vars.append(v)
+            tk.Checkbutton(box, variable=v, command=_on_seller, anchor="w",
+                           text=f"{o.get('所有權人','')}　{o.get('權利範圍','')}（{o.get('百分比','')}）",
+                           font=("Microsoft JhengHei", 12), fg="#1C1C1E").pack(anchor="w")
+        tk.Label(seller_row, text="（幾位一起賣就勾幾位，\n持分相加重算產權建坪）",
+                 font=("Microsoft JhengHei", 11), fg="#3A3A3C", justify="left").pack(side=tk.LEFT, anchor="n", padx=6)
+        if data.get("建物賣方勾選") is not None:
+            _on_seller()
 
 
     # 🔥 自動計算總建坪（各項加總）
@@ -9615,43 +9700,16 @@ def open_data_editor():
              width=13, height=2).pack(side=tk.LEFT, padx=10)
 
     # 行銷簡報(大樓版)
-    tk.Button(button_frame, text="🎞 行銷簡報", command=open_marketing_deck,
+    deck_btn = tk.Button(button_frame, text="🎞 行銷簡報", command=open_marketing_deck,
              font=("Microsoft JhengHei", 12, "bold"), bg='#3E83B6', fg='white',
-             width=12, height=2).pack(side=tk.LEFT, padx=10)
+             width=12, height=2)
+    deck_btn.pack(side=tk.LEFT, padx=10)
 
-    # 🔥 匯出封存按鈕（支持 Shift+點擊強制重設）
-    def export_archive_wrapper(event=None):
-        """包裝函數，檢測 Shift 鍵"""
-        force_reset = False
-        if event and (event.state & 0x0001):  # 檢測 Shift 鍵
-            force_reset = True
-            update_message("[強制] Shift+點擊，將重新設定匯出選項")
-
-        # 使用 after 確保按鈕視覺狀態正確更新
-        def run_export():
-            try:
-                export_archive(force_reset=force_reset)
-            finally:
-                # 確保按鈕恢復正常狀態
-                try:
-                    export_btn.config(relief=tk.RAISED)
-                    export_btn.update_idletasks()
-                except:
-                    pass
-
-        # 延遲執行，讓按鈕視覺效果正確顯示
-        editor_window.after(10, run_export)
-
-    export_btn = tk.Button(button_frame, text="📦 匯出封存",
-                          font=("Microsoft JhengHei", 12, "bold"), bg='#FF9800', fg='white',
-                          width=12, height=2)
-    export_btn.pack(side=tk.LEFT, padx=10)
-    export_btn.bind('<Button-1>', export_archive_wrapper)
-
+    # 匯出已搬到主程式第 10 步「匯出」(使用者 11-11：兩個地方都能匯出會搞混)；換地方匯出在第 10 步、舊版介面仍有「匯出封存」按鈕
     def _sync_rent_report_btn(*_):
         if transaction_var.get() == "租件":
             if not rent_report_btn.winfo_manager():
-                rent_report_btn.pack(side=tk.LEFT, padx=10, before=export_btn)
+                rent_report_btn.pack(side=tk.LEFT, padx=10, after=deck_btn)
         else:
             rent_report_btn.pack_forget()
     transaction_var.trace_add("write", _sync_rent_report_btn)
