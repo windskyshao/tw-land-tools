@@ -60,6 +60,168 @@ TAX = [
 ]
 LUZ = dict(key="luz", name="07 全國土地使用分區", script="luz.py", extra=["--all"], timeout=1800, files=["1.基本資料/07_全國土地使用分區*"],
            note="網站有真人驗證，要你在瀏覽器點一下")
+# 正式的使用分區證明(要繳費；土地案才需要)：存 0.謄本(有效力的證明文件)。送出、繳費一律使用者自己按
+ZCERT = dict(key="zcert", name="10 使用分區證明（要繳費）", script="zone_cert.py", timeout=3600, only="高雄市|台南市",
+             files=["0.謄本/使用分區證明*"],
+             note="土地案才需要。高雄繳完費馬上下載；台南要等約 4 個工作天，之後再跑這一項會自動下載")
+ZCERT_KEY = "分區證明申請人"
+INTERACTIVE = ("luz", "zcert")                # 要人操作的：最後一項一項單獨跑
+
+
+def _cfg_path():
+    return os.path.join(_paths()[0], "config.json")
+
+
+def load_applicant():
+    try:
+        with open(_cfg_path(), encoding="utf-8") as f:
+            a = json.load(f).get(ZCERT_KEY) or {}
+    except Exception:
+        a = {}
+    return {k: str(a.get(k, "")).strip() for k in ("name", "phone", "email")}
+
+
+def save_applicant(a):
+    """存本機 config.json(各人自己的申請人資料，不會打包)；讀進來改一個鍵再寫回，不動其他設定"""
+    try:
+        with open(_cfg_path(), encoding="utf-8") as f:
+            cfg = json.load(f)
+    except Exception:
+        cfg = {}
+    cfg[ZCERT_KEY] = a
+    with open(_cfg_path(), "w", encoding="utf-8") as f:
+        json.dump(cfg, f, ensure_ascii=False, indent=2)
+
+
+def applicant_dialog(parent):
+    """輸入申請人名稱(收據抬頭)、電話、Email；存了以後自動帶入。回傳 dict 或 None(取消)"""
+    a = load_applicant()
+    d = tk.Toplevel(parent)
+    d.title("使用分區證明・申請人")
+    ui.apply(d)
+    d.transient(parent)
+    d.grab_set()
+    bg = ui.BG
+    tk.Label(d, text="📜 使用分區證明的申請人", font=(FAM, 17, "bold"), fg=INK, bg=bg).pack(anchor="w", padx=20, pady=(16, 4))
+    tk.Label(d, text="輸入一次就記住，之後自動帶入（只存在這台電腦）。\n台南靠「申請人＋電話」查進度、自動下載，請跟申請時填的一樣。",
+             font=(FAM, 13), fg=INK2, bg=bg, justify="left").pack(anchor="w", padx=20, pady=(0, 10))
+    vs = {}
+    for k, lab, tip in (("name", "申請人名稱", "公司名稱或個人姓名，就是收據抬頭"), ("phone", "聯絡電話", "例：0912345678 或 073368333"),
+                        ("email", "電子信箱", "高雄登入用")):
+        row = tk.Frame(d, bg=bg)
+        row.pack(fill=tk.X, padx=20, pady=4)
+        tk.Label(row, text=lab, font=(FAM, 14, "bold"), fg=INK, bg=bg, width=9, anchor="w").pack(side=tk.LEFT)
+        vs[k] = tk.StringVar(master=d, value=a.get(k, ""))
+        tk.Entry(row, textvariable=vs[k], font=(FAM, 14), width=30).pack(side=tk.LEFT, padx=(4, 8))
+        tk.Label(row, text=tip, font=(FAM, 11), fg=INK2, bg=bg).pack(side=tk.LEFT)
+    err = tk.Label(d, text="", font=(FAM, 12, "bold"), fg=RED, bg=bg)
+    err.pack(anchor="w", padx=20)
+    res = [None]
+
+    def ok():
+        v = {k: x.get().strip() for k, x in vs.items()}
+        if not all(v.values()):
+            err.configure(text="三個都要填")
+            return
+        if "@" not in v["email"]:
+            err.configure(text="電子信箱格式不對")
+            return
+        try:
+            save_applicant(v)
+        except Exception as e:
+            err.configure(text=f"存檔失敗：{e}")
+            return
+        res[0] = v
+        d.destroy()
+    bt = tk.Frame(d, bg=bg)
+    bt.pack(fill=tk.X, padx=20, pady=(8, 16))
+    ui.button(bt, "儲存", ok, "primary").pack(side=tk.RIGHT)
+    ui.button(bt, "取消", d.destroy, "ghost").pack(side=tk.RIGHT, padx=8)
+    d.update_idletasks()
+    d.geometry(f"+{parent.winfo_rootx() + 60}+{parent.winfo_rooty() + 80}")
+    d.wait_window()
+    return res[0]
+
+
+def zcert_intro(parent, city=""):
+    """勾「使用分區證明」時的說明卡：橘色標題列＋高雄(藍)/台南(綠)兩張步驟卡＋紅框繳費提醒。回傳 True＝要申請"""
+    d = tk.Toplevel(parent)
+    d.withdraw()
+    d.title("使用分區證明")
+    d.configure(bg="white")
+    d.resizable(False, False)
+    d.transient(parent)
+    res = [False]
+    head = tk.Frame(d, bg="#E58135", padx=24, pady=14)
+    head.pack(fill=tk.X)
+    tk.Label(head, text="📜 使用分區證明（要繳費）", font=(FAM, 20, "bold"), fg="white", bg="#E58135").pack(anchor="w")
+    tk.Label(head, text="正式證明書，有效期約 8 個月　·　土地案才需要", font=(FAM, 14, "bold"), fg="#FFF4E5",
+             bg="#E58135").pack(anchor="w", pady=(2, 0))
+    body = tk.Frame(d, bg="white", padx=24, pady=16)
+    body.pack(fill=tk.BOTH)
+    tk.Label(body, text="其他項目都跑完後，最後才在左邊開瀏覽器，全程看得到畫面。", font=(FAM, 15, "bold"), fg=INK,
+             bg="white").pack(anchor="w", pady=(0, 10))
+
+    def card(title, fee, color, light, steps, hi):
+        c = tk.Frame(body, bg=light, highlightthickness=3 if hi else 1, highlightbackground=color, padx=16, pady=12)
+        c.pack(fill=tk.X, pady=6)
+        top = tk.Frame(c, bg=light)
+        top.pack(fill=tk.X)
+        tk.Label(top, text=title, font=(FAM, 17, "bold"), fg=color, bg=light).pack(side=tk.LEFT)
+        tk.Label(top, text=fee, font=(FAM, 13, "bold"), fg="white", bg=color, padx=10, pady=2).pack(side=tk.LEFT, padx=12)
+        if hi:
+            tk.Label(top, text="← 這個案件", font=(FAM, 13, "bold"), fg=color, bg=light).pack(side=tk.LEFT)
+        for i, (who, s) in enumerate(steps, 1):
+            r = tk.Frame(c, bg=light)
+            r.pack(fill=tk.X, pady=2)
+            tk.Label(r, text=f" {i} ", font=(FAM, 13, "bold"), fg="white", bg=color).pack(side=tk.LEFT, anchor="n", pady=2)
+            tk.Label(r, text=who, font=(FAM, 14, "bold"), fg="#B45309" if who == "你" else INK2, bg=light, width=4,
+                     anchor="w").pack(side=tk.LEFT, anchor="n", padx=(8, 0))
+            tk.Label(r, text=s, font=(FAM, 15), fg=INK, bg=light, justify="left", wraplength=600, anchor="w").pack(
+                side=tk.LEFT, anchor="w")
+    kh, tn = "高雄" in city, ("台南" in city or "臺南" in city)
+    card("高雄市", "100 元起　繳完馬上下載", "#1E64C8", "#EEF5FF",
+         [("程式", "自動登入、填好地段地號、送出申請，帶你到「案件繳費」頁"),
+          ("你", "用信用卡或行動支付繳費，繳完按「繳好了，下載」"),
+          ("程式", "下載證明書，自動存進 0.謄本")], kh)
+    card("台南市", "約 4 個工作天核發", "#2E8B57", "#EEF8F1",
+         [("程式", "先查有沒有已核發的，有就直接下載"),
+          ("你", "沒有的話，在開出來的申請網站申請、繳費"),
+          ("程式", "4 個工作天後再跑一次這項，自動下載存進 0.謄本")], tn)
+    warn = tk.Frame(body, bg="#FDECEC", highlightthickness=2, highlightbackground="#B91C1C", padx=14, pady=10)
+    warn.pack(fill=tk.X, pady=(10, 0))
+    tk.Label(warn, text="💳 繳費一定是你自己操作，程式不會動到錢", font=(FAM, 15, "bold"), fg="#B91C1C",
+             bg="#FDECEC").pack(anchor="w")
+    bar = tk.Frame(d, bg="#F1F5F9", padx=24, pady=14)
+    bar.pack(fill=tk.X)
+
+    def done(v):
+        res[0] = v
+        d.destroy()
+    ui.button(bar, "要申請", lambda: done(True), "primary", font=(FAM, 16, "bold")).pack(side=tk.RIGHT)
+    ui.button(bar, "取消", lambda: done(False), "ghost", font=(FAM, 16)).pack(side=tk.RIGHT, padx=10)
+    d.bind("<Escape>", lambda e: done(False))
+    d.protocol("WM_DELETE_WINDOW", lambda: done(False))
+    d.update_idletasks()
+    try:
+        w, h = d.winfo_reqwidth(), d.winfo_reqheight()
+        x = parent.winfo_rootx() + (parent.winfo_width() - w) // 2
+        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - h) // 3)
+        d.geometry(f"+{max(0, min(x, d.winfo_screenwidth() - w))}+{max(0, y)}")
+    except tk.TclError:
+        pass
+    d.deiconify()
+    d.grab_set()
+    d.wait_window()
+    return res[0]
+
+
+def zcert_record(case):
+    try:
+        with open(os.path.join(case["folder"], "4.其他相關", "分區證明申請.json"), encoding="utf-8") as f:
+            return json.load(f)
+    except Exception:
+        return {}
 
 
 def _paths():
@@ -344,6 +506,10 @@ class Runner:
             return "done", msg, sec
         if self.stop:
             return "stopped", "已停止", sec
+        if "SKIP:" in txt:
+            return "skipped", "這次不申請", sec
+        if "PENDING:" in txt:
+            return "pending", txt[txt.rfind("PENDING:") + 8:].split("\n")[0].strip()[:60], sec
         if "NODATA" in txt or "查無" in txt[-800:]:
             return "nodata", "官方查無這筆資料", sec
         if re.search(r"網站.{0,6}故障|HTTP 500|伺服器錯誤", txt):
@@ -364,8 +530,8 @@ class Runner:
 
     def run(self):
         """各項是不同網站、存不同檔案 → 同時跑 PARALLEL 項(久的先開跑)；要人操作的(全國土地使用分區)最後自己跑"""
-        normal = sorted((i for i in self.items if i["key"] != "luz"), key=lambda i: -est_sec(i["key"]))
-        luz = [i for i in self.items if i["key"] == "luz"]
+        normal = sorted((i for i in self.items if i["key"] not in INTERACTIVE), key=lambda i: -est_sec(i["key"]))
+        luz = [i for i in self.items if i["key"] in INTERACTIVE]
         total = len(self.items)
         _prep_chromedriver()
         todo = list(enumerate(normal, 1))
@@ -573,41 +739,142 @@ def pick_merge_files(parent, folder):
     ui.big_check(ar, allv).pack(side=tk.LEFT)
     tk.Label(ar, text="全選／全不選", font=(FAM, 14, "bold"), fg=INK, bg=bg).pack(side=tk.LEFT, padx=(6, 0))
     allv.trace_add("write", on_all)
-    cur_sec = None
-    for sec, path in cands:
-        if sec != cur_sec:
-            cur_sec = sec
-            tk.Label(body, text={"0.謄本": "0.謄本（放在最前面）", "3.行情": "3.行情（實價登錄，放在最後）"}.get(
-                sec, "1.基本資料（附件，依編號）"),
-                     font=(FAM, 16, "bold"), fg=BLUE, bg=bg, anchor="w").pack(fill=tk.X, pady=(10, 2))
-        key = cm.rel(folder, path)
+    # 使用者 11-12：順序要能拖曳調整 → 每列左邊「☰」(或按住檔名)上下拖；順序記在 4.其他相關\合併列印順序.json
+    tk.Label(ar, text="　按住左邊 ☰ 或檔名上下拖曳，可調整合併順序", font=(FAM, 13), fg=INK2, bg=bg).pack(side=tk.LEFT, padx=(16, 0))
+    order_path = os.path.join(folder, "4.其他相關", "合併列印順序.json")
+    default_keys = [cm.rel(folder, p) for _s, p in cands]
+    try:
+        with open(order_path, encoding="utf-8") as f:
+            saved = [k for k in json.load(f) if k in default_keys]
+    except Exception:
+        saved = []
+    order = list(saved)
+    for i, k in enumerate(default_keys):              # 新檔：放在預設順序裡前一份的後面
+        if k in order:
+            continue
+        prev = next((default_keys[j] for j in range(i - 1, -1, -1) if default_keys[j] in order), None)
+        order.insert(order.index(prev) + 1 if prev else 0, k)
+    by_key = {cm.rel(folder, p): (s, p) for s, p in cands}
+    TAG = {"0.謄本": ("謄本", "#1D4ED8", "#DBEAFE"), "3.行情": ("行情", "#7C3AED", "#EDE9FE")}
+    lst = tk.Frame(body, bg=bg)
+    lst.pack(fill=tk.X, pady=(6, 0))
+    marker = tk.Frame(lst, bg="#2563EB", height=4)
+    drag = {"row": None, "y0": 0, "moved": False, "to": None}
+
+    def repack():
+        for r in rows:
+            r[3].pack_forget()
+        for r in rows:
+            r[3].pack(fill=tk.X, pady=2)
+
+    def target_index(y_root):
+        others = [r for r in rows if r is not drag["row"]]
+        return sum(1 for r in others if r[3].winfo_rooty() + r[3].winfo_height() / 2 < y_root)
+
+    def autoscroll(y_root):
+        try:
+            top_y, h = _cv.winfo_rooty(), _cv.winfo_height()
+            if y_root < top_y + 30:
+                _cv.yview_scroll(-1, "units")
+            elif y_root > top_y + h - 30:
+                _cv.yview_scroll(1, "units")
+        except tk.TclError:
+            pass
+
+    def press(e, r):
+        drag.update(row=r, y0=e.y_root, moved=False, to=None)
+
+    def motion(e):
+        r = drag["row"]
+        if r is None:
+            return
+        if not drag["moved"] and abs(e.y_root - drag["y0"]) < 6:
+            return
+        if not drag["moved"]:
+            drag["moved"] = True
+            r[3].configure(highlightbackground="#2563EB", highlightthickness=2)
+        autoscroll(e.y_root)
+        t = target_index(e.y_root)
+        drag["to"] = t
+        others = [x for x in rows if x is not r]
+        if t < len(others):
+            y = others[t][3].winfo_y() - 3
+        else:
+            y = others[-1][3].winfo_y() + others[-1][3].winfo_height() + 1 if others else 0
+        marker.place(x=0, y=y, relwidth=1)
+        marker.lift()
+
+    def release(e, toggle_var=None):
+        r = drag["row"]
+        drag["row"] = None
+        marker.place_forget()
+        if r is None:
+            return
+        if not drag["moved"]:
+            if toggle_var is not None:               # 沒拖動＝點一下：照舊勾/取消
+                toggle_var.set(not toggle_var.get())
+            return
+        r[3].configure(highlightbackground="#CBD5E1", highlightthickness=1)
+        t = drag["to"]
+        if t is None:
+            return
+        rows.remove(r)
+        rows.insert(t, r)
+        repack()
+
+    for key in order:
+        sec, path = by_key[key]
         if key in picked_before:
             on = True
         elif key in unpicked_before:
             on = False
         else:
             on = path in tdef if sec == "0.謄本" else True
-        fr = tk.Frame(body, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=5)
-        fr.pack(fill=tk.X, pady=2)
+        fr = tk.Frame(lst, bg="white", highlightthickness=1, highlightbackground="#CBD5E1", padx=10, pady=5)
         v = tk.BooleanVar(master=top, value=on)
+        r = (key, v, path, fr)
+        grip = tk.Label(fr, text="☰", font=(FAM, 16, "bold"), fg="#475569", bg="white", cursor="fleur", padx=4)
+        grip.pack(side=tk.LEFT, padx=(0, 6))
         ui.big_check(fr, v).pack(side=tk.LEFT)
+        tg, fg_, bg_ = TAG.get(sec, ("附件", "#047857", "#D1FAE5"))
+        tk.Label(fr, text=tg, font=(FAM, 11, "bold"), fg=fg_, bg=bg_, padx=6).pack(side=tk.LEFT, padx=(10, 0))
         name = os.path.basename(path)
-        lb = tk.Label(fr, text=name, font=(FAM, 13, "bold"), fg=INK, bg="white", anchor="w", justify="left")
-        lb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(10, 6))
-        lb.bind("<Button-1>", lambda e, v=v: v.set(not v.get()))
+        lb = tk.Label(fr, text=name, font=(FAM, 13, "bold"), fg=INK, bg="white", anchor="w", justify="left",
+                      cursor="hand2")
+        lb.pack(side=tk.LEFT, fill=tk.X, expand=True, padx=(8, 6))
+        for w_, tv in ((grip, None), (lb, v)):
+            w_.bind("<ButtonPress-1>", lambda e, r=r: press(e, r))
+            w_.bind("<B1-Motion>", motion)
+            w_.bind("<ButtonRelease-1>", lambda e, tv=tv: release(e, tv))
         ui.button(fr, "預覽", lambda p=path: open_or_focus(p), "ghost", padx=12, pady=2).pack(side=tk.RIGHT)
         tk.Label(fr, text=time.strftime("%m/%d %H:%M", time.localtime(os.path.getmtime(path))), font=(FAM, 12),
                  fg=INK2, bg="white").pack(side=tk.RIGHT, padx=(6, 10))
         v.trace_add("write", upd)
-        rows.append((key, v, path))
+        rows.append(r)
+    repack()
+
+    def reset_order():
+        rows.sort(key=lambda r: default_keys.index(r[0]))
+        repack()
+    rb = tk.Frame(body, bg=bg)
+    rb.pack(fill=tk.X, pady=(8, 0))
+    ui.button(rb, "↺ 回復預設順序（謄本→附件依編號→行情）", reset_order, "chip", BLUE).pack(side=tk.LEFT)
 
     def done(ok):
         if ok:
-            files = [p for _k, v, p in rows if v.get()]
+            files = [r[2] for r in rows if r[1].get()]
             if not files:
                 ui.message(top, "合併列印", "沒有勾選任何檔案。")
                 return
-            res["v"] = (files, [k for k, v, _p in rows if not v.get()])
+            res["v"] = (files, [r[0] for r in rows if not r[1].get()])
+            keys = [r[0] for r in rows]
+            try:
+                if keys != default_keys or os.path.exists(order_path):
+                    os.makedirs(os.path.dirname(order_path), exist_ok=True)
+                    with open(order_path, "w", encoding="utf-8") as f:
+                        json.dump(keys, f, ensure_ascii=False, indent=1)
+            except Exception:
+                pass
         top.destroy()
     btns = tk.Frame(foot, bg=foot.cget("bg"))
     btns.pack(side=tk.RIGHT)
@@ -712,15 +979,44 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         if not applicable(item, case["city"]):
             return "— 這個縣市不適用", MUTED
         fs = found_files(item, case)
+        if fs and item["key"] == "zcert" and zcert_record(case).get("missing"):     # 地號分好幾個地段，有的還沒下載
+            return f"◐ 還缺 {len(zcert_record(case)['missing'])} 件（單跑接著下載）", ORANGE
         if fs:
             t = max(os.path.getmtime(x) for x in fs)
             return f"✓ 已有（{time.strftime('%m/%d %H:%M', time.localtime(t))}）", GREEN
+        if item["key"] == "zcert":
+            rc = zcert_record(case)
+            ap = rc.get("tainan_applied") or rc.get("kaohsiung_applied")
+            if ap:
+                return f"⏳ {ap[5:].replace('-', '/')} 已申請，等核發", BLUE
+            return "— 需要時再申請", INK2
         t = nodata_at(item, case)
         if t:
             return f"— 查無資料（{time.strftime('%m/%d %H:%M', time.localtime(t))}）", INK2
         if not_needed(item, case, cur_json()):
             return "— 可以不用查", INK2
         return "□ 還沒查", ORANGE
+
+    def open_done(item, e):
+        """點「✓ 已有」：一個檔就直接開；好幾個(例：使照有好幾張)就跳小選單挑，最下面可開所在資料夾"""
+        fs = sorted(found_files(item, case), key=os.path.getmtime, reverse=True)
+        if not fs:
+            return
+
+        def _open(p):
+            try:
+                os.startfile(p)
+            except Exception as ex:
+                ui.message(win, "打開檔案", f"打不開：{os.path.basename(p)}\n{ex}", kind="warn")
+        if len(fs) == 1:
+            _open(fs[0])
+            return
+        m = tk.Menu(win, tearoff=0, font=(FAM, 13))
+        for p in fs[:20]:
+            m.add_command(label="📄 " + os.path.basename(p), command=lambda p=p: _open(p))
+        m.add_separator()
+        m.add_command(label="📂 開啟所在資料夾", command=lambda: _open(os.path.dirname(fs[0])))
+        m.tk_popup(e.x_root, e.y_root)
 
     def add_row(parent, item, warn=False, default=None):
         ok = applicable(item, case["city"])
@@ -746,7 +1042,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         nm = tk.Frame(mid, bg=rb)
         nm.pack(anchor="w")
         tk.Label(nm, text=item["name"], font=(FAM, 15, "bold"), fg=INK if ok else MUTED, bg=rb, anchor="w").pack(side=tk.LEFT)
-        if ok:
+        if ok and item["key"] != "zcert":            # 要繳費的那項時間看人，不估
             tk.Label(nm, text=f"　⏱ 約 {fmt_sec(est_sec(item['key']))}", font=(FAM, 11), fg=INK2, bg=rb).pack(side=tk.LEFT)
         if over:
             tk.Label(mid, text=f"{item['home']}以外有查詢限制，只有當月免費區查得到；要查請自己勾", font=(FAM, 11),
@@ -760,14 +1056,31 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                      wraplength=max(300, W - 380)).pack(anchor="w")
         sl = tk.Label(fr, text=st, font=(FAM, 13, "bold"), fg=col, bg=rb, width=22, anchor="e")
         sl.pack(side=tk.LEFT, padx=(6, 6))
+        # 「✓ 已有」可以點：直接打開做好的檔案看(好幾個檔就列出來挑)，才知道做得對不對
+        sl.bind("<Enter>", lambda e, it=item, sl=sl: sl.configure(
+            cursor="hand2", font=(FAM, 13, "bold", "underline")) if found_files(it, case) else None)
+        sl.bind("<Leave>", lambda e, sl=sl: sl.configure(cursor="", font=(FAM, 13, "bold")))
+        sl.bind("<Button-1>", lambda e, it=item: open_done(it, e))
+        vbox = tk.Frame(fr, bg=rb)                   # 有檔案才出現的「📄 看檔案」綠色按鈕(比點狀態字明顯)
+        vbox.pack(side=tk.LEFT, padx=(0, 6))
+
+        def show_view(it=item, vbox=vbox):
+            for w in vbox.winfo_children():
+                w.destroy()
+            if found_files(it, case):
+                vb = ui.button(vbox, "📄 看檔案", None, "chip", GREEN, font=(FAM, 13, "bold"), padx=10, pady=2)
+                vb.command = lambda vb=vb: open_done(it, type("E", (), dict(
+                    x_root=vb.winfo_rootx(), y_root=vb.winfo_rooty() + vb.winfo_height()))())
+                vb.pack()
+        show_view()
         b = ui.button(fr, "單跑", lambda it=item: start([it]), "ghost", padx=10, pady=2)
         if ok:
             b.pack(side=tk.LEFT)
-        rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item, ok=ok)
+        rows[item["key"]] = dict(var=v, status=sl, frame=fr, item=item, ok=ok, view=show_view)
         R = rows[item["key"]]
 
         def paint(bg, border, thick=2, R=R, fr=fr):
-            for w in [fr, cb, mid, nm, sl] + [w for x in (mid, nm) for w in x.winfo_children()]:
+            for w in [fr, cb, mid, nm, sl, vbox] + [w for x in (mid, nm, vbox) for w in x.winfo_children()]:
                 try:
                     w.configure(bg=bg)
                 except tk.TclError:
@@ -800,8 +1113,31 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
             pulse()
         R.update(plain=plain, failed=failed, running=running)
         v.trace_add("write", lambda *_: upd_total())
-        if ok and item["key"] != "luz":
+        if ok and item["key"] not in INTERACTIVE:
             v.trace_add("write", lambda *_: sync_all())
+        if item["key"] == "zcert" and ok:           # 申請人：顯示目前設定＋修改
+            ap_row = tk.Frame(mid, bg=rb)
+            ap_row.pack(anchor="w", pady=(2, 0))
+            ap_lbl = tk.Label(ap_row, text="", font=(FAM, 12, "bold"), fg=INK, bg=rb)
+            ap_lbl.pack(side=tk.LEFT)
+
+            def ap_show(ap_lbl=ap_lbl):
+                a = load_applicant()
+                ap_lbl.configure(text=f"申請人：{a['name']}　{a['phone']}" if a["name"] else "申請人：還沒設定",
+                                 fg=INK if a["name"] else RED)
+            ap_show()
+            ui.button(ap_row, "✎ 申請人", lambda: (applicant_dialog(win), ap_show()), "ghost", padx=8, pady=0).pack(
+                side=tk.LEFT, padx=(8, 0))
+
+            def z_check(*_):
+                if v.get():
+                    if not load_applicant()["name"] and not applicant_dialog(win):
+                        v.set(False)
+                        return
+                    ap_show()
+                    if not zcert_intro(win, case["city"]):
+                        v.set(False)
+            v.trace_add("write", z_check)
         if warn:
             def on_check(*_):
                 if v.get():
@@ -818,7 +1154,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     _sync = [False]
 
     def _pickable():
-        return [r for k, r in rows.items() if k != "luz" and r["ok"]]
+        return [r for k, r in rows.items() if k not in INTERACTIVE and r["ok"]]
 
     def on_all(*_):
         if _sync[0]:
@@ -837,7 +1173,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         _sync[0] = False
     ui.big_check(all_row, all_var).pack(side=tk.LEFT)
     tk.Label(all_row, text="全選／全不選", font=(FAM, 14, "bold"), fg=INK, bg=bg).pack(side=tk.LEFT, padx=(6, 4))
-    tk.Label(all_row, text="（不含最下面的全國土地使用分區）", font=(FAM, 12), fg=INK2, bg=bg).pack(side=tk.LEFT)
+    tk.Label(all_row, text="（不含最下面要你操作的項目）", font=(FAM, 12), fg=INK2, bg=bg).pack(side=tk.LEFT)
     total_lbl = tk.Label(all_row, text="", font=(FAM, 13, "bold"), fg=BLUE, bg=bg)
     total_lbl.pack(side=tk.RIGHT)
 
@@ -873,9 +1209,11 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     lst2 = tk.Frame(body, bg=bg)
     lst2.pack(fill=tk.X)
     add_row(lst2, LUZ, warn=True)
+    add_row(lst2, ZCERT, default=False)
     sync_all()
     upd_total()
-    tk.Label(body, text="已經有檔案的預設不勾；要重抓就勾起來或按「單跑」。檔案存到案件資料夾的 1.基本資料、3.行情。",
+    tk.Label(body, text="按綠色「📄 看檔案」可以直接打開做好的檔案檢查。已經有檔案的預設不勾；要重抓就勾起來或按「單跑」。"
+                                          "檔案存到案件資料夾的 1.基本資料、3.行情；使用分區證明存 0.謄本。",
              font=(FAM, 12), fg=INK2, bg=bg, wraplength=W - 80, justify="left").pack(anchor="w", pady=(10, 0))
 
     # ---- 進度區(固定在下方，背景執行時看得到在做什麼) ----
@@ -891,7 +1229,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
     cont_btn = ui.button(prog, "畫面好了，截圖 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary")
     float_box = [None]
 
-    def show_float(name):
+    def show_float(name, key="luz"):
         """要人操作的項目(全國土地使用分區)：右下角永遠在最上層的小提示框，不會被瀏覽器蓋住。
         連續模式視窗先藏起來：它掛在主程式底下，點主程式時會跟著跳出來擋住瀏覽器"""
         hide_float(restore=False)
@@ -904,20 +1242,64 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         f.attributes("-topmost", True)
         f.configure(bg="#FFF4E5", highlightthickness=2, highlightbackground="#E58135")
         tk.Label(f, text=f"🖐 {name}", font=(FAM, 16, "bold"), fg="#7C2D12", bg="#FFF4E5").pack(anchor="w", padx=16, pady=(12, 4))
-        tk.Label(f, text="1. 在瀏覽器按左邊【定位】（有驗證就點一下勾選框）\n"
-                         "2. 按工具列【查詢】，在地圖紅色錨點上點一下\n"
-                         "3. 左邊出現分區資訊、畫面調好，再按下面的按鈕（多筆會一筆一筆來）",
-                 font=(FAM, 13), fg="#1C1917", bg="#FFF4E5", justify="left").pack(anchor="w", padx=16)
+        tip = ("1. 程式會在左邊瀏覽器自動登入、填好、送出申請，帶你到繳費頁\n"
+               "2. 你在瀏覽器繳費（信用卡或行動支付），繳完按「繳好了」\n"
+               "3. 程式卡住時照下面這行的提示做；不申請就按「這次不申請」") if key == "zcert" else \
+              ("1. 在瀏覽器按左邊【定位】（有驗證就點一下勾選框）\n"
+               "2. 按工具列【查詢】，在地圖紅色錨點上點一下\n"
+               "3. 左邊出現分區資訊、畫面調好，再按下面的按鈕（多筆會一筆一筆來）")
+        tk.Label(f, text=tip, font=(FAM, 13), fg="#1C1917", bg="#FFF4E5", justify="left").pack(anchor="w", padx=16)
+        f._stage = None
+        if key == "zcert":                              # 現在輪到誰：程式在做(灰)／換你做(綠、橘、藍)，大字一眼看懂
+            f._stage = tk.Label(f, text="", font=(FAM, 15, "bold"), fg="white", bg="#6B7280", wraplength=560,
+                                justify="left", anchor="w", padx=10, pady=6)
+            f._stage.pack(fill=tk.X, padx=16, pady=(8, 0))
         f._line = tk.Label(f, text="", font=(FAM, 11), fg="#57534E", bg="#FFF4E5", wraplength=380, justify="left",
                            height=2, anchor="nw")      # 固定兩行高：訊息再長也不會把按鈕擠出框外
         f._line.pack(anchor="w", padx=16, pady=(6, 0))
-        ui.button(f, "畫面好了，截圖 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary").pack(
-            anchor="e", padx=16, pady=12)
+        fb = tk.Frame(f, bg="#FFF4E5")
+        fb.pack(fill=tk.X, padx=16, pady=12)
+        f._go_box = tk.Frame(fb, bg="#FFF4E5")
+        f._go_box.pack(side=tk.RIGHT)
+        f._go = ui.button(f._go_box, "畫面好了，截圖 ▶", lambda: runner_box[0] and runner_box[0].send(""), "primary")
+        f._go.pack()
+        if key == "zcert":
+            ui.button(fb, "這次不申請", lambda: press(f, "q"), "ghost").pack(side=tk.RIGHT, padx=8)
+            set_step(f, "程式處理中，請稍候…", "", "busy")
         f.update_idletasks()
         w, h = max(f.winfo_reqwidth(), 420), f.winfo_reqheight()
         f.geometry(f"{w}x{h}+{f.winfo_screenwidth() - w - 24}+{f.winfo_screenheight() - h - 70}")
         f.protocol("WM_DELETE_WINDOW", lambda: None)            # 不讓它被誤關(做完會自己關)
         float_box[0] = f
+
+    STEP_COLORS = {"green": "#2E8B57", "orange": "#E58135", "blue": "#1E64C8", "busy": "#6B7280"}
+
+    def set_step(f, stage, btn, color):
+        """子程式說「現在輪到誰」(STEP: 說明|按鈕字|顏色)：換大字說明的底色、按鈕文字和顏色；busy＝程式在做，按鈕變灰不能按"""
+        c = STEP_COLORS.get(color, STEP_COLORS["blue"])
+        if f._stage is not None:
+            f._stage.configure(text=("⏳ " if color == "busy" else "👉 ") + stage, bg=c)
+        try:
+            f._go.destroy()
+        except Exception:
+            pass
+        f._go = ui.button(f._go_box, btn or "請稍候", lambda: press(f, ""), "primary", color=c)
+        f._go.pack()
+        if color == "busy":
+            f._go.set_enabled(False)
+        try:
+            f.update_idletasks()
+            w, h = max(f.winfo_reqwidth(), 420), f.winfo_reqheight()
+            f.geometry(f"{w}x{h}+{f.winfo_screenwidth() - w - 24}+{f.winfo_screenheight() - h - 70}")
+        except tk.TclError:
+            pass
+
+    def press(f, ans):
+        """提示框按鈕：送出答案後立刻切成灰色「處理中」，不用等子程式回話(不然看起來像沒按到、會按第二次)"""
+        if runner_box[0]:
+            runner_box[0].send(ans)
+        if f._stage is not None:
+            set_step(f, "好的，這次不申請，正在結束…" if ans == "q" else "程式處理中，請稍候…", "", "busy")
 
     def hide_float(restore=True):
         if float_box[0] is not None:
@@ -946,8 +1328,13 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
         if not items:
             ui.message(win, "連續模式", "沒有勾選任何項目。")
             return
-        order = [i["key"] for i in TAX + ITEMS] + ["luz"]
+        order = [i["key"] for i in TAX + ITEMS] + list(INTERACTIVE)
         items.sort(key=lambda i: order.index(i["key"]))
+        if any(i["key"] == "zcert" for i in items) and not load_applicant()["name"]:
+            if not applicant_dialog(win):
+                items = [i for i in items if i["key"] != "zcert"]
+                if not items:
+                    return
         jp = None
         if any(i.get("json") for i in items):        # 土增稅：再檢查一次謄本結構化(可能剛在主程式重做過)
             reason = tax_problem() or ("" if cur_json() else "找不到這個案件的謄本結構化資料")
@@ -1008,7 +1395,10 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     prog_lbl.configure(text=state["title"] + "\n" + time_line(key, 0))
                     bar_item.start(12)
                     say(f"[連續模式] 第 {n}/{total} 項：{rows[key]['item']['name']} 開始")
-                    if inter:
+                    if inter and key == "zcert":
+                        say("  🖐 程式會自動填好送出申請，到繳費頁再換你操作（繳費一定是你自己按）")
+                        show_float(rows[key]['item']['name'], key)
+                    elif inter:
                         cont_btn.pack(anchor="w", pady=(6, 0))
                         line_lbl.configure(text="已開啟瀏覽器：請完成查詢，分區資訊出現、畫面調好後按「畫面好了，截圖」")
                         say("  🖐 需要你操作：在瀏覽器完成查詢，分區資訊出現、畫面調好後，按右下角提示框的「畫面好了，截圖」")
@@ -1017,8 +1407,14 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     _, key, sec = m
                     if key == state["cur"]:
                         prog_lbl.configure(text=state["title"] + "\n" + time_line(key, sec))
+                elif kind == "line" and m[2].startswith("STEP:"):     # 子程式說「現在輪到誰」→ 只改提示框，不進訊息欄
+                    if float_box[0] is not None:
+                        try:
+                            set_step(float_box[0], *(m[2][5:].strip().split("|") + ["", ""])[:3])
+                        except Exception:
+                            pass
                 elif kind == "line":
-                    tag = f"【{rows[m[1]]['item']['name'][3:] if rows[m[1]]['item']['name'][:2].isdigit() else rows[m[1]]['item']['name']}】" \
+                    tag =f"【{rows[m[1]]['item']['name'][3:] if rows[m[1]]['item']['name'][:2].isdigit() else rows[m[1]]['item']['name']}】" \
                         if len(state.get("running", [])) > 1 and m[1] in rows else ""     # 同時跑好幾項：每行標是哪一項
                     line_lbl.configure(text="→ " + tag + m[2][:120])
                     say("  " + tag + m[2])
@@ -1040,8 +1436,9 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                         bar_item.stop()
                     cont_btn.pack_forget()
                     hide_float()
-                    _txt = {"done": "✓ 完成", "nodata": "— 官方查無資料", "stopped": "■ 已停止"}.get(st, "✗ 失敗")
-                    if st in ("done", "nodata") and key != "luz":        # 要人操作的不記(等人的時間不準)
+                    _txt = {"done": "✓ 完成", "nodata": "— 官方查無資料", "stopped": "■ 已停止",
+                            "pending": "⏳ 等核發", "skipped": "— 這次不申請"}.get(st, "✗ 失敗")
+                    if st in ("done", "nodata") and key not in INTERACTIVE:        # 要人操作的不記(等人的時間不準)
                         record_sec(key, sec)
                     if key in state.get("left", []):
                         state["left"].remove(key)
@@ -1049,8 +1446,13 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     state["done"] += 1
                     bar_all.configure(value=state["done"])
                     rows[key]["frame"].configure(highlightbackground="#CBD5E1", highlightthickness=1)
+                    rows[key]["view"]()
                     if st == "done":
                         rows[key]["status"].configure(text=f"✓ 完成（{sec} 秒）" + (" ⚠" if msg else ""), fg=GREEN)
+                        rows[key]["plain"]()
+                        rows[key]["var"].set(False)
+                    elif st in ("pending", "skipped"):
+                        rows[key]["status"].configure(text=_txt, fg=BLUE if st == "pending" else INK2)
                         rows[key]["plain"]()
                         rows[key]["var"].set(False)
                     elif st == "nodata":
@@ -1074,7 +1476,7 @@ def open_window(root, on_finish=None, old_mode=None, on_line=None, tax_check=Non
                     refresh_run()
                     bar_item.stop()
                     ok = sum(1 for _, s, _m in state["results"] if s == "done")
-                    bad = [(n_, m_) for n_, s, m_ in state["results"] if s not in ("done", "nodata")]
+                    bad = [(n_, m_) for n_, s, m_ in state["results"] if s not in ("done", "nodata", "pending", "skipped")]
                     prog_lbl.configure(text=f"完成：{ok}/{state['total']} 項成功" + (f"，{len(bad)} 項失敗" if bad else "") +
                                        f"\n總共花了 {fmt_sec(time.time() - state.get('t_all', time.time()))}")
                     say(f"[連續模式] 全部結束，總共花了 {fmt_sec(time.time() - state.get('t_all', time.time()))}")

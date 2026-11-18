@@ -53,6 +53,8 @@ from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
+NO_CASE = "--no-case" in sys.argv   # 主程式「只用工具 → 📥 調謄本」：不讀目前案件的 data.json(不問帶入、不分流進案件)，謄本全部存「下載的謄本」
+LAND_ONLY = "--land-only" in sys.argv   # 主程式「只有建物謄本 → 📥 調土地謄本」：帶入地號但不帶建號(不重複買建物謄本)
 
 # 🔥 使用者本次選擇的 PDF 儲存目錄（批次模式：一開始問一次，全程沿用）。
 #    所有列印函式存檔時都以它為預設，確保建物/土地/他項…全部存到同一個地方。
@@ -1793,7 +1795,9 @@ def main():
     card_cert = config.get("card_cert")
     
     # 讀取 data.json 的第一組資料，構建自訂目錄
-    first_entry = read_first_entry_from_json(get_data_json_path())
+    first_entry = None if NO_CASE else read_first_entry_from_json(get_data_json_path())
+    if NO_CASE:
+        print("\033[96m（這次不帶入目前案件的地號：調好的謄本全部存到「下載的謄本」，調完主程式會幫你建資料夾）\033[0m", flush=True)
     if first_entry:
         custom_dir_name = construct_custom_directory(first_entry)
         # 🔥 使用 BASE_DIR（主程式執行檔所在目錄）
@@ -1870,11 +1874,12 @@ def main():
             print("\033[093m１. 預設目錄（下載的謄本）\033[0m", flush=True)
             print(f"\033[093m２. 自訂目錄（{custom_dir_path}）\033[0m", flush=True)
             print("（直接按 Enter 選擇預設選項）", flush=True)
+            _dflt = '2' if LAND_ONLY else '1'   # 補調土地謄本：預設存進這件的 0.謄本
 
             while True:
-                choice = input("請輸入選項編號（1 或 2，預設：1）：").strip()
+                choice = input(f"請輸入選項編號（1 或 2，預設：{_dflt}）：").strip()
                 if not choice:
-                    choice = '1'
+                    choice = _dflt
                 if choice == '1':
                     pdf_save_dir = get_work_folder("下載的謄本")
                     print(f"\n\033[96m✓ 批次模式 - 預設目錄：\033[0m", flush=True)
@@ -2001,7 +2006,10 @@ def _builds_of(entries):
 def _prefill_from_data_json():
     """送件前：data.json 有資料就詢問是否帶入(縣市/地區/地段/地號/建號)，免手動輸入。
     回傳 (county, district, section, land_number_input, gland_number_input) 或 None。
-    電傳逗號 = 不同地號／建號各別調閱；不同地段要分開調，混段時選一組。"""
+    電傳逗號 = 不同地號／建號各別調閱；不同地段要分開調，混段時選一組。
+    NO_CASE(不建案件)：不問，直接自己輸入。"""
+    if NO_CASE:
+        return None
     try:
         path = get_data_json_path()
         if not os.path.exists(path):
@@ -2046,9 +2054,9 @@ def _prefill_from_data_json():
             print("請輸入有效編號。", flush=True)
     (city, district, section), entries = chosen
     lots = [str(e.get('lot_number', '')).strip() for e in entries if str(e.get('lot_number', '')).strip()]
-    builds = _builds_of(entries)
+    builds = [] if LAND_ONLY else _builds_of(entries)      # 只調土地：不帶建號(不重複買建物謄本)
     print(f"\033[38;5;46m✓ 已帶入：{city} {district} {section}　地號：{','.join(lots) or '（無）'}"
-          f"　建號：{','.join(builds) or '（無）'}\033[0m", flush=True)
+          f"　建號：{','.join(builds) or ('（這次只調土地，不帶）' if LAND_ONLY else '（無）')}\033[0m", flush=True)
     return city.replace("台", "臺"), district, section, ','.join(lots), ','.join(builds)
 
 
@@ -2093,7 +2101,10 @@ def get_user_input():
         print("您輸入的地號是: ", flush=True)
 
     # 提示輸入建號 - 支援多建號輸入
-    if _pf is not None:
+    if LAND_ONLY:
+        gland_number_input = ""
+        print("建號：（這次只調土地謄本，不調建號）", flush=True)
+    elif _pf is not None:
         # 有從 data.json 帶入：建號也一起帶(沒有就是空的)；後面的確認畫面還可以改
         gland_number_input = _pf_gland or ""
     else:

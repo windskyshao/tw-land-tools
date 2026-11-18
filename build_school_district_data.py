@@ -643,6 +643,139 @@ def process_area_data_text(area_data, school_data, school_name, district, school
     return current_last_village
 
 
+def add_area_cell(school_data, current_school_name, current_district, area_data):
+    """一格「學區」文字(可多行) → 寫進 school_data[學校][行政區][村里]"""
+    if current_district not in school_data.setdefault(current_school_name, {}):
+        school_data[current_school_name][current_district] = {}
+    # 🔥 先修復被換行符截斷的名稱
+    # PDF 表格中常見的問題：名稱被分行截斷
+    # 例如：「壽\n山國中」、「麗興\n里」、「登\n山里」
+    area_data_fixed = area_data
+
+    # 修復村里名稱中的換行符
+    # 情況1：「XX\n里」→「XX里」（如「麗興\n里」→「麗興里」）
+    area_data_fixed = re.sub(r'(\w+)\n(里)', r'\1\2', area_data_fixed)
+    # 情況2：「X\nYY里」→「XYY里」（如「登\n山里」→「登山里」）
+    # 🔥 只有當換行符前面是「中文字」（不是里、鄰、數字、括號）時才合併
+    # 避免「興隆里\n合和里」、「19鄰\n祿興里」、「（中山高速公路以東）\n南成里」被誤合併
+    # 使用 lookbehind 確保前面是中文字但不是「里」、「鄰」或括號
+    area_data_fixed = re.sub(r'(?<=[^\d里鄰）\)\]】])\n(\w+里)', r'\1', area_data_fixed)
+
+    # 修復學校名稱中的換行符
+    # 「X\nY國中」格式（X 是學校名稱的一部分）
+    area_data_fixed = re.sub(r'(\w)\n(\w+國中(?:部)?)', r'\1\2', area_data_fixed)
+    # 「X\nY高中」格式
+    area_data_fixed = re.sub(r'(\w)\n(\w+高中)', r'\1\2', area_data_fixed)
+
+    area_lines = area_data_fixed.split('\n')
+    # 合併時用頓號分隔，讓每個村里可以被正確識別
+    area_data_cleaned = '、'.join(line.strip() for line in area_lines if line.strip())
+
+    # 解析村里和鄰號
+    # 策略：先找出所有村里名稱及其在文字中的位置，然後提取每個村里到下一個村里之間的文字
+    # 🔥 簡化村里名稱模式：匹配「XX里」格式
+    village_pattern = r'([^、，。：\s（()【\[\]】]+里)'
+
+    # 找出所有村里及其位置
+    village_matches = []
+    for match in re.finditer(village_pattern, area_data_cleaned):
+        raw_village_name = match.group(1)
+        # 排除包含這些關鍵字的假村里名稱
+        if '自由' in raw_village_name or '學區' in raw_village_name or '共同' in raw_village_name:
+            continue
+
+        # 🔥 清理村里名稱
+        village_name = clean_village_name(raw_village_name)
+        if village_name:
+            village_matches.append({
+                'name': village_name,
+                'start': match.start(),
+                'end': match.end()
+            })
+
+    # 🔥 檢測「以上X里」模式：如果整段文字包含「以上X里」，
+    # 則自由學區資訊應用到前面所有列出的村里
+    shared_free_zones = None
+    if re.search(r'以上\d+里', area_data_cleaned):
+        # 從整段文字中提取自由學區資訊
+        shared_free_zones = extract_free_zone_info(area_data_cleaned)
+
+    # 對每個村里，提取從它開始到下一個村里開始之間的文字
+    for i, village_info in enumerate(village_matches):
+        village = village_info['name']
+
+        # 確保村里存在
+        if village not in school_data[current_school_name][current_district]:
+            school_data[current_school_name][current_district][village] = {
+                'regular': [],
+                'free_zones': []
+            }
+
+        # 提取這個村里的文字段落（從當前村里到下一個村里，或到結尾）
+        start_pos = village_info['start']
+        if i + 1 < len(village_matches):
+            # 還有下一個村里，提取到下一個村里開始的位置
+            end_pos = village_matches[i + 1]['start']
+        else:
+            # 這是最後一個村里，提取到結尾
+            end_pos = len(area_data_cleaned)
+
+        village_text = area_data_cleaned[start_pos:end_pos]
+
+        # 先提取自由學區
+        free_zones = extract_free_zone_info(village_text)
+
+        # 🔥 如果有「以上X里」的共享自由學區，且當前村里沒有自己的自由學區資訊，
+        # 則使用共享的自由學區資訊
+        if shared_free_zones and not free_zones:
+            free_zones = shared_free_zones
+
+        # 將自由學區的鄰號記錄下來
+        free_zone_neighbors = set()
+        for fz in free_zones:
+            free_zone_neighbors.update(fz['neighbors'])
+
+            # 加入自由學區資訊
+            shared_schools = [s for s in fz['schools'] if s != current_school_name]
+            school_data[current_school_name][current_district][village]['free_zones'].append({
+                'neighbors': fz['neighbors'],
+                'shared_with': shared_schools
+            })
+
+        # 解析所有鄰號
+        all_neighbors = parse_neighbor_list(village_text)
+
+        # 普通學區 = 所有鄰號 - 自由學區鄰號
+        regular_neighbors = [n for n in all_neighbors if n not in free_zone_neighbors]
+
+        # 🔥 處理「全里」情況：
+        # 如果村里名稱後面沒有鄰號，且不是自由學區的一部分，則標記為「全里」
+        # 我們用特殊值 [-1] 表示「全里」
+        is_full_village = False
+
+        # 🔥 檢測「全里為XX學區」格式
+        # 例如：「新上里(全里為龍華國中學區，其中32鄰、33鄰、53鄰為龍華國中與明華國中自由學區)」
+        # 這種情況下，全里都是該學區，但部分鄰號同時是自由學區
+        if re.search(r'全里為.*學區', village_text):
+            is_full_village = True
+            regular_neighbors = [-1]
+
+        if not all_neighbors and not free_zones:
+            # 檢查這個村里是否只是列在列表中（如「文英里、文山里、文德里」）
+            # 這種情況表示全里都屬於該學區
+            is_full_village = True
+            regular_neighbors = [-1]  # 特殊標記表示「全里」
+
+        # 合併到已有的普通學區鄰號
+        existing = set(school_data[current_school_name][current_district][village]['regular'])
+        if is_full_village and -1 not in existing:
+            # 如果是全里，用 [-1] 標記
+            existing.add(-1)
+        else:
+            existing.update(regular_neighbors)
+        school_data[current_school_name][current_district][village]['regular'] = sorted(list(existing))
+
+
 def is_school_name(text, school_type='國中'):
     """
     判斷文字是否為學校名稱
@@ -691,6 +824,14 @@ def build_school_district_data(pdf_path, school_type='國中'):
         }
     }
     """
+    if school_type == '國小':
+        # 高雄國小 PDF 沒有表格框線(extract_tables 抓不到)→ 改用座標切欄，純文字解析會把里分錯學校
+        with pdfplumber.open(pdf_path) as _pdf:
+            _no_table = not _pdf.pages[0].extract_tables()
+        if _no_table:
+            print(f"正在解析 {school_type} PDF(座標切欄): {pdf_path}")
+            return build_kh_elementary_layout(pdf_path)
+
     school_data = {}
 
     # 🔥 修正跨頁問題：將 current_school_name 和 current_district 移到外層
@@ -837,136 +978,21 @@ def build_school_district_data(pdf_path, school_type='國中'):
                     # 2. 再按換行符分割，分別處理每一行，然後用頓號合併
                     #    這樣可以避免「大華里\n鳥松里14鄰」變成「大華里鳥松里14鄰」
 
-                    # 🔥 先修復被換行符截斷的名稱
-                    # PDF 表格中常見的問題：名稱被分行截斷
-                    # 例如：「壽\n山國中」、「麗興\n里」、「登\n山里」
-                    area_data_fixed = area_data
-
-                    # 修復村里名稱中的換行符
-                    # 情況1：「XX\n里」→「XX里」（如「麗興\n里」→「麗興里」）
-                    area_data_fixed = re.sub(r'(\w+)\n(里)', r'\1\2', area_data_fixed)
-                    # 情況2：「X\nYY里」→「XYY里」（如「登\n山里」→「登山里」）
-                    # 🔥 只有當換行符前面是「中文字」（不是里、鄰、數字、括號）時才合併
-                    # 避免「興隆里\n合和里」、「19鄰\n祿興里」、「（中山高速公路以東）\n南成里」被誤合併
-                    # 使用 lookbehind 確保前面是中文字但不是「里」、「鄰」或括號
-                    area_data_fixed = re.sub(r'(?<=[^\d里鄰）\)\]】])\n(\w+里)', r'\1', area_data_fixed)
-
-                    # 修復學校名稱中的換行符
-                    # 「X\nY國中」格式（X 是學校名稱的一部分）
-                    area_data_fixed = re.sub(r'(\w)\n(\w+國中(?:部)?)', r'\1\2', area_data_fixed)
-                    # 「X\nY高中」格式
-                    area_data_fixed = re.sub(r'(\w)\n(\w+高中)', r'\1\2', area_data_fixed)
-
-                    area_lines = area_data_fixed.split('\n')
-                    # 合併時用頓號分隔，讓每個村里可以被正確識別
-                    area_data_cleaned = '、'.join(line.strip() for line in area_lines if line.strip())
-
-                    # 解析村里和鄰號
-                    # 策略：先找出所有村里名稱及其在文字中的位置，然後提取每個村里到下一個村里之間的文字
-                    # 🔥 簡化村里名稱模式：匹配「XX里」格式
-                    village_pattern = r'([^、，。：\s（()【\[\]】]+里)'
-
-                    # 找出所有村里及其位置
-                    village_matches = []
-                    for match in re.finditer(village_pattern, area_data_cleaned):
-                        raw_village_name = match.group(1)
-                        # 排除包含這些關鍵字的假村里名稱
-                        if '自由' in raw_village_name or '學區' in raw_village_name or '共同' in raw_village_name:
-                            continue
-
-                        # 🔥 清理村里名稱
-                        village_name = clean_village_name(raw_village_name)
-                        if village_name:
-                            village_matches.append({
-                                'name': village_name,
-                                'start': match.start(),
-                                'end': match.end()
-                            })
-
-                    # 🔥 檢測「以上X里」模式：如果整段文字包含「以上X里」，
-                    # 則自由學區資訊應用到前面所有列出的村里
-                    shared_free_zones = None
-                    if re.search(r'以上\d+里', area_data_cleaned):
-                        # 從整段文字中提取自由學區資訊
-                        shared_free_zones = extract_free_zone_info(area_data_cleaned)
-
-                    # 對每個村里，提取從它開始到下一個村里開始之間的文字
-                    for i, village_info in enumerate(village_matches):
-                        village = village_info['name']
-
-                        # 確保村里存在
-                        if village not in school_data[current_school_name][current_district]:
-                            school_data[current_school_name][current_district][village] = {
-                                'regular': [],
-                                'free_zones': []
-                            }
-
-                        # 提取這個村里的文字段落（從當前村里到下一個村里，或到結尾）
-                        start_pos = village_info['start']
-                        if i + 1 < len(village_matches):
-                            # 還有下一個村里，提取到下一個村里開始的位置
-                            end_pos = village_matches[i + 1]['start']
-                        else:
-                            # 這是最後一個村里，提取到結尾
-                            end_pos = len(area_data_cleaned)
-
-                        village_text = area_data_cleaned[start_pos:end_pos]
-
-                        # 先提取自由學區
-                        free_zones = extract_free_zone_info(village_text)
-
-                        # 🔥 如果有「以上X里」的共享自由學區，且當前村里沒有自己的自由學區資訊，
-                        # 則使用共享的自由學區資訊
-                        if shared_free_zones and not free_zones:
-                            free_zones = shared_free_zones
-
-                        # 將自由學區的鄰號記錄下來
-                        free_zone_neighbors = set()
-                        for fz in free_zones:
-                            free_zone_neighbors.update(fz['neighbors'])
-
-                            # 加入自由學區資訊
-                            shared_schools = [s for s in fz['schools'] if s != current_school_name]
-                            school_data[current_school_name][current_district][village]['free_zones'].append({
-                                'neighbors': fz['neighbors'],
-                                'shared_with': shared_schools
-                            })
-
-                        # 解析所有鄰號
-                        all_neighbors = parse_neighbor_list(village_text)
-
-                        # 普通學區 = 所有鄰號 - 自由學區鄰號
-                        regular_neighbors = [n for n in all_neighbors if n not in free_zone_neighbors]
-
-                        # 🔥 處理「全里」情況：
-                        # 如果村里名稱後面沒有鄰號，且不是自由學區的一部分，則標記為「全里」
-                        # 我們用特殊值 [-1] 表示「全里」
-                        is_full_village = False
-
-                        # 🔥 檢測「全里為XX學區」格式
-                        # 例如：「新上里(全里為龍華國中學區，其中32鄰、33鄰、53鄰為龍華國中與明華國中自由學區)」
-                        # 這種情況下，全里都是該學區，但部分鄰號同時是自由學區
-                        if re.search(r'全里為.*學區', village_text):
-                            is_full_village = True
-                            regular_neighbors = [-1]
-
-                        if not all_neighbors and not free_zones:
-                            # 檢查這個村里是否只是列在列表中（如「文英里、文山里、文德里」）
-                            # 這種情況表示全里都屬於該學區
-                            is_full_village = True
-                            regular_neighbors = [-1]  # 特殊標記表示「全里」
-
-                        # 合併到已有的普通學區鄰號
-                        existing = set(school_data[current_school_name][current_district][village]['regular'])
-                        if is_full_village and -1 not in existing:
-                            # 如果是全里，用 [-1] 標記
-                            existing.add(-1)
-                        else:
-                            existing.update(regular_neighbors)
-                        school_data[current_school_name][current_district][village]['regular'] = sorted(list(existing))
+                    add_area_cell(school_data, current_school_name, current_district, area_data)
 
     return school_data
 
+
+
+def build_kh_elementary_layout(pdf_path):
+    """高雄國小 PDF 沒有表格框線：用座標切欄(school_pdf_layout)分出 學校/行政區/學區文字 再解析村里。
+    舊的純文字解析會把下一列的里併進上一校(例：三民區本元里1-17鄰 陽明國小 被算成 河濱國小 前金區)"""
+    import school_pdf_layout as SL
+    school_data = {}
+    for school, district, text in SL.triples(pdf_path):
+        if school and district and text:
+            add_area_cell(school_data, school, district, text)
+    return school_data
 
 def save_to_json(data, output_filename, force=False):
     """儲存為 JSON 檔案，含驗證守門員（防止 buggy parser 覆蓋好資料）

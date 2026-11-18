@@ -237,7 +237,7 @@ def _fmt_money_wan(v):
     n = _num(v)
     if n is None:
         return str(v or "")
-    return f"{n:,.0f}" if n == int(n) else f"{n:,.2f}".rstrip("0").rstrip(".")      # 6.25 萬不要變 6.2
+    return f"{n:,.0f}" if n == int(n) else f"{n:,.4f}".rstrip("0").rstrip(".")      # 6.25 萬不要變 6.2；月租 4.3236 萬照寫
 
 
 _CN = {"一": 1, "二": 2, "三": 3, "四": 4, "五": 5, "六": 6, "七": 7, "八": 8, "九": 9, "十": 10}
@@ -1799,6 +1799,86 @@ def slide_cadastral(deck, pdf):
     text(s, rx, yy + Inches(0.05), rw, Inches(0.6), "資料來源：地政事務所地籍圖謄本", 12, False, INK)
 
 
+def zcert_files(roots):
+    """0.謄本 裡附件「使用分區證明」存的正式證明書(一個地段一份)"""
+    return [p for p in _globs(roots, os.path.join("0.謄本", "使用分區證明_*.pdf"))]
+
+
+def zcert_info(pdf):
+    """讀證明書 PDF 文字：發文日期、字號、各筆 (段, 地號, 分區)、都市計畫名稱、有效期限(發文後 8 個月)。讀不到的欄位留空"""
+    import fitz
+    doc = fitz.open(pdf)
+    t = "\n".join(pg.get_text() for pg in doc)
+    doc.close()
+    info = {"org": "", "date": "", "no": "", "plan": "", "until": "", "rows": []}
+    ln = [x.strip() for x in t.splitlines() if x.strip()]
+    if ln and "政府" in ln[0]:
+        info["org"] = ln[0]
+    m = re.search(r"中華民國\s*(\d+)\s*年\s*(\d+)\s*月\s*(\d+)\s*日", t)
+    if m:
+        y, mo, dd = map(int, m.groups())
+        info["date"] = f"{y}/{mo:02d}/{dd:02d}"
+        mo2 = mo + 8
+        y2, mo2 = y + (mo2 - 1) // 12, (mo2 - 1) % 12 + 1
+        import calendar
+        dd2 = min(dd, calendar.monthrange(y2 + 1911, mo2)[1])     # 6/30 + 8 個月 → 2/28(沒有 2/30)
+        info["until"] = f"{y2}/{mo2:02d}/{dd2:02d}"
+    m = re.search(r"字第\s*(\S+)\s*號", t)
+    if m:
+        info["no"] = m.group(1)
+    m = re.search(r"都市計畫名稱[：:]\s*(\S+)", t)
+    if m:
+        info["plan"] = m.group(1)
+    for i, x in enumerate(ln):
+        if re.fullmatch(r"\d{4}-\d{4}", x) and 0 < i < len(ln) - 1:
+            a, b = x.split("-")
+            lot = str(int(a)) + (f"-{int(b)}" if int(b) else "")
+            zone = re.sub(r"\s*[（(]註.*$", "", ln[i + 1]).strip()
+            info["rows"].append((ln[i - 1], lot, zone))
+    return info
+
+
+def slide_zcert(deck, pdf):
+    """土地使用分區證明書：左邊整張證明書(政府正式文件、不裁內容)，右邊大字列各筆地號的分區、發文日期、有效期限"""
+    s = deck.new("土地使用分區證明")
+    png = pdf_region_png(pdf, deck.tmp, lambda pg: None, "zcert")
+    x, y, h = Inches(0.5), Inches(1.2), FOOTER_Y - Inches(0.12) - Inches(1.2)
+    w = Inches(5.6)
+    box(s, x, y, w, h, WHITE, LINE)
+    picture(s, png, x + Inches(0.1), y + Inches(0.1), w - Inches(0.2), h - Inches(0.2), deck.tmp, mode="contain", lossless=True)
+    try:
+        info = zcert_info(pdf)
+    except Exception as e:
+        log(f"（證明書文字讀取失敗：{e}）")
+        info = {"rows": []}
+    rx, rw = Inches(6.45), SW - Inches(6.45) - Inches(0.5)
+    text(s, rx, Inches(1.2), rw, Inches(0.45), "證明內容", 17, True, SKY_DK)
+    rows = info["rows"][:6]
+    yy = Inches(1.72)
+    pitch = min(Inches(0.78), Inches(3.0) // max(1, len(rows)))
+    for sec, lot, zone in rows:
+        box(s, rx, yy, rw, pitch - Inches(0.1), WHITE, LINE)
+        text(s, rx + Inches(0.22), yy, Inches(3.7), pitch - Inches(0.1), f"{sec} {lot} 地號", 15, True, INK,
+             anchor=MSO_ANCHOR.MIDDLE)
+        text(s, rx + Inches(3.9), yy, rw - Inches(4.1), pitch - Inches(0.1), zone, 20 if len(zone) <= 6 else 15, True, NUM, PP_ALIGN.RIGHT,
+             MSO_ANCHOR.MIDDLE)
+        yy += pitch
+    if len(info["rows"]) > len(rows):
+        text(s, rx, yy - Inches(0.05), rw, Inches(0.35), f"…共 {len(info['rows'])} 筆，詳見左邊證明書", 13, False, INK)
+        yy += Inches(0.3)
+    meta = [(k, v) for k, v in (("發文日期", info.get("date") and f"民國 {info['date']}"),
+                                ("有效期限", info.get("until") and f"至民國 {info['until']}（8 個月）"),
+                                ("都市計畫", info.get("plan"))) if v]
+    yy += Inches(0.15)
+    for k, v in meta:
+        text(s, rx, yy, Inches(1.4), Inches(0.42), k, 14, True, INK, anchor=MSO_ANCHOR.MIDDLE)
+        text(s, rx + Inches(1.4), yy, rw - Inches(1.4), Inches(0.42), v, 15, True, SKY_DK, anchor=MSO_ANCHOR.MIDDLE)
+        yy += Inches(0.46)
+    org = info.get("org") or "主管機關"
+    text(s, rx, max(yy + Inches(0.1), FOOTER_Y - Inches(0.95)), rw, Inches(0.8),
+         f"資料來源：{org} 土地使用分區證明書（電子證明，可掃證明書上 QR-code 驗證）", 12, False, INK)
+
+
 def slide_photos(deck, title, items, note=None):
     if not items:
         return
@@ -2038,6 +2118,8 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
         log("（data.json 沒有這個案件的座標，略過地理位置頁）")
     for src in cad_pages:
         log("製作：地籍圖"); slide_cadastral(deck, src)
+    for src in sel_paths(sel, "zcert", zcert_files(roots)):
+        log("製作：土地使用分區證明"); slide_zcert(deck, src)
     for i, src in enumerate(plans):
         log("製作：建物測量成果圖" + (f"（{i + 1}）" if len(plans) > 1 else "")); slide_floorplan(deck, src, cont=i > 0)
     # 格局平面圖：照片裡選了「格局平面圖」的(2.照片)優先，再加 0.謄本/4.其他相關 裡檔名有平面圖/格局的；同檔名只放一次
@@ -2133,6 +2215,11 @@ def collect_sections(case_dir, exp, template, d):
                     "on": bool(on) and (not empty or bool(cands)) and (not cands or bool(pick)),   # 有資料但預設一份都沒選(例：租件沒有租賃行情)→ 先不勾
                     "empty": empty if not cands else "", "needs": cands is not None})
 
+    def add_zcert():
+        zc = zcert_files(roots)
+        add("zcert", "土地使用分區證明", "政府核發的正式證明書(附件「使用分區證明」申請)；一個地段一份，每份一頁", zc, zc,
+            multi=True, empty="0.謄本 沒有使用分區證明(要的話到附件勾「使用分區證明」申請，要繳費)")
+
     if template == "factory":
         import marketing_deck_factory as mf
         ex = mf.load_extra(case_dir)
@@ -2142,6 +2229,7 @@ def collect_sections(case_dir, exp, template, d):
         add("card", "地籍與現況", "地籍圖工具做的「行銷圖」＋航照；沒有就用下面的地籍圖", cards, cards[:1], on=bool(cards),
             empty="0.謄本 沒有行銷圖(到地籍圖工具按「做行銷圖」)")
         add("cadastral", "地籍圖", "沒有行銷圖時才會用", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
+        add_zcert()
         imgs = [h for h in _globs(roots, os.path.join("2.照片", "*分割*"), os.path.join("4.其他相關", "*分割*"))
                 if h.lower().endswith(IMG_EXT)]
         add("split", "分割銷售方案", "按「填寫」輸入各區坪數、單價，差額自動算；圖檔檔名含「分割」會自動列出，沒圖用航照", imgs, imgs[:1],
@@ -2167,6 +2255,7 @@ def collect_sections(case_dir, exp, template, d):
         add("card", "地籍與現況", "地籍圖工具做的「行銷圖」＋航照；沒有就用下面的地籍圖", cards, cards[:1], on=bool(cards),
             empty="0.謄本 沒有行銷圖(到地籍圖工具按「做行銷圖」)")
         add("cadastral", "地籍圖", "沒有行銷圖時才會用", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
+        add_zcert()
         zon = _globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
                      os.path.join("1.基本資料", "*全國土地使用分區*.pdf"))
         add("zoning", "使用分區", "都市計畫圖(只取地圖區)＋分區、建蔽容積", zon, zon[:1], empty="1.基本資料 沒有都市計畫截圖")
@@ -2208,7 +2297,8 @@ def collect_sections(case_dir, exp, template, d):
     cads = [c for c in _globs(roots, os.path.join("0.謄本", "*地籍圖*標註*.pdf"), os.path.join("0.謄本", "*地籍圖*.pdf"))
             if "合併" not in os.path.basename(c) and "_temp" not in os.path.basename(c)]      # 檔名自己改過的(例：425地號畫線地籍圖)也算
     add("cadastral", "地籍圖", "地籍圖謄本(標註版優先)", cads, cads[:1], empty="0.謄本 沒有地籍圖謄本")
-    plans = _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*.pdf"))
+    add_zcert()
+    plans =_globs(roots, os.path.join("0.謄本", "*建物測量成果圖*.pdf"))
     imgs = [h for h in _globs(roots, os.path.join("0.謄本", "*建物測量成果圖*")) if h.lower().endswith((".png", ".jpg", ".jpeg"))]
     add("plan", "建物測量成果圖", "可選多張，每張一頁", plans + imgs, plans or imgs[:3], multi=True,
         empty="0.謄本 沒有建物測量成果圖")

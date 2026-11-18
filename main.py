@@ -94,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9p"
-BUILD_DATE = "2026-11-12"
+VERSION = "1.1.9q"
+BUILD_DATE = "2026-11-18"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -1920,12 +1920,22 @@ _mask_input = False
 
 
 def _is_prompt(line):
-    """這行是在問使用者(請輸入…、以冒號結尾)，不是「填入【用戶密碼】」「統一編號: A12…」這種進度訊息"""
+    """這行是在問使用者(請輸入…、以冒號/問號結尾)，不是「填入【用戶密碼】」「統一編號: A12…」這種進度訊息。
+    確認清單「6. 統一編號:」(值是空的)也不算——以前會因此一直遮 ●，下一題「請確認以上資料是否正確？」
+    是問號結尾沒被當成新問題，遮罩不會解除(電子謄本，2026-11-16)"""
     s = re.sub(r"\033\[[0-9;]*m", "", line).strip()
-    return "請輸入" in s or "請重新輸入" in s or s.endswith((":", "："))
+    if re.match(r"^\d{1,2}\s*[.、)）]\s*\S", s) and "請輸入" not in s:      # 編號清單的一項(1. 縣市: 高雄市)
+        return False
+    if re.match(r"^(您輸入的|已更新|已輸入|已填|成功填入|填入)", s):          # 進度/回報訊息
+        return False
+    return ("請輸入" in s or "請重新輸入" in s or "請確認" in s or "請選擇" in s
+            or s.endswith((":", "：", "?", "？")))
 
 
 def _is_secret_prompt(line):
+    s = re.sub(r"\033\[[0-9;]*m", "", line).strip()
+    if (s.endswith(("?", "？")) and "請輸入" not in s and "請重新輸入" not in s) or re.search(r"[(（]\s*[YyＹ]\s*/\s*[NnＮ]", s):
+        return False                                  # 「要記住密碼嗎？」「…密碼？(Y/N):」是問 Y/N，不用遮
     return _is_prompt(line) and bool(_SENSITIVE_RE.search(line))
 
 
@@ -2094,7 +2104,10 @@ def read_output(process):
                     auto_trigger_json = (current_running_button in (structured_transcript_button, telereport_structured_button)
                                          and poll_result == 0)
                     if auto_trigger_json:
-                        root.after(500, handle_read_json_function)
+                        # 單項工具(沒有案件也能轉)：照謄本上的地號自己建資料夾，不走「對應 data.json」那套
+                        root.after(500, _solo_struct_finished if _solo_struct else handle_read_json_function)
+                    elif current_running_button in (structured_transcript_button, telereport_structured_button):
+                        _solo_struct_clear()
 
                     # 🔥 子程式結束（無論正常或異常），隱藏進度條
                     root.after(0, hide_task_progress)
@@ -3598,11 +3611,8 @@ def _load_case_data_json(data_json_path, show_dialog=True):
                 update_message(f"  共 {len(data_list)} 筆資料")
 
                 # 🔥 先更新狀態列顯示（在顯示對話框之前）
-                lot_display = simplify_lot_number(f"{first.get('area', '')}{first.get('section', '')}-{first.get('lot_number', '')}")
-                json_status_label.config(
-                    text=f"{lot_display}←已做謄本結構化",
-                    fg='#006400'
-                )
+                # 還沒找到/檢查過結構化資料前不能先標綠色「已做」(下面找到才更新)
+                json_status_label.config(text="檢查謄本結構化…", fg='#FF8C00')
                 # 🔥 強制更新 UI，確保狀態列立即顯示
                 root.update_idletasks()
 
@@ -3626,6 +3636,11 @@ def _load_case_data_json(data_json_path, show_dialog=True):
                     reverse=True
                 )
                 trans_status_text = ""  # 用來補進對話框
+                # 資料夾裡可能混了別的案件的結構化檔(例：電傳查別的地號時存錯資料夾)→ 只挑內容是這個案件的
+                _wrong = [p for p in trans_in_case if _trans_other_case(p)]
+                for p in _wrong:
+                    update_message(f"  [連動] 略過 {os.path.basename(p)}：內容是「{_trans_other_case(p)}」，不是這個案件")
+                trans_in_case = [p for p in trans_in_case if p not in _wrong]
                 if trans_in_case:
                     found_trans = trans_in_case[0]
                     update_message(f"  [連動] 案件資料夾內找到 trans：{os.path.basename(found_trans)}")
@@ -5073,6 +5088,10 @@ def _copy_trans_to_case_folder(trans_path):
         lot_number = first.get('lot_number', '')
         if not (area and section and lot_number):
             return None
+        other = _trans_other_case(trans_path)
+        if other:                       # 別的地號的謄本(例：電傳查別的案件)不放進這個案件資料夾
+            update_message(f"  [提醒] 這份結構化資料是「{other}」的，不是目前案件，沒有複製到案件資料夾")
+            return None
         folder_name = f"{area}{section}-{lot_number}"
         case_other_dir = get_work_folder(os.path.join(folder_name, "4.其他相關"))
         os.makedirs(case_other_dir, exist_ok=True)
@@ -5301,11 +5320,26 @@ def handle_read_json_function():
         # 模擬子程序結束，觸發下一個腳本
         root.after(2000, schedule_next_script)  # 2秒後執行下一個
 
+def _trans_other_case(path):
+    """結構化 JSON 是別的案件的 → 回那個案件名(例：左營區果貿段17)；是這個案件或判斷不了 → 回 \"\""""
+    try:
+        ok, _w, d, t, order = check_data_consistency(path)
+        if d and t and not ok and not order:
+            return f"{t.get('area', '')}{t.get('section', '')}{_short_lot(t.get('lot_number', ''))}"
+    except Exception:
+        pass
+    return ""
+
+
 def update_json_status_display():
     """更新JSON狀態顯示"""
     if _cf_blank_active():
         return
     if selected_json_path:
+        other = _trans_other_case(selected_json_path)
+        if other:                           # 別的案件的結構化資料不能標綠色「已做」
+            json_status_label.config(text=f"謄本是「{other}」的，與目前案件不符", fg='#FF8C00')
+            return
         filename = os.path.basename(selected_json_path)
         try:
             with open(selected_json_path, 'r', encoding='utf-8') as f:
@@ -6436,14 +6470,61 @@ def _offer_structuring(reason, kind_hint=None, allow_continue_text=None):
 
 
 def _after_transcript_download(kind):
-    """謄本調閱(電子/電傳)結束 → 還沒結構化(或有新謄本)就問要不要接著做結構化"""
+    """謄本調閱(電子/電傳)結束 → 還沒結構化(或有新謄本)就問要不要接著做結構化。
+    11-17：什麼都沒建就直接調謄本 → 謄本都存在「下載的謄本」沒人管 → 問要不要轉資料＋算土增稅並自動建資料夾"""
+    global _dl_watch, _struct_with_tax
+    w, _dl_watch = _dl_watch, None
     if is_running:
         return
+    watch = bool(w) and not continuous_mode_active
+    if watch:
+        kind = w.get("kind") or kind
+        new = _dl_new_pdfs(w["t0"])
+        if new:
+            in_case = [] if w.get("no_case") else _case_new_pdfs(w["t0"])
+            _dl_offer(new, kind, n_in_case=len(in_case))
+            return
+        if w.get("no_case"):
+            return                          # 不建案件的那次沒調到東西 → 不要拿目前案件來問結構化
     reason = _structured_problem()
-    if not reason or not _case_transcript_pdfs():
+    if not reason:
+        # 11-17：以前轉過資料，但這次又調了新謄本進 0.謄本(例：只有建物謄本 → 補調土地)→ 舊資料不含它們，問要不要重新轉＋算稅
+        new_case = _case_new_pdfs(w["t0"]) if watch else []
+        if new_case:
+            _, name = _current_case_folder()
+            names = "\n".join("　• " + os.path.basename(p) for p in new_case[:6]) + \
+                    (f"\n　…共 {len(new_case)} 份" if len(new_case) > 6 else "")
+            if show_large_choice(
+                    "有新的謄本還沒轉成資料",
+                    f"這次調了 {len(new_case)} 份新謄本，存進「{name}」的 0.謄本：\n{names}\n\n"
+                    "這件以前轉過資料，但不包含這幾份。要把 0.謄本 全部重新轉成資料、算土增稅嗎？\n"
+                    "（結構化程式的「💰 轉好後順便算土增稅」會先幫你勾好）",
+                    [("💰 重新轉＋算土增稅", "#55B092"), ("先不用", "#9E9E9E")]) == 0:
+                _case_struct_with_tax(kind)
+        return
+    if not _case_transcript_pdfs() and not (watch and _case_new_pdfs(w["t0"])):
         return
     update_message(f"[提醒] {kind}謄本調閱完成，{reason}")
+    if watch:
+        _struct_with_tax = True             # 轉好順便算土增稅(勾選預設打勾)
     _offer_structuring(f"{kind}謄本調閱完成。{reason}", kind_hint=kind)
+    if not is_running:
+        _struct_with_tax = False            # 選「先不要」→ 不留到下次
+
+
+def _case_new_pdfs(t0):
+    """目前案件 0.謄本 裡 t0 之後才出現的登記謄本 PDF(電傳檔名沒有「謄本」兩字也算；地籍圖、成果圖、標註檔不算)"""
+    folder, _ = _current_case_folder()
+    if not folder:
+        return []
+    d = os.path.join(folder, "0.謄本")
+    try:
+        out = [os.path.join(d, n) for n in os.listdir(d)
+               if n.lower().endswith(".pdf") and not any(k in n for k in ("地籍圖", "成果圖", "_標註"))
+               and _mtime(os.path.join(d, n)) >= t0 - 2]
+    except OSError:
+        return []
+    return sorted(out, key=_mtime)
 
 
 _transcript_source_dir = None  # 本次結構化要讓工具預設開啟的「0.謄本」路徑（供 toggle_buttons 組指令用）
@@ -6587,7 +6668,13 @@ def _prep_transcript_source(display_name, script_name):
             break
 
     # 4) 讓工具預設開「0.謄本」
-    #    電子謄本結構化：讀自己的 settings.json 的 source_directory → 這裡先幫它寫好（不必改那支 exe）
+    _set_struct_source(script_name, trans_dir)
+    return trans_dir
+
+
+def _set_struct_source(script_name, folder):
+    """讓結構化工具一開就進 folder：電子謄本寫它的 settings.json(source_directory)；兩支都另外帶 --source-dir"""
+    global _transcript_source_dir
     if script_name == "GUI_transcript_pdf 1141021-01.py":
         try:
             base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(os.path.abspath(__file__))
@@ -6595,15 +6682,13 @@ def _prep_transcript_source(display_name, script_name):
             st = {}
             if os.path.exists(sf):
                 with open(sf, 'r', encoding='utf-8') as f:
-                    st = _json.load(f) or {}
-            st["source_directory"] = trans_dir
+                    st = json.load(f) or {}
+            st["source_directory"] = folder
             with open(sf, 'w', encoding='utf-8') as f:
-                _json.dump(st, f, ensure_ascii=False, indent=2)
+                json.dump(st, f, ensure_ascii=False, indent=2)
         except Exception as e:
             update_message(f"[提示] 設定電子謄本結構化來源資料夾失敗（不影響開啟）：{e}")
-    #    電傳謄本結構化：用 --source-dir 參數帶入（toggle_buttons 組指令時加）
-    _transcript_source_dir = trans_dir
-    return trans_dir
+    _transcript_source_dir = folder
 
 def _guard_structuring(display_name, script_name, button):
     """謄本結構化按鈕的守門：啟動前先確認批次；關閉時直接放行。"""
@@ -6975,11 +7060,16 @@ for _w in transcript_left_frame.winfo_children():
 
 
 def start_subprocess(button, script_name):
-    global is_running, process, selected_json_path, json_dir, current_running_button
+    global is_running, process, selected_json_path, json_dir, current_running_button, _struct_with_tax, _dl_watch, \
+        _fetch_no_case, _fetch_land_only
     _sync_data_json_ui()      # 子程式讀主檔 → 先確認兩份 data.json 一致
 
     # 🔥 設定當前執行的按鈕（用於追蹤執行狀態和更新標題）
     current_running_button = button
+
+    # 調謄本：記下開始時間，結束後看「下載的謄本」有沒有這次新調的(沒有案件時謄本都存在那裡)
+    _dl_watch = ({"t0": time.time(), "kind": "電子" if script_name == "hinet.py" else "電傳", "no_case": _fetch_no_case}
+                 if script_name in ("hinet.py", "qpt_hinet.py") else None)
 
     try:
         # 🔥 取得腳本的正確路徑（支援 PyInstaller 打包）
@@ -7059,6 +7149,20 @@ def start_subprocess(button, script_name):
         else:
             base_dir = os.path.dirname(os.path.abspath(__file__))
         cmd += ['--base-dir', base_dir]
+
+        # 謄本結構化：一開就進案件的 0.謄本(單項工具＝暫存資料夾)。原本只有連續模式有帶，手動按的電傳不會自己進去
+        if script_name in ("GUI_telereport.py", "GUI_transcript_pdf 1141021-01.py") and _transcript_source_dir \
+                and _transcript_source_dir != '__SKIP__':
+            cmd += ['--source-dir', _transcript_source_dir]
+        if script_name in ("GUI_telereport.py", "GUI_transcript_pdf 1141021-01.py") and _struct_with_tax:
+            cmd += ['--with-tax']           # 結構化程式的「💰 轉好後順便算土增稅」預設打勾
+        _struct_with_tax = False
+        if script_name in ("hinet.py", "qpt_hinet.py") and _fetch_no_case:
+            cmd += ['--no-case']            # 「📥 調謄本(不建案件)」：不帶入目前案件、謄本全部存「下載的謄本」
+        _fetch_no_case = False
+        if script_name in ("hinet.py", "qpt_hinet.py") and _fetch_land_only:
+            cmd += ['--land-only']          # 只有建物謄本 → 補調土地：只帶地號、不帶建號(不重複買建物謄本)
+        _fetch_land_only = False
 
         # 🔥 nlma_nbupic.py：依被點擊的按鈕帶入對應的 --city（屏東縣 / 臺南市 / 未來其他 NBUPIC 縣市）
         if script_name == "nlma_nbupic.py":
@@ -7296,6 +7400,9 @@ def exit_subprocess(button):
         if current_running_button in (start_land_button, land_manual_button):
             root.after(100, update_title_from_data_json)
             root.after(700, lambda: _recheck_transcript_link(unlink=True))
+        # 調謄本調完按「關閉」才結束 → 一樣看「下載的謄本」有沒有這次新調的(只做這件，其他照舊)
+        if current_running_button in (hinet_button, qpt_hinet_button):
+            root.after(1500, _dl_after_manual_close)
 
         try:
             downloads_dir = os.path.join(os.getcwd(), "downloads")
@@ -9901,7 +10008,11 @@ def check_and_warn_data_consistency():
 
         # 🔥 更新綠色 JSON 標籤以顯示結構化 JSON 的資訊（用於與標題比對）
         # 優先順序：1. 本地謄本資料 2. selected_json_path 3. 提示訊息
-        if transcript_info:
+        if transcript_info and data_info and not is_consistent and not is_order_issue:
+            # 選用的結構化資料是別的案件的 → 不能標綠色「已做」
+            json_status_label.config(text=f"謄本是「{transcript_info.get('area', '')}{transcript_info.get('section', '')}"
+                                          f"{_short_lot(transcript_info.get('lot_number', ''))}」的，與目前案件不符", fg='#FF8C00')
+        elif transcript_info:
             filename = transcript_info.get('file', 'transcript_data.json')
             # 🔥 從檔名提取日期時間（格式：YYYYMMDD_HHMM）
             import re
@@ -10228,6 +10339,740 @@ except Exception as _e:
     print(f"[拖曳] 未啟用：{_e}")
 
 
+# ===================== 單項工具：不用先建案件也能用(地籍圖處理工具、謄本結構化、土增稅) =====================
+# 2026-11-17 同事只想用地籍圖處理工具卻找不到；謄本本身就有地段地號 → 結構化做完照它建案件資料夾，不問委託／開發
+_solo_struct = None     # 單項結構化進行中：{t0, staging, files, then_tax, kind}
+_struct_with_tax = False  # 下次開結構化程式帶 --with-tax(「💰 轉好後順便算土增稅」預設打勾，稅在結構化程式裡算)
+_STRUCT_TOOLS = {"電子": ("電子謄本結構化", "GUI_transcript_pdf 1141021-01.py"),
+                 "電傳": ("電傳謄本結構化", "GUI_telereport.py")}
+
+
+def _trans_lot_info(data):
+    """結構化資料 → 第一筆土地謄本的 {city, area, section, lot_number}(lot_number 跟 data.json 一樣：2165、3645-31)；
+    沒有土地謄本或看不懂回 None"""
+    for item in (data if isinstance(data, list) else [data]):
+        if not isinstance(item, dict) or "土地" not in str(item.get("謄本類型", "")):
+            continue
+        s = str((item.get("基本資訊") or {}).get("地號建號", ""))
+        m = re.search(r"(\d+)(?:-(\d+))?\s*地號", s)
+        if not m:
+            continue
+        head = re.sub(r"\s+", "", s[:m.start()])
+        city = ""
+        for c in CITY_DISTRICTS:
+            for alias in {c, c.replace("台", "臺"), c.replace("臺", "台")}:
+                if head.startswith(alias) and len(head) > len(alias):
+                    city, head = c, head[len(alias):]
+                    break
+            if city:
+                break
+        known = sorted({d for ds in CITY_DISTRICTS.values() for d in ds}, key=len, reverse=True)
+        area = next((d for d in known if head.startswith(d) and len(head) > len(d)), "")
+        if not area:
+            am = re.match(r"^(.+?(?:區|鄉|鎮|市))(.+段)$", head)
+            if not am:
+                continue
+            area = am.group(1)
+        section = head[len(area):]
+        if not section.endswith("段"):
+            continue
+        if not city:
+            city = get_city_from_district(area)[0] or ""
+        lot = str(int(m.group(1))) + (f"-{int(m.group(2))}" if m.group(2) and int(m.group(2)) else "")
+        return {"city": city, "area": area, "section": section, "lot_number": lot}
+    return None
+
+
+def _norm_digits(s):
+    return str(s or "").translate(str.maketrans("０１２３４５６７８９－", "0123456789-"))
+
+
+def _parse_sit_lots(s, default_section=""):
+    """建物坐落地號 → [(段, 地號)]。電子「大豐段三小段  0237-0000  0238-0000」、電傳「果貿段0017-0000」；
+    段名後面接好幾個地號＝同一段；「等2筆」的 2 不是地號"""
+    out = []
+    sec = default_section
+    for m in re.finditer(r"([^\d\s、,，;；()（）-]+?段(?:[一二三四五六七八九十]+小段)?)|(\d+)-(\d+)|(\d+)(?![\d\s]*筆)",
+                         _norm_digits(s)):
+        if m.group(1):
+            sec = m.group(1)
+            continue
+        if not sec:
+            continue
+        main_no, sub = (m.group(2), m.group(3)) if m.group(2) else (m.group(4), None)
+        lot = str(int(main_no)) + (f"-{int(sub)}" if sub and int(sub) else "")
+        if (sec, lot) not in out:
+            out.append((sec, lot))
+    return out
+
+
+def _building_case_entries(data):
+    """只有建物謄本(沒有土地謄本)：用標示部的「建物坐落地號」組 data.json(坐落好幾筆就好幾筆)，每筆帶建號、門牌
+    (格式跟萬用查詢一樣：build_no「964」、door「大豐二路580號」、builds 清單)。看不懂回 []"""
+    known = sorted({d for ds in CITY_DISTRICTS.values() for d in ds}, key=len, reverse=True)
+    entries = []
+    for item in (data if isinstance(data, list) else [data]):
+        if not isinstance(item, dict) or "建物" not in str(item.get("謄本類型", "")):
+            continue
+        s = _norm_digits((item.get("基本資訊") or {}).get("地號建號", ""))
+        m = re.search(r"(\d+)(?:-(\d+))?\s*建號", s)
+        if not m:
+            continue
+        head = re.sub(r"\s+", "", s[:m.start()]).replace("巿", "市")
+        city = ""
+        for c in _TW_COUNTIES:
+            for alias in (c, c.replace("台", "臺")):
+                if head.startswith(alias) and len(head) > len(alias):
+                    city, head = c, head[len(alias):]
+                    break
+            if city:
+                break
+        area = next((d for d in known if head.startswith(d) and len(head) > len(d)), "")
+        if not area:
+            am = re.match(r"^(.+?(?:區|鄉|鎮|市))", head)
+            area = am.group(1) if am else ""
+        if not area:
+            continue
+        if not city:
+            city = get_city_from_district(area)[0] or ""
+        bno = str(int(m.group(1))) + (f"-{int(m.group(2))}" if m.group(2) and int(m.group(2)) else "")
+        mk = item.get("標示部") or {}
+        door = _norm_digits(mk.get("建物門牌", "")).strip()
+        if "空白" in door:
+            door = ""
+        for sec, lot in _parse_sit_lots(mk.get("建物坐落地號", ""), head[len(area):]):
+            e = next((x for x in entries if x["section"] == sec and x["lot_number"] == lot), None)
+            if e is None:
+                e = {"city": city, "area": area, "section": sec, "lot_number": lot, "build_no": bno, "door": door,
+                     "builds": []}
+                entries.append(e)
+            if all(b["build_no"] != bno for b in e["builds"]):
+                e["builds"].append({"build_no": bno, "door": door})
+    return entries
+
+
+def _copy_into(src, dst_dir, name=None):
+    """複製到 dst_dir：同名同大小就略過，同名不同內容加 _2、_3…(不覆蓋)。回目的地路徑"""
+    import shutil
+    base = name or os.path.basename(src)
+    dst = os.path.join(dst_dir, base)
+    if os.path.exists(dst):
+        if os.path.getsize(dst) == os.path.getsize(src):
+            return dst
+        stem, ext = os.path.splitext(base)
+        n = 2
+        while os.path.exists(os.path.join(dst_dir, f"{stem}_{n}{ext}")):
+            n += 1
+        dst = os.path.join(dst_dir, f"{stem}_{n}{ext}")
+    shutil.copy2(src, dst)
+    return dst
+
+
+def _solo_struct_clear():
+    """單項結構化結束或放棄：清掉暫存資料夾"""
+    global _solo_struct
+    st, _solo_struct = _solo_struct, None
+    if st and st.get("staging"):
+        import shutil
+        shutil.rmtree(st["staging"], ignore_errors=True)
+
+
+def solo_structuring(then_tax=None):
+    """單項工具：選謄本 PDF → 結構化 → 照謄本上的地號自己建案件資料夾。then_tax＝轉好接著算土增稅(fin/kh)"""
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再轉謄本。")
+        return
+    ans = show_large_choice(
+        "謄本結構化（不用先建案件）",
+        "選你手上的謄本 PDF，程式把它轉成資料（面積、持分、所有權人、前次移轉現值…）。\n"
+        "轉好後照謄本上的地段地號自動建好案件資料夾，不用先查地籍便民。\n\n"
+        "要轉哪一種謄本？\n"
+        "　• 全國地政電子謄本 → 電子謄本\n"
+        "　• 電傳資訊（光特）調的 → 電傳謄本",
+        [("電子謄本", "#1565C0"), ("電傳謄本", "#00838F"), ("取消", "#9E9E9E")])
+    if ans is None:
+        return
+    kind = ("電子", "電傳")[ans]
+    display, script = _STRUCT_TOOLS[kind]
+    try:
+        cfg = load_config() or {}
+    except Exception:
+        cfg = {}
+    init_dir = cfg.get("transcript_import_last_dir") or os.path.join(os.path.expanduser("~"), "Downloads")
+    if not os.path.isdir(init_dir):
+        init_dir = os.path.expanduser("~")
+    files = filedialog.askopenfilenames(title=f"選{kind}謄本 PDF（可以多選）", initialdir=init_dir,
+                                        filetypes=[("謄本 PDF", "*.pdf"), ("所有檔案", "*.*")])
+    if not files:
+        update_message("[取消] 沒有選謄本")
+        return
+    try:
+        cfg["transcript_import_last_dir"] = os.path.dirname(files[0])
+        save_config(cfg, show_message=False)
+    except Exception:
+        pass
+    _solo_struct_start(kind, files, then_tax)
+
+
+def _solo_struct_start(kind, files, then_tax=None, extras=(), origin=(), after=None):
+    """謄本複製到暫存資料夾 → 開結構化程式(一開就進暫存資料夾)。視窗關掉後 _solo_struct_finished 照地號建資料夾。
+    extras＝跟著放進 0.謄本、但不結構化的檔(地籍圖謄本)；origin＝建好資料夾後要移走的原檔(「下載的謄本」裡的)；
+    after＝全部做完後接著做的事(例：同一次調的別件謄本再問一次)"""
+    global _solo_struct, _struct_with_tax
+    display, script = _STRUCT_TOOLS[kind]
+    _solo_struct_clear()
+    staging = get_work_folder(os.path.join("_單項工具暫存", time.strftime("謄本_%Y%m%d_%H%M%S")))
+    try:
+        os.makedirs(staging, exist_ok=True)
+        for src in files:
+            _copy_into(src, staging)
+    except Exception as e:
+        show_large_message("複製失敗", f"謄本複製失敗：\n{e}")
+        return False
+    # 財政部稅率(fin)：結構化程式自己會算(勾選預設打勾)，主程式轉好後不用再算一次；高雄網站(kh)照舊回主程式開
+    with_tax = then_tax == "fin"
+    _solo_struct = dict(t0=time.time(), staging=staging, files=list(files), then_tax=None if with_tax else then_tax,
+                        kind=kind, with_tax=with_tax, extras=list(extras), origin=list(origin), after=after)
+    _struct_with_tax = with_tax
+    _set_struct_source(script, staging)
+    update_message(f"📄 謄本結構化（單項）：{len(files)} 份{kind}謄本。"
+                   f"在「{display}」視窗按處理，做完把視窗關掉，就會自動建好案件資料夾。")
+    button = structured_transcript_button if kind == "電子" else telereport_structured_button
+    toggle_buttons(button, display, script)
+    return True
+
+
+def _solo_newest_output(t0, exts, prefixes=("",)):
+    """output 資料夾裡 t0 之後產生的最新檔(結構化工具都放這裡)"""
+    out_dir = get_work_folder("output")
+    best = None
+    try:
+        for n in os.listdir(out_dir):
+            p = os.path.join(out_dir, n)
+            if n.lower().endswith(exts) and n.startswith(prefixes) and os.path.isfile(p):
+                t = os.path.getmtime(p)
+                if t >= t0 - 2 and (best is None or t > best[0]):
+                    best = (t, p)
+    except Exception:
+        pass
+    return best[1] if best else None
+
+
+def _solo_make_current(data_json, trans):
+    """把這件設成目前案件，結構化資料就用剛轉好的那份"""
+    global selected_json_path, json_dir
+    if not _load_case_data_json(data_json, show_dialog=False):
+        return False
+    selected_json_path, json_dir = trans, os.path.dirname(trans)
+    try:
+        cfg = load_config() or {}
+        cfg["json_dir"], cfg["selected_json"] = json_dir, trans
+        save_config(cfg, show_message=False)
+    except Exception:
+        pass
+    try:
+        convert_transcript_to_final_data(trans)      # 物件編輯器要用的資料(跟連續模式一樣，全部帶入不跳勾選)
+    except Exception as e:
+        update_message(f"[提示] 轉物件資料失敗（不影響土增稅）：{e}")
+    try:
+        update_json_status_display()
+        update_title_from_data_json()
+    except Exception:
+        pass
+    try:
+        _cf_blank_off()
+        _cf_refresh(force=True)
+    except Exception:
+        pass
+    return True
+
+
+def _solo_struct_finished():
+    """單項結構化的視窗關掉了：照謄本上的地號建案件資料夾，把謄本和結構化資料放進去"""
+    global _solo_struct
+    st = _solo_struct
+    _solo_struct = None
+    if not st:
+        return
+    try:
+        _solo_struct_build(st)
+    finally:
+        if st.get("after"):                 # 同一次調的別件謄本：這件做完再問
+            root.after(800, st["after"])
+
+
+def _solo_origin_cleanup(st, tdir):
+    """「下載的謄本」來的原檔：0.謄本 裡確定有一份一模一樣(同名同大小)的才移走，其他的留著不動"""
+    moved = 0
+    for src in st.get("origin") or []:
+        try:
+            dst = os.path.join(tdir, os.path.basename(src))
+            if os.path.isfile(src) and os.path.isfile(dst) and os.path.getsize(dst) == os.path.getsize(src):
+                os.remove(src)
+                moved += 1
+        except OSError:
+            pass
+    return moved
+
+
+def _solo_tax_pdf(case_dir, t0):
+    """這次(t0 之後)結構化程式裡算好的土增稅試算表 PDF；沒有回 None"""
+    d = os.path.join(case_dir, "1.基本資料")
+    best = None
+    try:
+        for n in os.listdir(d):
+            p = os.path.join(d, n)
+            if n.startswith("01_土地增值稅_程式試算") and n.lower().endswith(".pdf"):
+                t = os.path.getmtime(p)
+                if t >= t0 - 2 and (best is None or t > best[0]):
+                    best = (t, p)
+    except OSError:
+        pass
+    return best[1] if best else None
+
+
+def _solo_struct_build(st):
+    import shutil
+    staging = st["staging"]
+    js = _solo_newest_output(st["t0"], (".json",), ("trans_", "transcript_data_"))
+    xl = _solo_newest_output(st["t0"], (".xlsx",))
+    if not js:
+        shutil.rmtree(staging, ignore_errors=True)
+        update_message("[謄本結構化] 視窗關掉了，但沒有轉出資料（可能還沒按處理）")
+        show_large_message("沒有轉出資料", "結構化視窗關掉了，但沒有轉出資料（可能還沒按處理就關掉了）。\n\n"
+                                         "要再試一次：「🧰 其他功能」→「謄本結構化」。")
+        return
+    try:
+        with open(js, encoding="utf-8") as f:
+            data = json.load(f)
+        info = _trans_lot_info(data)
+        # 有土地謄本：照舊用第一筆土地(一筆)；只有建物謄本：用建物坐落地號(可能好幾筆，資料夾用第一筆)
+        entries = [info] if info else _building_case_entries(data)
+    except Exception:
+        entries = []
+    bld_only = bool(entries) and not info
+    if not entries:
+        # 看不懂地號：資料留在暫存資料夾，告訴他在哪
+        for p in (js, xl):
+            if p:
+                _copy_into(p, staging)
+        update_message(f"[謄本結構化] 轉好了，但找不到地段地號，資料放在：{staging}")
+        if show_large_choice("謄本結構化完成",
+                             f"轉好了，但謄本裡找不到地段地號（土地地號、建物坐落地號都沒有），沒辦法自動建案件資料夾。\n\n"
+                             f"資料放在：\n{staging}", [("📂 打開資料夾", "#55B092"), ("完成", "#9E9E9E")]) == 0:
+            os.startfile(staging)
+        return
+    info = entries[0]
+    name = f"{info['area']}{info['section']}-{info['lot_number']}"
+    case_dir = get_work_folder(name)
+    tdir, odir = os.path.join(case_dir, "0.謄本"), os.path.join(case_dir, "4.其他相關")
+    try:
+        os.makedirs(tdir, exist_ok=True)
+        os.makedirs(odir, exist_ok=True)
+        for n in os.listdir(staging):
+            if n.lower().endswith(".pdf"):
+                _copy_into(os.path.join(staging, n), tdir)
+        for p in st.get("extras") or []:          # 地籍圖謄本：不結構化，跟著放進 0.謄本
+            if os.path.isfile(p):
+                _copy_into(p, tdir)
+        bn = os.path.basename(js)
+        trans = _copy_into(js, odir, bn if bn.startswith("trans_") else "trans_" + bn)   # 載入案件時找 trans_*.json
+        if xl:
+            _copy_into(xl, odir)
+        dj = os.path.join(odir, "data.json")
+        if not os.path.exists(dj):
+            with open(dj, "w", encoding="utf-8") as f:
+                json.dump(entries, f, ensure_ascii=False, indent=4)
+            sp = os.path.join(odir, "case_stage.json")
+            if not os.path.exists(sp):          # 單項工具建的：新版介面不先問「已委託／開發中」(上面的切換鈕還是可以選)
+                with open(sp, "w", encoding="utf-8") as f:
+                    json.dump({"solo": True}, f, ensure_ascii=False)
+    except Exception as e:
+        update_message(f"[謄本結構化] 建案件資料夾失敗：{e}")
+        show_large_message("建資料夾失敗", f"轉好了，但建案件資料夾失敗：\n{e}\n\n轉好的資料在：\n{js}")
+        return
+    shutil.rmtree(staging, ignore_errors=True)
+    update_message(f"✅ 謄本結構化完成：{name}（謄本 → 0.謄本，資料 → 4.其他相關）")
+    if st.get("origin"):
+        n_moved = _solo_origin_cleanup(st, tdir)
+        if n_moved:
+            update_message(f"📁 「下載的謄本」裡的 {n_moved} 份已搬進 {name}\\0.謄本")
+
+    cur_folder, cur_name = _current_case_folder()
+    has_cur = bool(cur_folder) and os.path.isdir(cur_folder)
+    same = has_cur and os.path.normcase(os.path.abspath(cur_folder)) == os.path.normcase(os.path.abspath(case_dir))
+    tax = st.get("then_tax")
+    tax_pdf = _solo_tax_pdf(case_dir, st["t0"])     # 結構化程式裡勾了「順便算土增稅」→ 已經算好了
+    msg = f"轉好了：{name}\n\n已放進案件資料夾：\n　• 謄本 PDF → 0.謄本\n　• 結構化資料 → 4.其他相關"
+    if tax_pdf:
+        msg += "\n　• 土增稅試算表 → 1.基本資料（結構化程式裡已經算好）"
+    kind = st.get("kind") or "電子"
+    land_in_case = False
+    if bld_only:
+        # 只有建物謄本：土增稅要土地謄本。0.謄本 裡本來就有土地謄本 → 一起重新轉；沒有 → 問要不要調
+        try:
+            land_in_case = any(n.lower().endswith(".pdf") and "土地" in n for n in os.listdir(tdir))
+        except OSError:
+            pass
+        lots_txt = "、".join(f"{e['section']} {e['lot_number']}" for e in entries[:4]) + \
+                   (f" 等 {len(entries)} 筆" if len(entries) > 4 else "")
+        msg += f"\n\n資料夾照建物坐落地號建的（{lots_txt}），data.json 也寫好了建號和門牌。"
+        if land_in_case:
+            msg += "\n\n⚠ 這次只轉了建物謄本。0.謄本 裡已經有土地謄本，要連同它一起重新轉，才能算土增稅。"
+        else:
+            msg += "\n\n⚠ 這件只有建物謄本。土增稅要用土地謄本才算得出來。"
+    bld_label = "💰 連同土地謄本重新轉＋算稅" if land_in_case else "📥 調土地謄本"
+
+    def _bld_next():
+        if land_in_case:
+            root.after(300, lambda: _case_struct_with_tax(kind))
+        else:
+            root.after(300, lambda: _fetch_land_for_case(kind, len(entries)))
+
+    if not has_cur or same:
+        _solo_make_current(dj, trans)
+        if tax:
+            root.after(300, lambda: solo_tax(tax))
+            return
+        while True:
+            if bld_only:
+                first = (bld_label, "#E6C547")
+            else:
+                first = ("📄 看土增稅試算表", "#E6C547") if tax_pdf else ("💰 算土增稅", "#E6C547")
+            opts = [first, ("📂 打開資料夾", "#55B092")] + ([("📊 看 Excel", "#90CAF9")] if xl else []) + \
+                   [("完成", "#9E9E9E")]
+            tail = "" if (tax_pdf or bld_only) else "\n\n土增稅用財政部的稅率，程式直接算（不用開網站）。"
+            ans = show_large_choice("謄本結構化完成", msg + tail, opts)
+            if ans is None:
+                return
+            label = opts[ans][0]
+            if label == bld_label and bld_only:
+                _bld_next()
+                return
+            if "試算表" in label:
+                os.startfile(tax_pdf)
+                continue
+            if "土增稅" in label:
+                root.after(300, lambda: solo_tax("fin"))
+                return
+            os.startfile(case_dir if "資料夾" in label else os.path.join(odir, os.path.basename(xl)))
+    second = ("切到這件並" + ("重新轉＋算稅" if land_in_case else "調土地謄本")) if bld_only else "切到這件並算土增稅"
+    opts = [("切到這件", "#55B092"), (second, "#E6C547"), ("📂 打開資料夾", "#90CAF9"), ("留在目前案件", "#9E9E9E")]
+    if tax_pdf and not bld_only:
+        del opts[1]                             # 稅已經算好了，不用再「切到這件並算」
+    elif tax:
+        opts[0], opts[1] = opts[1], opts[0]
+    while True:
+        ans = show_large_choice("謄本結構化完成",
+                                msg + f"\n\n你目前開著「{cur_name}」，要切到這件嗎？\n"
+                                      "（不切也沒關係，資料已經存好，之後從開始卡就能切過去）", opts)
+        if ans is None:
+            update_message(f"📂 留在目前案件：{cur_name}（{name} 已存好，開始卡可以切過去）")
+            return
+        label = opts[ans][0]
+        if "資料夾" in label:
+            os.startfile(case_dir)
+            continue
+        if _solo_make_current(dj, trans) and label == second:
+            if bld_only:
+                _bld_next()
+            else:
+                root.after(300, lambda: solo_tax(tax or "fin"))
+        return
+
+
+def solo_tax(kind="fin"):
+    """單項工具：算土增稅。目前案件有謄本資料就直接算；沒有就先選謄本轉資料，轉好接著算"""
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再算土增稅。")
+        return
+    btn = finance_button if kind == "fin" else kaohsiung_tax_button
+    folder, name = _current_case_folder()
+    has_case = bool(folder) and os.path.isdir(folder)
+    why = "還沒有案件" if not has_case else _structured_problem()
+    if not why and not (selected_json_path and os.path.exists(selected_json_path)):
+        why = "這個案件還沒做謄本結構化"
+    if not why:
+        update_message(f"💰 用「{name}」的謄本資料算土增稅" + ("（財政部稅率，程式直接算）" if kind == "fin" else "（開高雄市網站）"))
+        btn.invoke()
+        return
+    if show_large_choice("土增稅要先有謄本資料",
+                         f"{why}。\n\n土增稅要用謄本裡的前次移轉現值、年月、公告現值、面積和持分才算得出來。\n"
+                         "選謄本 PDF，程式先轉成資料，轉好就接著算。",
+                         [("選謄本，轉好接著算", "#55B092"), ("取消", "#9E9E9E")]) == 0:
+        solo_structuring(then_tax=kind)
+
+
+# ===================== 什麼都沒建就直接調謄本(2026-11-17) =====================
+# 沒有案件時，電子(hinet)／電傳(qpt_hinet)調的謄本都存在「下載的謄本」，之後沒人管。
+# 調完 → 問要不要轉資料＋算土增稅 → 走單項結構化：照謄本上的地段地號建資料夾、寫 data.json、謄本搬進 0.謄本
+DL_FOLDER = "下載的謄本"
+_dl_watch = None        # 調謄本開始時記下 {t0, kind}；結束時用來找這次新調的
+_TW_COUNTIES = ("台北市", "新北市", "桃園市", "台中市", "台南市", "高雄市", "基隆市", "新竹市", "嘉義市",
+                "新竹縣", "苗栗縣", "彰化縣", "南投縣", "雲林縣", "嘉義縣", "屏東縣", "宜蘭縣", "花蓮縣",
+                "台東縣", "澎湖縣", "金門縣", "連江縣")
+
+
+def _mtime(p):
+    try:
+        return os.path.getmtime(p)
+    except OSError:
+        return 0
+
+
+def _dl_new_pdfs(t0):
+    """「下載的謄本」裡 t0 之後才出現的 PDF(舊到新)"""
+    d = get_work_folder(DL_FOLDER)
+    try:
+        out = [os.path.join(d, n) for n in os.listdir(d)
+               if n.lower().endswith(".pdf") and os.path.isfile(os.path.join(d, n)) and _mtime(os.path.join(d, n)) >= t0 - 2]
+    except OSError:
+        return []
+    return sorted(out, key=_mtime)
+
+
+def _dl_section_key(path):
+    """謄本檔名 → 「區＋段」(用來看是不是同一件)；看不懂回 None
+    電子：土地登記第二類謄本-苓雅區林興段 0399-0000地號.pdf；地籍圖：地籍圖謄本-屏東縣屏東巿新和生段53地號.pdf
+    電傳：高雄市前鎮區瑞南段一小段-1038-6-….pdf"""
+    n = os.path.splitext(os.path.basename(path))[0]
+    if "謄本-" in n:
+        n = n.split("謄本-", 1)[1]
+    n = re.sub(r"\s+", "", n.replace("巿", "市").replace("臺", "台"))
+    for c in _TW_COUNTIES:
+        if n.startswith(c) and len(n) > len(c) + 2:
+            n = n[len(c):]
+            break
+    m = re.match(r"^([^-\d]+?段(?:[一二三四五六七八九十]+小段)?)", n)
+    return m.group(1) if m else None
+
+
+def _dl_is_register(path):
+    """登記謄本(要結構化)；地籍圖、成果圖、標註檔只跟著放進 0.謄本"""
+    n = os.path.basename(path)
+    return not any(k in n for k in ("地籍圖", "成果圖", "_標註"))
+
+
+def _dl_only_building(paths):
+    """全部都是建物謄本(檔名看得出來)→ 不提土增稅"""
+    names = [os.path.basename(p) for p in paths]
+    return bool(names) and all("建物" in n and "土地" not in n for n in names)
+
+
+def _dl_pick_dialog(files, groups):
+    """這次調的不只一個地段：勾同一件的(預設勾最後調的那個地段)。回勾的清單；取消回 None"""
+    dlg = tk.Toplevel(root)
+    dlg.title("這次調的謄本不只一個地段")
+    dlg.configure(bg="white")
+    try:
+        dlg.transient(root)
+    except Exception:
+        pass
+    k = max(1.0, dlg.winfo_fpixels("1i") / 96)
+    fam = "Microsoft JhengHei"
+    tk.Label(dlg, text="這次調的謄本有好幾個地段", font=(fam, 17, "bold"), fg="#7C2D12", bg="white",
+             anchor="w").pack(fill="x", padx=24, pady=(18, 4))
+    tk.Label(dlg, text="一個案件資料夾只放同一件的謄本。\n請勾「同一件」的謄本，這次先做這件；"
+                       "沒勾的先留在「下載的謄本」，這件做完會再問你。\n（點地段名稱可以整組勾／取消）",
+             font=(fam, 14), fg="#1C1917", bg="white", justify="left", anchor="w",
+             wraplength=int(700 * k)).pack(fill="x", padx=24)
+    box = tk.Frame(dlg, bg="white", highlightthickness=1, highlightbackground="#C9D1DC")
+    box.pack(fill="both", expand=True, padx=24, pady=(10, 6))
+    cv = tk.Canvas(box, bg="white", highlightthickness=0)
+    sb = tk.Scrollbar(box, orient="vertical", command=cv.yview)
+    inner = tk.Frame(cv, bg="white")
+    inner.bind("<Configure>", lambda e: cv.configure(scrollregion=cv.bbox("all")))
+    cv.create_window((0, 0), window=inner, anchor="nw")
+    cv.configure(yscrollcommand=sb.set)
+    cv.pack(side="left", fill="both", expand=True)
+    sb.pack(side="right", fill="y")
+    dlg.bind("<MouseWheel>", lambda e: cv.yview_scroll(int(-e.delta / 120), "units"))
+    newest_key = _dl_section_key(files[-1])
+    vars_ = []
+    for key, ps in groups.items():
+        gv = [tk.BooleanVar(value=(key == newest_key)) for _ in ps]
+        hd = tk.Label(inner, text=f"■ {key or '看不出地段'}（{len(ps)} 份）", font=(fam, 15, "bold"), fg="#0A6CDB",
+                      bg="white", anchor="w", cursor="hand2")
+        hd.pack(fill="x", padx=10, pady=(10, 2))
+        hd.bind("<Button-1>", lambda e, g=gv: [v.set(not all(x.get() for x in g)) for v in g])
+        for p, v in zip(ps, gv):
+            # 系統勾選框太小 → 自己畫大的 ☑／☐，整行都能點
+            row = tk.Label(inner, font=(fam, 14), bg="white", fg="#111111", anchor="w", justify="left",
+                           cursor="hand2", wraplength=int(640 * k))
+            row.pack(fill="x", padx=(24, 10), pady=1)
+
+            def _paint(*_a, r=row, var=v, name=os.path.basename(p)):
+                r.config(text=("☑ " if var.get() else "☐ ") + name, fg="#111111" if var.get() else "#555555")
+            v.trace_add("write", _paint)
+            _paint()
+            row.bind("<Button-1>", lambda e, var=v: var.set(not var.get()))
+            vars_.append((p, v))
+    res = {"v": None}
+
+    def done(ok):
+        res["v"] = [p for p, v in vars_ if v.get()] if ok else None
+        dlg.destroy()
+    bf = tk.Frame(dlg, bg="white")
+    bf.pack(fill="x", padx=24, pady=(6, 18))
+    tk.Button(bf, text="取消（全部先留著）", font=(fam, 14), bg="#E0E0E0", fg="#1C1917", relief="flat",
+              padx=16, pady=8, cursor="hand2", command=lambda: done(False)).pack(side="right")
+    tk.Button(bf, text="✅ 用勾的這些建一件", font=(fam, 14, "bold"), bg="#55B092", fg="#10261D", relief="flat",
+              padx=20, pady=8, cursor="hand2", command=lambda: done(True)).pack(side="right", padx=(0, 12))
+    dlg.protocol("WM_DELETE_WINDOW", lambda: done(False))
+    dlg.bind("<Escape>", lambda e: done(False))
+    sw, sh = dlg.winfo_screenwidth(), dlg.winfo_screenheight()
+    W, H = min(int(780 * k), sw - 40), min(int(620 * k), sh - 80)
+    dlg.geometry(f"{W}x{H}+{(sw - W) // 2}+{max(0, (sh - H) // 3)}")
+    try:
+        dlg.grab_set()
+        dlg.focus_force()
+    except Exception:
+        pass
+    root.wait_window(dlg)
+    return res["v"]
+
+
+_fetch_no_case = False   # 下次開調謄本帶 --no-case(「只用工具 → 📥 調謄本」)
+
+
+def solo_fetch():
+    """單項工具：調謄本(不建案件)。不帶入目前案件的地號；調好的謄本先存「下載的謄本」，調完再問轉資料＋算土增稅"""
+    global _fetch_no_case
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再調謄本。")
+        return
+    ans = show_large_choice(
+        "調謄本（不用先建案件）",
+        "要用哪一個系統調？\n"
+        "　• 全國地政電子謄本\n"
+        "　• 電傳資訊（光特）\n\n"
+        "這次不會帶入目前案件的地號：請在調謄本程式裡自己打要調的縣市、區、段、地號。\n"
+        f"調好的謄本先存在「{DL_FOLDER}」，調完會問你要不要轉成資料、算土增稅，並自動建好案件資料夾。\n\n"
+        "※ 調謄本會扣謄本費，送出前請自己確認。",
+        [("全國地政電子謄本", "#1565C0"), ("電傳資訊（光特）", "#00838F"), ("取消", "#9E9E9E")])
+    if ans is None:
+        return
+    _fetch_no_case = True
+    (hinet_button if ans == 0 else qpt_hinet_button).invoke()   # 跟按原本的按鈕一樣(檢查網路等)，只多帶 --no-case
+    if not is_running:
+        _fetch_no_case = False              # 沒真的開起來(例如網路檢查按取消)→ 不要留到下次
+
+
+_fetch_land_only = False  # 下次開調謄本帶 --land-only(只有建物謄本時補調土地：只帶地號、不帶建號，免得重複買建物謄本)
+
+
+def _fetch_land_for_case(kind="電子", n_lots=1):
+    """只有建物謄本的案件：補調坐落的土地謄本(帶入 data.json 的地號，不帶建號)。調好會存進這件的 0.謄本"""
+    global _fetch_land_only
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再調土地謄本。")
+        return
+    folder, name = _current_case_folder()
+    if not folder or not os.path.isdir(folder):
+        return
+    opts = [("全國地政電子謄本", "#1565C0"), ("電傳資訊（光特）", "#00838F"), ("先不用", "#9E9E9E")]
+    if kind == "電傳":                      # 預設用剛才調建物的同一個系統(同一種才能一起轉)
+        opts[0], opts[1] = opts[1], opts[0]
+    ans = show_large_choice(
+        "調土地謄本",
+        f"要幫「{name}」調坐落的 {n_lots} 筆土地謄本。\n\n"
+        "調謄本程式問「要直接帶入 data.json 嗎？」時按 Enter，地號會自動帶入；"
+        "這次只調土地，不會帶入建號（不會重複調建物謄本）。\n\n"
+        "⚠ 大樓、公寓的土地通常很多人持分：第二類土地謄本會列出全部所有權人，可能很多頁、費用比較高。"
+        "調謄本程式送出、領件前會列出費用，請自己確認。\n\n"
+        "建議用跟建物謄本同一個系統調，之後才能一起轉成資料。\n"
+        "調好的土地謄本會存進這件的「0.謄本」，接著問你要不要重新轉、算土增稅。",
+        opts)
+    if ans is None or opts[ans][0] == "先不用":
+        return
+    _fetch_land_only = True
+    (hinet_button if opts[ans][0].startswith("全國") else qpt_hinet_button).invoke()
+    if not is_running:
+        _fetch_land_only = False            # 沒真的開起來 → 不留到下次
+
+
+def _case_struct_with_tax(kind="電子"):
+    """目前案件：0.謄本 全部重新轉成資料，結構化程式的「💰 轉好後順便算土增稅」預設打勾(走原本案件結構化那套)"""
+    global _struct_with_tax
+    if is_running:
+        show_large_message("請稍等", "目前有功能正在執行，等它結束再轉謄本。")
+        return
+    display, script = _STRUCT_TOOLS[kind]
+    button = structured_transcript_button if kind == "電子" else telereport_structured_button
+    _struct_with_tax = True
+    _guard_structuring(display, script, button)
+    if not is_running:
+        _struct_with_tax = False            # 中途取消 → 不留到下次
+
+
+def _dl_after_manual_close():
+    """調謄本程式被按「關閉」結束：有這次新調的(在「下載的謄本」)才問；沒有就什麼都不做"""
+    global _dl_watch
+    w, _dl_watch = _dl_watch, None
+    if not w or is_running or continuous_mode_active:
+        return
+    new = _dl_new_pdfs(w["t0"])
+    if new:
+        _dl_offer(new, w["kind"])
+
+
+def _dl_offer(files, kind, n_in_case=0):
+    """剛調好的謄本(在「下載的謄本」)：問要不要轉資料＋算土增稅並自動建資料夾"""
+    if is_running:
+        root.after(3000, lambda: _dl_offer(files, kind, n_in_case))
+        return
+    files = [p for p in files if os.path.isfile(p)]
+    if not files:
+        return
+    groups = {}
+    for p in files:
+        groups.setdefault(_dl_section_key(p), []).append(p)
+    rest = []
+    if len(groups) > 1:
+        pick = _dl_pick_dialog(files, groups)
+        if not pick:
+            update_message(f"📁 這次調的謄本先留在「{DL_FOLDER}」（要轉資料：🧰 其他功能 → 謄本結構化）")
+            return
+        rest = [p for p in files if p not in pick]
+        files = pick
+    after = (lambda: _dl_offer(rest, kind)) if rest else None
+    reg = [p for p in files if _dl_is_register(p)]
+    extras = [p for p in files if p not in reg]
+    names = "\n".join("　• " + os.path.basename(p) for p in files[:6]) + (f"\n　…共 {len(files)} 份" if len(files) > 6 else "")
+    if not reg:
+        show_large_message("剛調的是地籍圖謄本",
+                           f"剛剛調的是：\n{names}\n\n沒有土地／建物登記謄本可以轉成資料，檔案先留在「{DL_FOLDER}」。")
+        if after:
+            root.after(500, after)
+        return
+    only_bld = _dl_only_building(reg)
+    msg = f"剛剛調了 {len(files)} 份{kind}謄本：\n{names}\n\n"
+    if n_in_case:
+        msg += f"（另外 {n_in_case} 份跟目前案件同地段的，已經存進目前案件的「0.謄本」）\n\n"
+    msg += f"這幾份還沒有案件資料夾（現在放在「{DL_FOLDER}」）。\n\n"
+    if only_bld:
+        msg += ("要轉成資料嗎？轉好會照建物坐落地號自動建好資料夾、寫好 data.json（含建號、門牌），謄本搬進「0.謄本」。\n"
+                "（都是建物謄本：土增稅要用土地謄本，轉好後會問你要不要接著調）")
+    else:
+        msg += ("要轉成資料、算土增稅嗎？\n轉好會照謄本上的地段地號自動建好資料夾、寫好 data.json，謄本搬進「0.謄本」，"
+                "土增稅試算表存到「1.基本資料」。")
+    opts = [("📄 轉成資料" if only_bld else "💰 轉成資料＋算土增稅", "#55B092"),
+            (f"📂 打開「{DL_FOLDER}」", "#90CAF9"), ("先不用", "#9E9E9E")]
+    while True:
+        ans = show_large_choice("剛調的謄本要整理嗎？", msg, opts)
+        if ans == 1:
+            try:
+                os.startfile(get_work_folder(DL_FOLDER))
+            except OSError:
+                pass
+            continue
+        if ans != 0:
+            update_message(f"📁 先不用：謄本留在「{DL_FOLDER}」（要轉資料：🧰 其他功能 → 謄本結構化）")
+            return
+        break
+    _solo_struct_start(kind, reg, None if only_bld else "fin", extras=extras, origin=files, after=after)
+
+
 # ===================== 新版介面(試用)：案件進度表(case_flow)取代上方按鈕區，訊息框/輸入框照舊 =====================
 # 大家都能用(右上 ✨ 切換，預設舊版)；按鈕都接回舊版同一顆按鈕/函式，行為跟舊版一樣
 _UI_PREF = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "地籍資料查詢系統", "ui_pref.json")
@@ -10324,8 +11169,9 @@ def _cf_state(case):
             d = json.load(f)
     except Exception:
         d = {}
-    d["stage_set"] = d.get("stage") in ("委託", "開發")     # 沒選過 → 新版介面先問「已委託／還在開發」
-    if not d["stage_set"]:
+    # 沒選過 → 新版介面先問「已委託／還在開發」；單項工具建的(solo)不問，上面的切換鈕照樣可以選
+    d["stage_set"] = d.get("stage") in ("委託", "開發") or bool(d.get("solo"))
+    if d.get("stage") not in ("委託", "開發"):
         d["stage"] = "委託"
     d["skip"] = list(d.get("skip") or [])
     return d
@@ -10527,6 +11373,12 @@ _CF_FN = {
     "query_list": lambda: _cf_open_attach(),
     "struct": lambda: _offer_structuring("把謄本轉成資料（面積、持分、前次移轉現值…）"),
     "cadastral": launch_cadastral_map_tool,
+    # 單項工具(不用先建案件)：工具箱、第 1 步卡片、開始卡都接這幾個
+    "solo_cadastral": launch_cadastral_map_tool,
+    "solo_struct": lambda: solo_structuring(),
+    "solo_tax": lambda: solo_tax("fin"),
+    "solo_tax_kh": lambda: solo_tax("kh"),
+    "solo_fetch": lambda: solo_fetch(),
     "editor": lambda: data_editor.open_data_editor(),
     "doc_survey": lambda: _cf_editor_then("📝 物件編輯器已打開：填好後按下方「生成物件調查表」"),
     "doc_deck": lambda: data_editor.open_marketing_deck(),
@@ -10653,7 +11505,24 @@ def show_start_card():
     start_card.show(root, PROGRAM_DIR, current=cur, progress_fn=_start_progress,
                     on_continue=_start_continue, on_switch=_start_switch,
                     on_new=lambda: show_quick_intro(force=True, intent="new"), on_browse=load_data_json_from_folder,
-                    on_cancel=_start_cancel)
+                    on_cancel=_start_cancel, on_tool=_start_tool, tools=_solo_tool_list())
+
+
+def _solo_tool_list():
+    import case_flow as CF
+    return CF.SOLO_TOOLS
+
+
+def _start_tool(key):
+    """開始卡選「只用工具」：不切換案件，直接開那個工具。
+    11-17：開始卡一關，功能提示(最上層)同時跳出來蓋住「要轉哪一種謄本？」→ 工具的對話框問完前先擋住提示"""
+    _cfw["tips_hold"] = True
+    try:
+        _cf_blank_off()
+        _cf_refresh(force=True)
+        _cf_action(key)
+    finally:
+        _cfw["tips_hold"] = False
 
 
 def _start_cancel():
@@ -10679,7 +11548,13 @@ def _show_new_tips(startup=True):
     try:
         import start_card
         import feature_tips
-        if start_card.is_open() or is_running or not _cfw.get("on"):
+        if start_card.is_open() or not _cfw.get("on"):
+            return
+        # 工具的對話框還開著(選謄本種類、選檔)或程式在跑 → 提示會蓋住它們；開始卡那一輪晚點再試，不要搶
+        busy = is_running or _cfw.get("tips_hold") or root.grab_current() is not None
+        if busy:
+            if startup:
+                root.after(3000, lambda: _show_new_tips(startup=True))
             return
         if not startup and not _cfw.get("tips_boot"):
             return                              # 開始卡那一輪還沒跑，先別搶

@@ -831,9 +831,19 @@ class BigButton(tk.Canvas):
         tick(0)
 
 
+# 單項工具：不用先建案件也能用(2026-11-17 同事只想用地籍圖處理工具卻找不到)。工具箱、第 1 步卡片、開始卡共用
+SOLO_TOOLS = [
+    ("🗺", "地籍圖處理工具", "標邊長、路名路寬、多頁接圖", "solo_cadastral"),
+    ("📥", "調謄本", "自己打地號調，調完自動建資料夾", "solo_fetch"),
+    ("📄", "謄本結構化", "選謄本 PDF 轉成資料，自動建資料夾", "solo_struct"),
+    ("💰", "謄本結構化＋土增稅", "轉好順便算稅；轉過的直接算", "solo_tax"),
+]
+
 TOOLBOX = [   # 只放「步驟」裡沒有的：各項查詢在第 2 步「清單」(連續模式)可以單跑，謄本/土增稅/物件編輯器在各步驟
     # (分類, 主色, [(圖示, 名稱, 一句話說明, key)])
-    # 兩欄排：左欄 建立案件＋案件檔案、右欄 阿生地圖＋設定與說明(高度差不多)
+    # 兩欄排(TOOLBOX_COL)：左欄 單項工具＋案件檔案、右欄 建立案件＋阿生地圖＋設定與說明(高度差不多)
+    ("單項工具（不用先建案件）", "#7B3FA0", SOLO_TOOLS + [
+        ("🏙", "高雄土增稅（網站）", "開高雄市網站估算，比較慢", "solo_tax_kh")]),
     ("建立案件", "#E07A1F", [
         ("🔎", "萬用查詢", "打地址、門牌或地號", "quick"),
         ("🗺", "地籍便民（手動）", "在地籍圖網頁上自己點", "land_manual"),
@@ -854,6 +864,7 @@ TOOLBOX = [   # 只放「步驟」裡沒有的：各項查詢在第 2 步「清�
         ("📋", "開始卡", "選要做哪一件", "start_card"),
         ("💡", "功能提示", "新功能介紹，可重看", "tips")]),
 ]
+TOOLBOX_COL = [0, 1, 0, 1, 1]      # 每個分類放左欄(0)或右欄(1)，跟 TOOLBOX 順序對應
 _TOOLBOX = {"win": None}
 
 
@@ -975,13 +986,16 @@ def open_toolbox(parent, on_pick, x=None, y=None, account=None, style="cards", t
             body.columnconfigure(i, weight=1, uniform="cd")
             c.grid(row=0, column=i, sticky="nsew", padx=(pad if i == 0 else M.px(7), pad if i == 1 else M.px(7)),
                    pady=M.px(12))
+        used = set()
         for gi, (gname, color, tools) in enumerate(TOOLBOX):
             # 每類自己的底色：標題列用分類色的淡色，內容用更淡的(tint="head" 只上標題列)
             h_bg = M.mix(color, "#FFFFFF", 0.72)
             c_bg = M.mix(color, "#FFFFFF", 0.87) if tint == "all" else bg
-            card = tk.Frame(cols_[gi // 2], bg=c_bg, highlightbackground=M.mix(color, "#FFFFFF", 0.55),
+            ci = TOOLBOX_COL[gi] if gi < len(TOOLBOX_COL) else gi % 2
+            card = tk.Frame(cols_[ci], bg=c_bg, highlightbackground=M.mix(color, "#FFFFFF", 0.55),
                             highlightthickness=1)
-            card.pack(fill=tk.X, pady=(0 if gi % 2 == 0 else M.px(12), 0))
+            card.pack(fill=tk.X, pady=(M.px(12) if ci in used else 0, 0))
+            used.add(ci)
             hd = tk.Frame(card, bg=h_bg)
             hd.pack(fill=tk.X)
             tk.Frame(hd, bg=color, width=M.px(5)).pack(side=tk.LEFT, fill=tk.Y)
@@ -1501,6 +1515,21 @@ class Guide(tk.Frame):
             self.on_stage(s)
             self.on_action("refresh")
 
+    def _draw_solo(self, parent):
+        """「只想用單一工具？」：不用先建案件，直接開地籍圖處理工具／謄本結構化／土增稅"""
+        box = tk.Frame(parent, bg="#F4EEF8", highlightbackground="#B79BCB", highlightthickness=1)
+        box.pack(fill=tk.X, padx=M.px(2), pady=(M.px(12), 0))
+        self.solo_box = box                          # 功能提示要指這裡
+        tk.Label(box, text="只想用單一工具？", font=(FAM, 16, "bold"), bg="#F4EEF8", fg="#5A2D78",
+                 anchor="w").pack(fill=tk.X, padx=M.px(14), pady=(M.px(10), 0))
+        _autowrap(tk.Label(box, text="不用先建案件，也不用選委託或開發，直接用：\n（跟謄本有關的，做完會照地號自動建好資料夾）", font=(FAM, 14), bg="#F4EEF8", fg=INK,
+                           anchor="w", justify="left")).pack(fill=tk.X, padx=M.px(14))
+        # 一行一顆(主程式視窗窄，三顆並排「地籍圖處理工具」會被切掉)
+        for i, (icon, name, desc, key) in enumerate(SOLO_TOOLS):
+            b = BigButton(box, f"{icon} {name}　{desc}", (lambda k=key: self.on_action(k)), height=M.px(44), size=14,
+                          color="#E4D7EE", fg=INK)
+            b.pack(fill=tk.X, padx=M.px(14), pady=(M.px(8) if i == 0 else M.px(6), M.px(12) if i == len(SOLO_TOOLS) - 1 else 0))
+
     def show_empty(self, text, btn_text, command, account=None):
         """還沒有案件：第 1 步 建立案件"""
         self.account, self._prev_done, self.pick, self._last = account, None, None, None
@@ -1516,5 +1545,6 @@ class Guide(tk.Frame):
                            justify="left")).pack(fill=tk.X, padx=M.px(14), pady=(M.px(4), 0))
         BigButton(box, btn_text, command, height=M.px(58), size=18).pack(fill=tk.X, padx=M.px(14),
                                                                           pady=(M.px(10), M.px(12)))
+        self._draw_solo(self.cur)
         self._draw_foot(stage=False)
         self.card._fit()

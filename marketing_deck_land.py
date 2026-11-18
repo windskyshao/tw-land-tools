@@ -80,7 +80,9 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     else:
         for src in cads:
             M.log("製作：地籍圖"); M.slide_cadastral(deck, src)
-    zon = M.sel_paths(sel, "zoning", M._globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
+    for src in M.sel_paths(sel, "zcert", M.zcert_files(roots)):
+        M.log("製作：土地使用分區證明"); M.slide_zcert(deck, src)
+    zon =M.sel_paths(sel, "zoning", M._globs(roots, os.path.join("1.基本資料", "png", "*都市計畫圖*.png"),
                                               os.path.join("1.基本資料", "*全國土地使用分區*.pdf"))[:1])
     for src in zon:
         M.log("製作：使用分區"); ms.zoning(M, deck, C, f, src)

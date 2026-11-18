@@ -412,7 +412,7 @@ def run_dialog(case_dir, v, notes, template_path):
     ui.segmented(c3, web_var, ("上網", "不上網"), T3).grid(row=0, column=1, sticky="w", padx=(40, 0))
 
     # ---- 比例 ----
-    c4 = ui.card(body, "經紀人與比例", "賣方＋買方＝100%；各方名單加總＝該方%", "orange")
+    c4 = ui.card(body, "經紀人與比例", "賣方＋買方＝100%；改比例、加減人、改某人%，其他格會自動跟著調", "orange")
     T4, TINT4, EDGE4 = ui.THEMES["orange"]
     top_row = tk.Frame(c4, bg=TINT4)
     top_row.pack(fill=tk.X, pady=(0, 10))
@@ -479,29 +479,122 @@ def run_dialog(case_dir, v, notes, template_path):
             ok = target is not None and abs(total - target) < 1e-6
             lab.config(text=f"合計 {total:g}%  " + (f"✔ 符合{who}%" if ok else f"✖ 要等於 {target:g}%" if target is not None else ""),
                        fg=ui.OK if ok else ui.BAD)
-    for nv, pv in rows + brows:
-        nv.trace_add("write", refresh)
-        pv.trace_add("write", refresh)
-    seller_var.trace_add("write", refresh)
+    # ---- 連動(使用者 11-12：改了比例/名單，其他格要自己跟著調) ----
+    # 改賣方% → 兩邊名單照原本比例放大縮小(原本沒填就平均)；加/刪一位 → 該方平均；
+    # 改某一位% → 同一方其他人平均分剩下的(剩下不夠分就不動，合計會標紅)
+    busy = [False]
+
+    def _targets():
+        sv = to_num(seller_var.get())
+        if sv is None or not 0 <= sv <= 100:
+            return None
+        return ((rows, sv), (brows, 100 - sv))
+
+    def _fmt(x):
+        return f"{x:g}"
+
+    def _spread(parts, target, weights=None):
+        """target 依 weights 分成整數(最大餘數法)；weights 全 0/空 → 平均"""
+        if not parts:
+            return
+        w = weights if weights and sum(weights) > 0 else [1] * len(parts)
+        raw = [target * x / sum(w) for x in w]
+        base = [int(r) for r in raw]
+        left = int(round(target - sum(base)))
+        for i in sorted(range(len(raw)), key=lambda i: raw[i] - base[i], reverse=True)[:max(left, 0)]:
+            base[i] += 1
+        if abs(target - round(target)) > 1e-9:          # 賣方% 有小數：差額補給第一位
+            base[0] += target - sum(base)
+        for p, val in zip(parts, base):
+            p.set(_fmt(val))
+
+    def _named(rs):
+        return [(n, p) for n, p in rs if n.get().strip()]
+
+    def guarded(fn):
+        def run(*a):
+            if busy[0]:
+                return
+            busy[0] = True
+            try:
+                fn(*a)
+            finally:
+                busy[0] = False
+                refresh()
+        return run
+
+    @guarded
+    def on_seller(*_):
+        tg = _targets()
+        if not tg:
+            return
+        for rs, target in tg:
+            nm = _named(rs)
+            _spread([p for _, p in nm], target, [to_num(p.get()) or 0 for _, p in nm])
+
+    @guarded
+    def even(*_):
+        tg = _targets()
+        if not tg:
+            return
+        for rs, target in tg:
+            _spread([p for _, p in _named(rs)], target)
+
+    def on_name(rs, nv, pv, had):
+        def f(*_):
+            has = bool(nv.get().strip())
+            if has == had[0]:
+                return
+            had[0] = has
+            if busy[0]:
+                return
+            busy[0] = True
+            try:
+                if not has:
+                    pv.set("")
+                tg = _targets()
+                if tg:
+                    target = tg[0][1] if rs is rows else tg[1][1]
+                    _spread([p for _, p in _named(rs)], target)
+            finally:
+                busy[0] = False
+                refresh()
+        return f
+
+    def on_pct(rs, pv):
+        def f(*_):
+            if busy[0]:
+                return
+            mine = to_num(pv.get())
+            tg = _targets()
+            if mine is None or not tg:
+                refresh()
+                return
+            target = tg[0][1] if rs is rows else tg[1][1]
+            others = [p for n, p in _named(rs) if p is not pv]
+            rest = target - mine
+            if others and rest >= 0:
+                busy[0] = True
+                try:
+                    _spread(others, rest)
+                finally:
+                    busy[0] = False
+            refresh()
+        return f
+
+    for rs in (rows, brows):
+        for nv, pv in rs:
+            nv.trace_add("write", on_name(rs, nv, pv, [bool(nv.get().strip())]))
+            pv.trace_add("write", on_pct(rs, pv))
+    seller_var.trace_add("write", on_seller)
 
     def set_ratio(s):
-        seller_var.set(s)
-        even()
+        seller_var.set(s)            # on_seller 會跟著調兩邊名單
 
-    def even():
-        sv = to_num(seller_var.get())
-        if sv is None:
-            return
-        for rs, target in ((rows, int(sv)), (brows, 100 - int(sv))):
-            names = [(n, p) for n, p in rs if n.get().strip()]
-            if not names:
-                continue
-            each, rest = divmod(target, len(names))
-            for i, (n, p) in enumerate(names):
-                p.set(str(each + (rest if i == 0 else 0)))
-    for t, s_ in (("60 / 40", "60"), ("50 / 50", "50")):
-        ui.button(qf, t, lambda s_=s_: set_ratio(s_), "chip", T4).pack(side=tk.LEFT, padx=4)
-    ui.button(qf, "平均分配", even, "chip", T4).pack(side=tk.LEFT, padx=4)
+    tk.Label(qf, text="快速設定：", font=ui.FB, fg=ui.TEXT, bg=TINT4).pack(side=tk.LEFT, padx=(0, 4))
+    for t, s_ in (("賣60／買40", "60"), ("各50", "50")):
+        ui.button(qf, t, lambda s_=s_: set_ratio(s_), "primary", T4, padx=14, pady=6).pack(side=tk.LEFT, padx=4)
+    ui.button(qf, "每人平均分", even, "primary", T4, padx=14, pady=6).pack(side=tk.LEFT, padx=4)
     refresh()
 
     result = {"ok": False}

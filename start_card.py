@@ -207,7 +207,7 @@ def _section(parent, n, title, bg):
 
 
 def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_switch=None, on_new=None,
-         on_browse=None, on_cancel=None, n_recent=4):
+         on_browse=None, on_cancel=None, n_recent=4, on_tool=None, tools=()):
     """current={'name','folder'} 或 None；progress_fn(folder, data_json)→「做到第幾步」文字(可回空)；
     on_switch(data_json) 切到那個案件；on_new() 建立新案件；on_browse() 從資料夾挑別的案件；
     on_cancel() 按右上 ✕ 或 Esc＝先不選(留在上次的案件，跟「接著做」一樣不切換，只是不急著開始)。
@@ -334,13 +334,27 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
     BigButton(body, "＋ 建立新案件", lambda: close(on_new), height=M.px(46), size=17,
               color="#E58135", fg=INK).pack(fill=tk.X, pady=(M.px(6), 0))
 
+    # ③ 直接用單項工具(不用先建案件；跟謄本有關的做完會自己建資料夾)：tools=[(圖示, 名稱, 說明, key)]，點了 on_tool(key)
+    if on_tool and tools:
+        _section(body, n, "直接用工具，不用先建案件", bg)
+        n += 1
+        tk.Label(body, text="不用先查地籍便民，也不用選委託或開發。\n跟謄本有關的工具，做完會照地號自動建好資料夾。", font=(FAM, 14), bg=bg, fg=INK2, justify="left",
+                 anchor="w").pack(fill=tk.X)
+        for i, (icon, name, desc, key) in enumerate(tools):
+            # 一行一顆；width 給小的：Canvas 預設很寬，並排會把卡片撐出螢幕(11-17 第三顆被切掉)
+            b = BigButton(body, f"{icon} {name}　{desc}", (lambda k=key: close(lambda: on_tool(k))), height=M.px(40),
+                          size=14, width=M.px(60), color="#E4D7EE", fg=INK)
+            b.pack(fill=tk.X, pady=(M.px(6) if i == 0 else M.px(4), 0))
+
     # ③ 切到其他案件
     recent = recent_cases(base_dir, n_recent, exclude=current.get("folder") if current else None)
     if recent or on_browse:
         _section(body, n, "切到其他案件", bg)
+    rec_rows = []
     for c in recent:
         row = tk.Frame(body, bg=BLUE_BG, cursor="hand2", highlightbackground=LINE, highlightthickness=1)
         row.pack(fill=tk.X, pady=(0, M.px(5)))
+        rec_rows.append(row)
         a = tk.Label(row, text=c["name"], font=(FAM, 15, "bold"), bg=BLUE_BG, fg=INK, anchor="w", cursor="hand2")
         a.pack(side=tk.LEFT, padx=(M.px(10), 0), pady=M.px(6))
         b = tk.Label(row, text=when_text(c["mtime"]) + "　›", font=(FAM, 13), bg=BLUE_BG, fg=INK2, cursor="hand2")
@@ -381,6 +395,13 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
     tw.update_idletasks()
     W, H = max(tw.winfo_reqwidth(), M.px(500)), tw.winfo_reqheight()
     sw, sh = tw.winfo_screenwidth(), tw.winfo_screenheight()
+    # 太高(工具多、螢幕矮)→ 最近案件少列幾個，最下面「不用問我」和「📂 其他案件」一定看得到(11-17 下面被切掉)
+    avail = sh - M.px(48)
+    while H > avail and rec_rows:
+        rec_rows.pop().pack_forget()
+        tw.update_idletasks()
+        H = tw.winfo_reqheight()
+    H = min(H, avail)
     rx, ry, rw = root.winfo_rootx(), root.winfo_rooty(), root.winfo_width()
     gap = M.px(14)
     if rx - W - gap >= 0:
@@ -391,6 +412,8 @@ def show(root, base_dir, current=None, progress_fn=None, on_continue=None, on_sw
         ov.msg.configure(text="請先在右邊選擇 →\n要從哪裡開始")
     else:
         x = max(0, rx + (rw - W) // 2)
+    W = min(W, sw)                      # 再寬也不能超出螢幕(右邊被切掉就看不到按鈕)
+    x = max(0, min(x, sw - W))
     y = max(0, min(ry, sh - H - M.px(48)))
     tw.geometry(f"{W}x{H}+{x}+{y}")
     tw._pos = (W, H, x, y)

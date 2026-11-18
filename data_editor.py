@@ -6782,7 +6782,7 @@ def open_data_editor():
         jun_pages = _find_school_pages(jun_pdf, jun_schools) if jun_pdf else {}
 
         dlg = tk.Toplevel(root)
-        dlg.title(f"學區查詢成功（114 學年資料 - {city}）")
+        dlg.title(f"學區查詢成功（國小 115、國中 114 學年資料 - {city}）")
         dlg.geometry("680x560")
         dlg.update_idletasks()
         x = (dlg.winfo_screenwidth() - 680) // 2
@@ -6790,7 +6790,7 @@ def open_data_editor():
         dlg.geometry(f"+{x}+{y}")
 
         # 標題
-        tk.Label(dlg, text=f"學區查詢成功（114 學年資料）",
+        tk.Label(dlg, text=f"學區查詢成功（國小 115、國中 114 學年）",
                  font=("微軟正黑體", 16, "bold"), fg="#1976D2",
                  pady=15).pack()
 
@@ -6811,7 +6811,7 @@ def open_data_editor():
         warn_frame = tk.Frame(dlg, bg='#FFF3CD', relief=tk.SOLID, borderwidth=1)
         warn_frame.pack(fill=tk.X, padx=25, pady=15)
         tk.Label(warn_frame,
-                 text="💡 此結果為 114 學年資料\n   建議按下方按鈕開啟 115 學年 PDF 比對\n   先複製里名 → 開啟 PDF → 用 Ctrl+F 搜尋里名\n   若有差異，請手動修改右側「鄰近學校」欄位",
+                 text="💡 國小已是 115 學年資料；國中還是 114 學年資料\n   建議按下方按鈕開啟 115 學年 PDF 比對\n   先複製里名 → 開啟 PDF → 用 Ctrl+F 搜尋里名\n   若有差異，請手動修改右側「鄰近學校」欄位",
                  font=("微軟正黑體", 11), bg='#FFF3CD', fg='#856404',
                  justify=tk.LEFT, anchor='w',
                  padx=12, pady=10).pack(fill=tk.X)

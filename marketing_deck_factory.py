@@ -136,6 +136,8 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
     else:
         for src in cads:
             M.log("製作：地籍圖"); M.slide_cadastral(deck, src)
+    for src in M.sel_paths(sel, "zcert", M.zcert_files(roots)):
+        M.log("製作：土地使用分區證明"); M.slide_zcert(deck, src)
     if M.sel_on(sel, "split") and extra.get("split"):
         M.log("製作：分割銷售方案")
         split_slide(M, deck, C, f, d, extra, ll, (M.sel_paths(sel, "split", []) or [None])[0])

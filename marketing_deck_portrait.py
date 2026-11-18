@@ -284,6 +284,26 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
         _grid_rows(M, s, rows, L, TOP + ih_ + Inches(0.2), CW, BOT - Inches(0.35))
         M.text(s, L, BOT - Inches(0.3), CW, Inches(0.28), "資料來源：地政事務所地籍圖謄本", 10, False, M.INK)
 
+    # ================================================================ 土地使用分區證明(正式證明書整張放，下面大字列分區)
+    for src in M.sel_paths(sel, "zcert", M.zcert_files(roots)):
+        M.log("製作：土地使用分區證明")
+        s = new("土地使用分區證明")
+        png = M.pdf_region_png(src, tmp, lambda pg: None, "zcert")
+        ih_ = Inches(7.4)
+        M.box(s, L, TOP, CW, ih_, M.WHITE, M.LINE)
+        M.picture(s, png, L + Inches(0.08), TOP + Inches(0.08), CW - Inches(0.16), ih_ - Inches(0.16), tmp,
+                  mode="contain", lossless=True)
+        try:
+            zi = M.zcert_info(src)
+        except Exception:
+            zi = {"rows": []}
+        rows = [(f"{sec}{lot}", zone) for sec, lot, zone in zi["rows"][:6]]
+        if zi.get("until"):
+            rows.append(("有效期限", f"至民國 {zi['until']}"))
+        _grid_rows(M, s, rows, L, TOP + ih_ + Inches(0.2), CW, BOT - Inches(0.35))
+        M.text(s, L, BOT - Inches(0.3), CW, Inches(0.28),
+               f"資料來源：{zi.get('org') or '主管機關'} 土地使用分區證明書（電子證明，可掃 QR-code 驗證）", 10, False, M.INK)
+
     # ================================================================ 建物測量成果圖
     for i, src in enumerate(plans):
         M.log("製作：建物測量成果圖")

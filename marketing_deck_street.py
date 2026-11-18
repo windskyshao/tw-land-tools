@@ -99,6 +99,8 @@ def build(M, case_dir, base_dir, d, exp, chosen, out_path, f, show_agents=True, 
         M.log("製作：使用分區"); zoning(M, deck, C, f, src)
     for src in cad_pages:
         M.log("製作：地籍圖"); M.slide_cadastral(deck, src)
+    for src in M.sel_paths(sel, "zcert", M.zcert_files(roots)):
+        M.log("製作：土地使用分區證明"); M.slide_zcert(deck, src)
     for i, src in enumerate(plans):
         M.log("製作：建物測量成果圖"); M.slide_floorplan(deck, src, cont=i > 0)
     layouts = [p["path"] for p in by[M.LAYOUT_CAT]]

@@ -50,6 +50,8 @@ from selenium.common.exceptions import UnexpectedAlertPresentException, NoSuchEl
 
 # 🔥 基準目錄設定（data.json 和工作資料夾的位置）
 from base_dir_helper import BASE_DIR, get_data_json_path, get_work_folder
+NO_CASE = "--no-case" in sys.argv   # 主程式「只用工具 → 📥 調謄本」：不讀目前案件的 data.json(不問帶入、不分流進案件)，謄本全部存「下載的謄本」
+LAND_ONLY = "--land-only" in sys.argv   # 主程式「只有建物謄本 → 📥 調土地謄本」：帶入地號但不帶建號(不重複買建物謄本)
 from webdriver_helper import create_chrome_driver, verify_and_fix_chrome_window
 
 # 🔥 自動偵測 DPI 縮放比例
@@ -1387,7 +1389,7 @@ def _repair_seg_by_case(s, case_dir, case_key):
         cands = []
         # 1) 根源：data.json 的 section（權威來源；資料夾名/case_key 也是從它衍生的）
         try:
-            entry = read_first_entry_from_json(get_data_json_path())
+            entry = None if NO_CASE else read_first_entry_from_json(get_data_json_path())   # 不建案件：別拿目前案件的段名
             sec = re.sub(r'\s+', '', str((entry or {}).get('section', '') or ''))
             if sec.endswith('段') and len(sec) >= 2:
                 cands.append(sec)
@@ -2004,7 +2006,9 @@ def main():
         card_cert = config.get("card_cert")
         
         # 讀取 data.json 的第一組資料，構建自訂目錄
-        first_entry = read_first_entry_from_json(get_data_json_path())
+        first_entry = None if NO_CASE else read_first_entry_from_json(get_data_json_path())
+        if NO_CASE:
+            print("\033[96m（這次不帶入目前案件的地號：調好的謄本全部存到「下載的謄本」，調完主程式會幫你建資料夾）\033[0m", flush=True)
         if first_entry:
             custom_dir_name = construct_custom_directory(first_entry)
             # 🔥 使用 BASE_DIR（主程式執行檔所在目錄）
@@ -2166,7 +2170,10 @@ def _prefill_from_data_json():
     """送件前：若 data.json 有資料，詢問是否帶入，免手動輸入。
     回傳 (county, district, section, land_number_input, gland_number) 或 None（不帶入/無資料）。
     gland_number：data.json 有建號就帶入(多戶用逗號)，沒有則為 None(照舊詢問)。
+    NO_CASE(不建案件)：不問，直接自己輸入。
     ⚠️ 官方系統「不同地段必須分開調閱」，故依『縣市+地區+地段』分組，混段時讓使用者選一組帶入。"""
+    if NO_CASE:
+        return None
     try:
         path = get_data_json_path()
         if not os.path.exists(path):
@@ -2231,10 +2238,12 @@ def _prefill_from_data_json():
         land_number_input = lots[0] if lots else ''
 
     print(f"\033[38;5;46m✓ 已帶入：{city} {district} {section}　地號：{land_number_input or '（無）'}\033[0m", flush=True)
-    builds = _builds_of(entries)
+    builds = [] if LAND_ONLY else _builds_of(entries)
     gland = ','.join(builds) if builds else None
     if gland:
         print(f"\033[38;5;46m✓ 已帶入建號：{gland}\033[0m", flush=True)
+    elif LAND_ONLY:
+        print("\033[38;5;46m✓ 這次只調土地謄本：不帶入建號\033[0m", flush=True)
     return city, district, section, land_number_input, gland
 
 
@@ -2278,7 +2287,10 @@ def get_user_input():
     if len(land_number_list) > 1:
         # 分批調閱（多筆地號）時：建號沒有分批機制，若輸入會跟著每一批重複送出
         print("\033[91m⚠ 您選的是『分批調閱』（多筆地號）。建號沒有分批機制，若在此輸入建號，會跟著每一批重複送出；分批調閱時建議『不要輸入建號』，直接按 Enter 跳過。\033[0m", flush=True)
-    if _pf_gland:
+    if LAND_ONLY:
+        gland_number = ""
+        print("建號：（這次只調土地謄本，不調建號）", flush=True)
+    elif _pf_gland:
         # data.json 已有建號(萬用查詢建立的案件) → 直接帶入；後面的確認畫面還可以改
         gland_number = _pf_gland
         print(f"建號（從 data.json 帶入）: {gland_number}", flush=True)
