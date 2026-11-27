@@ -1,3 +1,8 @@
+try:                                   # 11-27 同事筆電 HTTPS「DSO: LOAD_FAILED」：Windows 憑證讀不了就改用內建憑證清單
+    import ssl_fix as _ssl_fix
+    _ssl_fix.install()
+except Exception:
+    pass
 import psutil
 import subprocess
 import threading
@@ -94,7 +99,7 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9r"
+VERSION = "1.1.9s"
 BUILD_DATE = "2026-11-27"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
@@ -2775,7 +2780,8 @@ frame_top.pack(side=tk.TOP, fill=tk.X, padx=M.px(5), pady=(M.px(6), 0))
 
 # 🔥 先定義 frame_bottom（先 pack 在底部）
 frame_bottom = tk.Frame(root, height=60, bg=M.BG)
-frame_bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=(M.px(4), M.px(8)))
+# before=frame_top：排版時輸入欄先分到位置(11-27 同事筆電螢幕矮，上面步驟卡太高把輸入欄擠不見)
+frame_bottom.pack(side=tk.BOTTOM, fill=tk.X, pady=(M.px(4), M.px(8)), before=frame_top)
 frame_bottom.pack_propagate(False)
 
 # 🔥 再定義 frame_middle（填滿中間剩餘空間）
@@ -4280,6 +4286,17 @@ def process_mortgage_data(mortgages, data_final):
             data_final["設定金額"] = f"{grand_total_wan:,.0f}萬元正"
             data_final["設定金額明細"] = details
 
+def _clean_luz_value(v):
+    """謄本標示部的「使用分區」「使用地類別」：只收像分區/用地的短字串。
+    11-27 同事：海城段196 被讀成「民國115年01月　公告土地現值：14,00…」(下一行跑進來)→ 當成空白，不要寫進物件資料"""
+    v = str(v or "").strip()
+    if not v or v == "（空白）":
+        return v
+    if re.search(r"民國|公告|現值|地價|元/|平方公尺|\d{3}年", v) or len(v) > 20:
+        return "（空白）"
+    return v
+
+
 def convert_transcript_to_final_data(transcript_json_path):
     """
     將結構化 JSON 轉換成 data_final.json
@@ -4670,8 +4687,8 @@ def convert_transcript_to_final_data(transcript_json_path):
                 data_final["公告現值"] = value.replace(",", "")
             
             # 🔥 非都市土地使用地類別
-            使用分區 = land_data.get("標示部", {}).get("使用分區", "")
-            使用地類別 = land_data.get("標示部", {}).get("使用地類別", "")
+            使用分區 = _clean_luz_value(land_data.get("標示部", {}).get("使用分區", ""))
+            使用地類別 = _clean_luz_value(land_data.get("標示部", {}).get("使用地類別", ""))
             
             # 檢查是否為都市土地（兩者都是「（空白）」）
             if 使用分區 == "（空白）" and 使用地類別 == "（空白）":

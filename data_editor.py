@@ -7710,19 +7710,25 @@ def open_data_editor():
         tk.Label(frm, text="以下是要送給 Google AI 的提示詞，可自行修改後再送出：",
                  font=FB, bg="white", justify="left").pack(anchor="w", pady=(0, 8))
 
+        # 11-27 同事筆電螢幕矮：文字框 20 行太高，「送出」鈕被擠到螢幕外 → 看起來按了沒反應
+        #   按鈕列先排在最下面(一定看得到)，文字框行數照螢幕高度縮
+        btn_row = tk.Frame(frm, bg="white")
+        btn_row.pack(side="bottom", fill="x", pady=(12, 0))
         txt_wrap = tk.Frame(frm, bg="white")
         txt_wrap.pack(fill="both", expand=True)
         scroll = tk.Scrollbar(txt_wrap)
         scroll.pack(side="right", fill="y")
-        txt = tk.Text(txt_wrap, font=F, width=74, height=20, wrap="word",
+        try:
+            _line = tk.font.Font(font=F).metrics("linespace")
+            _rows = max(6, min(20, int((win.winfo_screenheight() * 0.75 - 200) / max(1, _line))))
+        except Exception:
+            _rows = 12
+        txt = tk.Text(txt_wrap, font=F, width=74, height=_rows, wrap="word",
                       relief="solid", bd=1, yscrollcommand=scroll.set)
         txt.pack(side="left", fill="both", expand=True)
         scroll.config(command=txt.yview)
         txt.insert("1.0", initial)
         txt.focus_set()
-
-        btn_row = tk.Frame(frm, bg="white")
-        btn_row.pack(fill="x", pady=(12, 0))
 
         def _send():
             result["text"] = txt.get("1.0", "end-1c").strip()
@@ -7745,7 +7751,15 @@ def open_data_editor():
             y = parent.winfo_rooty() + (parent.winfo_height() - h) // 2
         except Exception:
             x, y = 150, 100
+        sh = win.winfo_screenheight()
+        y = min(y, max(0, sh - h - 60))                 # 下緣不要超出螢幕(工作列上面)
         win.geometry(f"+{max(0, x)}+{max(0, y)}")
+        try:
+            win.lift()
+            win.attributes("-topmost", True)            # 一出現先頂到最上面，免得躲在編輯器後面
+            win.after(400, lambda: win.winfo_exists() and win.attributes("-topmost", False))
+        except Exception:
+            pass
         win.grab_set()
         win.wait_window()
         return result["text"]
@@ -7794,6 +7808,40 @@ def open_data_editor():
             return str(data.get(k, "") or "")
 
     def _ai_generate():
+        """按鈕入口：按下去馬上看得到「準備中」；中間任何錯誤都跳視窗＋寫紀錄檔(11-27 同事：按了完全沒反應)"""
+        try:
+            ai_btn.config(text="✨ 準備中…")
+            ai_btn.update_idletasks()
+        except Exception:
+            pass
+        try:
+            _ai_generate_inner()
+        except Exception as e:
+            import traceback
+            tb = traceback.format_exc()
+            log_path = ""
+            try:
+                d_ = os.path.join(os.environ.get("APPDATA") or os.path.expanduser("~"), "地籍資料查詢系統")
+                os.makedirs(d_, exist_ok=True)
+                log_path = os.path.join(d_, "ai_error.log")
+                with open(log_path, "a", encoding="utf-8") as f_:
+                    f_.write(f"==== {datetime.now():%Y-%m-%d %H:%M:%S} ====\n{tb}\n")
+            except Exception:
+                pass
+            try:
+                update_message(f"[AI] ❌ 生成行銷文出錯：{e}")
+            except Exception:
+                pass
+            messagebox.showerror("Google AI 生成行銷文", f"出錯了，沒有送出：\n{e}\n\n"
+                                 + (f"詳細紀錄存在：\n{log_path}\n（可以把這個檔傳給阿生看）" if log_path else ""))
+        finally:
+            try:
+                if str(ai_btn.cget("state")) != "disabled":       # 生成中(按鈕停用)的不要蓋掉「生成中」
+                    ai_btn.config(text="✨ Google AI 生成行銷文")
+            except Exception:
+                pass
+
+    def _ai_generate_inner():
         cfg = load_config() or {}
         api_key = (cfg.get("gemini_api_key") or "").strip()
         if not api_key:
@@ -7809,7 +7857,8 @@ def open_data_editor():
         #    註：gemini-2.5-flash 已「不再開放新用戶」，新建金鑰呼叫會回 404 NOT_FOUND，
         #    舊金鑰仍可用；故保留 config 既有值，但於下方 worker 遇 404 時自動退回本別名。
         FALLBACK_MODEL = "gemini-flash-latest"
-        model = (cfg.get("gemini_model") or FALLBACK_MODEL).strip()
+        # 11-27 實測：gemini-flash-latest 常回 503(用的人太多)，flash-lite 馬上回 → 第一次設定的人先用 flash-lite
+        model = (cfg.get("gemini_model") or "gemini-flash-lite-latest").strip()
 
         is_rent, data_text = _ai_gather_fields()
         if not data_text.strip():
@@ -8042,6 +8091,9 @@ def open_data_editor():
                        command=_ai_generate, bg="#4285F4", fg="white",
                        font=label_font, cursor="hand2", relief=tk.RAISED, padx=10)
     ai_btn.pack(side=tk.LEFT, padx=5)
+    # 11-27 使用者：要重新輸入 API 金鑰找不到地方(以前的「更換金鑰」鈕不見了)→ 放回來
+    tk.Button(ai_btn_row, text="🔑 更換 API 金鑰", command=_change_gemini_key, bg="#ECEFF1", fg="#263238",
+              font=label_font, cursor="hand2", relief=tk.RAISED, padx=10).pack(side=tk.LEFT, padx=5)
     # ⚠️ 提醒文字改放「獨立一列」＋自動換行（wraplength 綁定列寬），
     #    避免一整條長字超出視窗寬度被左右切掉（尤其內層框寬度綁定視窗後）。
     ai_warn_row = tk.Frame(selling_frame)

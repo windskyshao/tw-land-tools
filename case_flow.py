@@ -1149,6 +1149,14 @@ GUIDE_HELP = {
 }
 
 
+def _short_screen(w):
+    """螢幕矮(換算成 100% 縮放後不到 950 點高，例：筆電 1920×1200 開 150% ≈ 800)→ 版面要精簡"""
+    try:
+        return w.winfo_screenheight() / max(1.0, M.S) < 950
+    except Exception:
+        return False
+
+
 def _autowrap(lbl):
     lbl.bind("<Configure>", lambda e: lbl.configure(wraplength=max(100, e.width - 6)), add="+")
     return lbl
@@ -1518,17 +1526,20 @@ class Guide(tk.Frame):
     def _draw_solo(self, parent):
         """「只想用單一工具？」：不用先建案件，直接開地籍圖處理工具／謄本結構化／土增稅"""
         box = tk.Frame(parent, bg="#F4EEF8", highlightbackground="#B79BCB", highlightthickness=1)
-        box.pack(fill=tk.X, padx=M.px(2), pady=(M.px(12), 0))
+        small = _short_screen(parent)                # 11-27 同事筆電螢幕矮：這區太高把下面輸入欄擠掉 → 精簡版
+        box.pack(fill=tk.X, padx=M.px(2), pady=(M.px(6 if small else 12), 0))
         self.solo_box = box                          # 功能提示要指這裡
-        tk.Label(box, text="只想用單一工具？", font=(FAM, 16, "bold"), bg="#F4EEF8", fg="#5A2D78",
-                 anchor="w").pack(fill=tk.X, padx=M.px(14), pady=(M.px(10), 0))
-        _autowrap(tk.Label(box, text="不用先建案件，也不用選委託或開發，直接用：\n（跟謄本有關的，做完會照地號自動建好資料夾）", font=(FAM, 14), bg="#F4EEF8", fg=INK,
-                           anchor="w", justify="left")).pack(fill=tk.X, padx=M.px(14))
+        tk.Label(box, text="只想用單一工具？" + ("（不用先建案件）" if small else ""), font=(FAM, 15 if small else 16, "bold"),
+                 bg="#F4EEF8", fg="#5A2D78", anchor="w").pack(fill=tk.X, padx=M.px(14), pady=(M.px(6 if small else 10), 0))
+        if not small:
+            _autowrap(tk.Label(box, text="不用先建案件，也不用選委託或開發，直接用：\n（跟謄本有關的，做完會照地號自動建好資料夾）", font=(FAM, 14), bg="#F4EEF8", fg=INK,
+                               anchor="w", justify="left")).pack(fill=tk.X, padx=M.px(14))
         # 一行一顆(主程式視窗窄，三顆並排「地籍圖處理工具」會被切掉)
         for i, (icon, name, desc, key) in enumerate(SOLO_TOOLS):
-            b = BigButton(box, f"{icon} {name}　{desc}", (lambda k=key: self.on_action(k)), height=M.px(44), size=14,
-                          color="#E4D7EE", fg=INK)
-            b.pack(fill=tk.X, padx=M.px(14), pady=(M.px(8) if i == 0 else M.px(6), M.px(12) if i == len(SOLO_TOOLS) - 1 else 0))
+            b = BigButton(box, f"{icon} {name}" if small else f"{icon} {name}　{desc}", (lambda k=key: self.on_action(k)),
+                          height=M.px(34 if small else 44), size=13 if small else 14, color="#E4D7EE", fg=INK)
+            b.pack(fill=tk.X, padx=M.px(14), pady=(M.px(6 if small else 8) if i == 0 else M.px(4 if small else 6),
+                                                   M.px(8 if small else 12) if i == len(SOLO_TOOLS) - 1 else 0))
 
     def show_empty(self, text, btn_text, command, account=None):
         """還沒有案件：第 1 步 建立案件"""

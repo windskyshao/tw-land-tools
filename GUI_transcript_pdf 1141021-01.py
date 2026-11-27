@@ -320,7 +320,7 @@ except Exception as _lte:
     print(f"[土增稅] 載入失敗：{_lte}", flush=True)
 WITH_TAX_ARG = "--with-tax" in sys.argv                # 主程式「謄本結構化＋土增稅」開的 → 勾選預設打勾
 
-TOOL_VERSION = "2.7"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
+TOOL_VERSION = "2.7.1"                                   # 跟 GitHub tag v2.4、檔名「電子謄本結構化v2.4.exe」一致
 UPDATE_REPO = "windskyshao/tw-transcript-structurer"   # 主程式的自動更新也是看這個 repo
 LAUNCHED_BY_MAIN = "--base-dir" in sys.argv            # 由「地籍資料查詢系統」主程式開的
 # 主程式帶 --source-dir＝這個案件的「0.謄本」→ 一開就進那個資料夾，並自動選好裡面的電子謄本
@@ -1983,7 +1983,7 @@ class ModernTranscriptGUI:
         
         # 右側版本訊息
         version_label = tk.Label(status_frame,
-                               text="v2.7 (2026-11-17) | 電子謄本功能測試版",
+                               text="v2.7.1 (2026-11-27) | 電子謄本功能測試版",
                                bg="#34495e",
                                fg="#95a5a6",
                                font=("微軟正黑體", 9))
@@ -2469,7 +2469,7 @@ class ModernTranscriptGUI:
         # 版本與狀態資訊
         status_text = "✅電子謄本功能測試版" if self.using_original else "⚠️ 增強功能版本"
         version_label = tk.Label(header,
-                            text=f"v2.7 (2026-11-17) | {status_text}",
+                            text=f"v2.7.1 (2026-11-27) | {status_text}",
                             font=ModernStyle.FONT_MAIN,
                             bg=ModernStyle.PRIMARY,
                             fg=ModernStyle.TEXT_LIGHT)
@@ -4624,7 +4624,7 @@ class ModernTranscriptGUI:
         
         # 版本資訊
         version_label = tk.Label(footer,
-                            text="v2.7 (2026-11-17) | 電子謄本功能測試版",
+                            text="v2.7.1 (2026-11-27) | 電子謄本功能測試版",
                             bg=ModernStyle.BG_LIGHT,
                             fg=ModernStyle.TEXT_SECONDARY,
                             font=("微軟正黑體", 9))
