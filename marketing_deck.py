@@ -15,6 +15,7 @@ import re
 import math
 import sys
 import glob
+import shutil
 import json
 import argparse
 import tempfile
@@ -322,6 +323,42 @@ def find_photos(case_dir, exp_dir):
     out = list(found.values())
     out.sort(key=lambda x: (not x["ad"], x["name"]))
     return out
+
+
+def save_ad_copies(case_dir, chosen):
+    """這次簡報勾選的照片，另存一份到案件的「2.照片\\廣告」(2026-11-27 使用者要的：之後刊登廣告直接用)。
+    原圖照抄不壓縮；本來就在「廣告」裡的不再複製；同名同大小略過，同名不同檔加 _2、_3"""
+    dst_dir = os.path.join(case_dir, "2.照片", "廣告")
+    copied = same = 0
+    for p in chosen or []:
+        src = p.get("path")
+        if not src or not os.path.isfile(src):
+            continue
+        if os.path.normcase(os.path.dirname(os.path.abspath(src))) == os.path.normcase(os.path.abspath(dst_dir)):
+            continue
+        os.makedirs(dst_dir, exist_ok=True)
+        name = os.path.basename(src)
+        dst = os.path.join(dst_dir, name)
+        if os.path.exists(dst):
+            if os.path.getsize(dst) == os.path.getsize(src):
+                same += 1
+                continue
+            stem, ext = os.path.splitext(name)
+            n = 2
+            while os.path.exists(os.path.join(dst_dir, f"{stem}_{n}{ext}")):
+                n += 1
+            dst = os.path.join(dst_dir, f"{stem}_{n}{ext}")
+        shutil.copy2(src, dst)
+        copied += 1
+    if copied or same:
+        log(f"勾選的照片已另存到「2.照片\\廣告」：新存 {copied} 張" + (f"（{same} 張之前存過）" if same else ""))
+    return copied
+
+
+def colleague_copy_path(out):
+    """行銷簡報.pptx → 行銷簡報-分享版.pptx(同資料夾；不放業務人員的那份，跟使用者自己存的分享版同名)"""
+    stem, ext = os.path.splitext(out)
+    return f"{stem}-分享版{ext or '.pptx'}"
 
 
 SETTINGS_NAME = "行銷簡報設定.json"
@@ -2018,6 +2055,10 @@ def build(case_dir, base_dir, d, exp, chosen, out_path, show_agents=True, back_c
     f = facts(d, case_dir)
     f["tpl"] = template
     try:
+        save_ad_copies(case_dir, chosen)
+    except Exception as e:
+        log(f"（照片另存到「2.照片\\廣告」失敗：{e}）")
+    try:
         load_captions([p["path"] for p in chosen if p.get("path")])
     except Exception as e:
         log(f"（照片文字標籤檢查失敗：{e}）")
@@ -2560,6 +2601,19 @@ def main():
             log(f"（另存 PNG 失敗：{e}）")
     else:
         log("（這台電腦沒有 PowerPoint 或轉檔失敗，未產生 PDF；可用 PowerPoint 開啟後「另存為 PDF」）")
+    if (show_agents if not a.auto else True):
+        # 11-27 使用者：要給同事用 → 另做一份不放業務人員(姓名/電話/照片)的
+        try:
+            out2 = colleague_copy_path(out)
+            log("另做一份「分享版」（不放業務人員，給同事用）…")
+            build(a.case_dir, a.base_dir, d, exp, chosen, out2, False,
+                  back_cover if not a.auto else False, template if not a.auto else a.template, None if a.auto else sel)
+            log(f"✓ 分享版：{out2}")
+            pdf2 = export_pdf(out2)
+            if pdf2:
+                log(f"✓ 分享版 PDF：{pdf2}")
+        except Exception as e:
+            log(f"（分享版沒做成功：{e}）")
     if not a.no_open:
         try:
             os.startfile(out)

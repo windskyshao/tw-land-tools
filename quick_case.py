@@ -250,6 +250,19 @@ def save_entry(entry, mode, data_json_path, base_dir):
     return save_entries([entry], mode, data_json_path, base_dir)
 
 
+def entries_from_result(r, build=None):
+    """查詢結果 → data.json 的列。建物坐落好幾筆地號(地籍便民「此建物座落於多筆地號」)時每筆地號一列，
+    第一筆在前(資料夾照它命名)，其他筆的建號/門牌跟第一筆一樣"""
+    first = entry_from_result(r, build)
+    out = [first]
+    for lot in (r.get("lots") or [])[1:]:
+        if lot and lot != first["lot_number"]:
+            e = json.loads(json.dumps(first))
+            e["lot_number"] = lot
+            out.append(e)
+    return out
+
+
 def entry_from_result(r, build=None):
     """查詢結果 → data.json 一列。build=勾選的戶：一戶(dict)、多戶(list)或 None；build_no/door 記第一戶"""
     e = {"city": r["city"], "area": r["area"], "section": r["section"], "lot_number": r["lot_number"],
@@ -571,7 +584,9 @@ class QuickCaseWindow:
         g.pack(fill=tk.X)
         self._kv(g, 0, "縣市 / 行政區", f"{r['city']} {r['area']}")
         self._kv(g, 1, "地段", r["section"], True)
-        self._kv(g, 2, "可能地號" if r.get("lot_uncertain") else "地號", r["lot_number"], True)
+        lots = r.get("lots") or [r["lot_number"]]
+        self._kv(g, 2, "可能地號" if r.get("lot_uncertain") else "地號",
+                 "、".join(lots) + (f"（建物坐落 {len(lots)} 筆，都會記進案件）" if len(lots) > 1 else ""), True)
         self._kv(g, 3, "座標", f"{r['lat']:.5f}, {r['lng']:.5f}")
         btns = tk.Frame(c1, bg=c1.cget("bg"))
         btns.pack(anchor="w", pady=(8, 0))
@@ -860,7 +875,8 @@ class QuickCaseWindow:
         r = self.res
         builds = getattr(self, "cur_builds", []) or []
         chosen = [b for b, v in zip(builds, getattr(self, "build_vars", [])) if v.get()]
-        entry = entry_from_result(r, chosen)
+        entries = entries_from_result(r, chosen)
+        entry = entries[0]
         if r.get("lot_uncertain") and not chosen:
             if not ui.message(self.top, "地號還沒確認",
                               f"這個門牌在附近的地號都對不到建號，{r.get('section', '')} {r.get('lot_number', '')} 地號"
@@ -868,16 +884,16 @@ class QuickCaseWindow:
                               "建議先用謄本或地籍圖確認地號，再用「地籍選單」查正確的地號建立案件。\n\n"
                               "仍要用這個地號建立嗎？", kind="ask", ok="仍要建立", cancel="先不要"):
                 return
-        msg = self._city_conflict([entry], mode)
+        msg = self._city_conflict(entries, mode)
         if msg:
             tk.Label(self.body, text=msg, font=ui.FB, fg=ui.BAD, bg=ui.BG, wraplength=self.W - 80,
                      justify="left").pack(anchor="w")
             return
-        mode = self._same_name(mode, [entry])
+        mode = self._same_name(mode, entries)
         if not mode:
             return
         try:
-            folder = save_entry(entry, "append" if mode == "keep" else mode, self.data_json_path, self.base_dir)
+            folder = save_entries(entries, "append" if mode == "keep" else mode, self.data_json_path, self.base_dir)
         except Exception as e:
             tk.Label(self.body, text=f"儲存失敗：{e}", font=ui.FB, fg=ui.BAD, bg=ui.BG).pack(anchor="w")
             return
@@ -994,8 +1010,8 @@ class QuickCaseWindow:
         self._footer(can_save=bool(ok))
 
     def _save_batch(self, mode):
-        entries = [entry_from_result(it["res"], self._batch_build(it["res"]))
-                   for var, it in self.batch_vars if var.get() and it["res"]]
+        entries = [e for var, it in self.batch_vars if var.get() and it["res"]
+                   for e in entries_from_result(it["res"], self._batch_build(it["res"]))]
         if not entries:
             tk.Label(self.body, text="請至少勾選一筆", font=ui.FB, fg=ui.BAD, bg=ui.BG).pack(anchor="w")
             return

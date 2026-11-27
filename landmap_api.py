@@ -184,6 +184,78 @@ def _split_city_town(text):
     return city, code, "", "", rest
 
 
+def same_place(name, city, town=""):
+    """查回來的門牌(name)是不是在使用者打的縣市/行政區。
+    阿生地圖查完整地址偶爾一時查無，會改用「去掉縣市」再查，國土測繪模糊比對就可能配到外縣市
+    (2026-11-25：高雄市仁武區綠園新村43-1號 → 苗栗縣頭份市福金新村43之1號)。
+    name 沒寫縣市(看不出在哪)就不擋"""
+    n = norm_city((name or "").translate(_FW).replace(" ", ""))
+    if not city or not any(n.startswith(c) for c in CITY_CODES):
+        return True
+    if not n.startswith(city):
+        return False
+    return not town or n[len(city):].startswith(town)
+
+
+def strip_village(d):
+    """門牌前面的「考潭里15鄰」拿掉(地政門牌沒有里鄰)。
+    但「綠園新村43之1號」的「綠園新村」就是路名，拿掉只剩「43之1號」→ 對不到建號(2026-11-26)
+    → 拿掉後直接就是號碼的話，表示那是路名，保留"""
+    s = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", d)
+    return d if re.match(r"^\d", s) else s
+
+
+_SCHOOL_CITY = {"高雄市": "E", "臺南市": "D", "屏東縣": "T"}
+
+
+def school_door(address, city="", area=""):
+    """建物門牌 → 學區查詢用的短門牌(去縣市、區、里鄰；43-1號→43之1號；全形數字→半形)"""
+    d = norm_city((address or "").translate(_FW).replace(" ", ""))
+    for pre in (norm_city(city), area):
+        if pre and d.startswith(pre):
+            d = d[len(pre):]
+    m = re.match(r"^(?:" + "|".join(CITY_CODES) + r")", d)
+    if m:
+        d = d[m.end():]
+    d = re.sub(r"^[^\d路街段巷弄號]{1,3}[區鄉鎮市](?=\D)", "", d) if not area else d
+    d = strip_village(d)
+    d = re.sub(r"(\d+)-(\d+)號", r"\1之\2號", d)
+    m = re.match(r"^(.*?\d+號(?:之\d+)?)", d)
+    return m.group(1) if m else d
+
+
+def school_at(city, lat, lng, door=""):
+    """阿生地圖學區(2026-11-18 起，高雄/臺南/屏東 115 學年教育局一覽表，高雄用門牌坐標對到鄰)。
+    回傳 {village, neighbor, how(door=門牌完全對上/near=最近門牌/village=只到里), elem, jun, lines, src, notes}；
+    不支援的縣市回 None，連不上拋 LandmapError"""
+    code = _SCHOOL_CITY.get(norm_city(city))
+    if not code:
+        return None
+    j = _get("/api/school", city=code, lat=f"{float(lat):.6f}", lng=f"{float(lng):.6f}", door=door or "")
+    if j.get("status") != "OK":
+        raise LandmapError(j.get("msg") or "學區查不到")
+    loc = j.get("loc") or {}
+
+    def names(rows):
+        return list(dict.fromkeys(r.get("school", "") for r in rows or [] if r.get("school")))
+
+    def line(r):
+        s = r.get("school", "")
+        if r.get("kind") == "free" and r.get("with"):
+            s += f"（與{'、'.join(r['with'])}自由學區）"
+        if r.get("cond"):
+            s += f"（{r['cond']}）"
+        if r.get("capped"):
+            s += "（總量管制）"
+        return s
+    return {"village": loc.get("li", ""), "neighbor": str(loc.get("nb") or ""), "district": loc.get("dist", ""),
+            "how": loc.get("how", ""), "door": loc.get("door", ""),
+            "elem": names(j.get("E")), "jun": names(j.get("J")),
+            "lines": [("國小", line(r)) for r in j.get("E") or []] + [("國中", line(r)) for r in j.get("J") or []],
+            "src": j.get("src", ""), "notes": list(j.get("notes") or []) + list(j.get("alt") or []),
+            "year": j.get("year") or {}}
+
+
 def looks_like_lot(text):
     """「…段…號」且沒有路/街/巷/弄 → 視為地號(例：前鎮區竹北段一小段2096、高雄市楠梓區芎蕉段13-1)"""
     t = text.translate(_FW).replace(" ", "")
@@ -235,7 +307,7 @@ def roads_for(entries, entry=None):
             for pre in (e.get("city", ""), e.get("area", "")):
                 if pre and d.startswith(pre):
                     d = d[len(pre):]
-            d = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", d)
+            d = strip_village(d)
             m = re.match(r"(.{1,8}?(?:路|街|大道)(?:[一二三四五六七八九十]段)?)", d)
             if m and m.group(1) not in out:
                 out.append(m.group(1))
@@ -419,15 +491,36 @@ def _easymap_door(full):
         except Exception:
             return None                                  # 連不到(海外/網路)：不再試，交給舊法
         txt = re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", re.sub(r"<(script|style).*?</\1>", " ", h, flags=re.S)))
-        m = re.search(r"查詢結果門牌:\s*(\S+).*?地段\s+(\d{4})\s+(\S+)\s+地號\s+(\d{8})(?:.*?建號\s+(\d{8}))?", txt)
-        if not m:
-            continue
-        land = m.group(4)
-        mother, child = int(land[:4]), int(land[4:])
-        return {"door": m.group(1).translate(_FW), "sect_code": m.group(2), "sect_name": m.group(3),
-                "landno8": land, "lot_number": f"{mother}" + (f"-{child}" if child else ""),
-                "bno8": m.group(5) or ""}
+        got = parse_easymap_door(txt)
+        if got:
+            return got
     return {}                                            # 連得上、但地政登記查無此門牌
+
+
+def _lot8(land):
+    mother, child = int(land[:4]), int(land[4:])
+    return f"{mother}" + (f"-{child}" if child else "")
+
+
+def parse_easymap_door(txt):
+    """地籍便民門牌查詢結果(已去標籤的文字) → {door, sect_code, sect_name, landno8, lot_number, lots, bno8}；看不懂回 None。
+    兩種版面：
+    ① 一筆地號：「地段 2138 綠園段 地號 11030000 … 建號 00614000」
+    ② 建物坐落好幾筆(2026-11-26 綠園新村43之1號，以前讀不懂當成查無)：
+       「此建物座落於多筆地號，請點選查詢： 11040000 地號 11050000 地號 … 地段 2138 綠園段 建號 00615000」"""
+    m = re.search(r"查詢結果門牌:\s*(\S+).*?此建物座落於多筆地號[^0-9]*((?:\d{8}\s*地號\s*)+).*?"
+                  r"地段\s+(\d{4})\s+(\S+)\s+建號\s+(\d{8})", txt)
+    if m:
+        lands = list(dict.fromkeys(re.findall(r"\d{8}", m.group(2))))
+        return {"door": m.group(1).translate(_FW), "sect_code": m.group(3), "sect_name": m.group(4),
+                "landno8": lands[0], "lot_number": _lot8(lands[0]), "lots": [_lot8(x) for x in lands],
+                "bno8": m.group(5)}
+    m = re.search(r"查詢結果門牌:\s*(\S+).*?地段\s+(\d{4})\s+(\S+)\s+地號\s+(\d{8})(?:.*?建號\s+(\d{8}))?", txt)
+    if m:
+        land = m.group(4)
+        return {"door": m.group(1).translate(_FW), "sect_code": m.group(2), "sect_name": m.group(3),
+                "landno8": land, "lot_number": _lot8(land), "lots": [_lot8(land)], "bno8": m.group(5) or ""}
+    return None
 
 
 def _resolve_address_easymap(t, raw, door, em):
@@ -461,6 +554,7 @@ def _resolve_address_easymap(t, raw, door, em):
         same = [b for b in builds if str(b.get("build_no")) == bno]
         builds = same or builds
     res["builds"] = builds
+    res["lots"] = em.get("lots") or [res["lot_number"]]       # 建物坐落的全部地號(第一筆＝lot_number)
     res["build_note"] = (m.get("note", "") if builds else
                          f"地籍便民登記資料：此門牌在 {res['section']} {res['lot_number']} 地號"
                          + (f"（建號 {bno}）" if bno else "") + "，但阿生地圖建物資料暫時對不到")
@@ -476,7 +570,7 @@ def _resolve_address(t, raw):
     res = _base_result("address", raw)
     t = _official_door(t)
     _c2, _code2, _t2, _id2, door = _split_city_town(t)
-    door = re.sub(r"^[^\d路街段巷弄號]{1,4}[里村](\d+鄰)?", "", door)
+    door = strip_village(door)
     res["door"] = door
     # ① 先問地籍便民(地政登記：門牌→建號→地號)，最準
     em = _easymap_door(t)
@@ -489,11 +583,20 @@ def _resolve_address(t, raw):
             pass
     # ② 地籍便民連不到/查無：國土測繪門牌點位 → 該點地號 → 比對門牌(對不到再找附近地號)
     variants = _door_variants(t)
+    want_city, _wc, want_town, _wt, _wr = _split_city_town(t)
 
     def locate(q):                      # 門牌 → (候選, 地號資訊)
         try:
-            j = _get("/api/address", q=q)
-            cands = [c for c in (j.get("results") or []) if c.get("type") == "門牌"]
+            for again in (True, False):
+                j = _get("/api/address", q=q)
+                cands = [c for c in (j.get("results") or []) if c.get("type") == "門牌"]
+                if not cands:
+                    return None
+                # 外縣市/別區的同號門牌不要(見 same_place)；可能是一時查無被模糊配錯，等一下重查一次
+                cands = [c for c in cands if same_place(c.get("name", ""), want_city, want_town)]
+                if cands or not again:
+                    break
+                time.sleep(1.5)
             if not cands:
                 return None
             c = cands[0]

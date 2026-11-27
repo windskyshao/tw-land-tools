@@ -6766,8 +6766,8 @@ def open_data_editor():
     }
 
     # 🔥 整合版彈窗：一次顯示查詢結果 + 提供 115 PDF 比對按鈕（三縣市通用）
-    def _show_kh_result_with_compare(village, neighbor, school_names, school_text, city='高雄市'):
-        """整合查詢結果與 115 PDF 對照功能"""
+    def _show_kh_result_with_compare(village, neighbor, school_names, school_text, city='高雄市', lm=None):
+        """整合查詢結果與 115 PDF 對照功能。lm＝阿生地圖學區結果(landmap_api.school_at)，有給就照它顯示"""
         import os
         import tkinter as tk
 
@@ -6782,38 +6782,53 @@ def open_data_editor():
         jun_pages = _find_school_pages(jun_pdf, jun_schools) if jun_pdf else {}
 
         dlg = tk.Toplevel(root)
-        dlg.title(f"學區查詢成功（國小 115、國中 114 學年資料 - {city}）")
-        dlg.geometry("680x560")
+        _yr = "115 學年・國小國中" if lm else "國小 115、國中 114 學年"
+        dlg.title(f"學區查詢成功（{_yr} - {city}）")
+        _W, _H = (760, 700) if lm else (680, 560)
+        dlg.geometry(f"{_W}x{_H}")
         dlg.update_idletasks()
-        x = (dlg.winfo_screenwidth() - 680) // 2
-        y = (dlg.winfo_screenheight() - 560) // 2
+        x = (dlg.winfo_screenwidth() - _W) // 2
+        y = max(0, (dlg.winfo_screenheight() - _H) // 2 - 30)
         dlg.geometry(f"+{x}+{y}")
 
         # 標題
-        tk.Label(dlg, text=f"學區查詢成功（國小 115、國中 114 學年）",
+        tk.Label(dlg, text=f"學區查詢成功（{_yr}）",
                  font=("微軟正黑體", 16, "bold"), fg="#1976D2",
                  pady=15).pack()
 
         # 查詢結果
         result_frame = tk.Frame(dlg)
         result_frame.pack(fill=tk.X, padx=25, pady=5)
-        info_text = f"村里：{village}　|　鄰：第{neighbor}鄰\n\n"
-        if elem_schools:
-            info_text += f"★ 國小：{ '、'.join(elem_schools)}\n"
-        if jun_schools:
-            info_text += f"★ 國中：{'、'.join(jun_schools)}\n"
+        if lm:
+            how = {"door": "（門牌完全對上）", "near": "（用最近的門牌推的，請核對）",
+                   "village": "（只查到里，鄰別請核對）"}.get(lm.get("how"), "")
+            info_text = f"{lm.get('district', '')}{village}" + (f" 第{neighbor}鄰" if neighbor else "") + f"　{how}\n\n"
+            for lvl, ln in lm.get("lines") or []:
+                info_text += f"★ {lvl}：{ln}\n"
+            for n_ in lm.get("notes") or []:
+                info_text += f"※ {n_ if isinstance(n_, str) else (n_.get('text') or n_.get('msg') or str(n_))}\n"
+        else:
+            info_text = f"村里：{village}　|　鄰：第{neighbor}鄰\n\n"
+            if elem_schools:
+                info_text += f"★ 國小：{ '、'.join(elem_schools)}\n"
+            if jun_schools:
+                info_text += f"★ 國中：{'、'.join(jun_schools)}\n"
         info_text += f"\n已自動填入「鄰近學校」欄位"
         tk.Label(result_frame, text=info_text,
-                 font=("微軟正黑體", 12), justify=tk.LEFT,
+                 font=("微軟正黑體", 13), justify=tk.LEFT, wraplength=_W - 60,
                  anchor='w').pack(fill=tk.X)
 
         # 警示提醒
         warn_frame = tk.Frame(dlg, bg='#FFF3CD', relief=tk.SOLID, borderwidth=1)
         warn_frame.pack(fill=tk.X, padx=25, pady=15)
+        _warn = (f"💡 資料來源：阿生地圖（{lm.get('src', '')}）\n"
+                 "   要自己核對：按下方按鈕開教育局原始 PDF，按 Ctrl+F 搜尋里名\n"
+                 "   若有差異，請手動修改右側「鄰近學校」欄位") if lm else \
+            "💡 國小已是 115 學年資料；國中還是 114 學年資料\n   建議按下方按鈕開啟 115 學年 PDF 比對\n   先複製里名 → 開啟 PDF → 用 Ctrl+F 搜尋里名\n   若有差異，請手動修改右側「鄰近學校」欄位"
         tk.Label(warn_frame,
-                 text="💡 國小已是 115 學年資料；國中還是 114 學年資料\n   建議按下方按鈕開啟 115 學年 PDF 比對\n   先複製里名 → 開啟 PDF → 用 Ctrl+F 搜尋里名\n   若有差異，請手動修改右側「鄰近學校」欄位",
-                 font=("微軟正黑體", 11), bg='#FFF3CD', fg='#856404',
-                 justify=tk.LEFT, anchor='w',
+                 text=_warn,
+                 font=("微軟正黑體", 12), bg='#FFF3CD', fg='#5D4300',
+                 justify=tk.LEFT, anchor='w', wraplength=_W - 80,
                  padx=12, pady=10).pack(fill=tk.X)
 
         # 🔥 複製里名按鈕（複製後可在 PDF 用 Ctrl+F 搜尋）
@@ -6895,6 +6910,53 @@ def open_data_editor():
     # 查詢附近學區按鈕
     # 🔥 用 list 當「執行中旗標」，避免雙擊或自動觸發+手動按鈕同時開兩個 Chrome
     _query_running = [False]
+    _school_skip_lm = [False]
+
+    def _school_from_landmap(address):
+        """2026-11-27：先問阿生地圖學區(115 學年教育局一覽表；高雄用市府門牌坐標對到鄰，不用驗證碼)。
+        背景執行；成功→填欄位、跳結果(可開原始 PDF 核對)；連不上/不支援的縣市/沒座標→改走戶政司查里鄰(原本的方法)"""
+        import threading
+        import landmap_api as _L
+
+        def fallback(why):
+            update_message(f"[資訊] 阿生地圖學區{why}，改用戶政司查村里（要輸入驗證碼）")
+            _school_skip_lm[0] = True
+            try:
+                query_nearby_schools()
+            finally:
+                _school_skip_lm[0] = False
+
+        def work():
+            try:
+                addr = _L.norm_city((address or "").translate(_L._FW).replace(" ", ""))
+                city = next((c for c in _L._SCHOOL_CITY if addr.startswith(c)), "")
+                if not city:
+                    return root.after(0, lambda: fallback("目前只有高雄市、臺南市、屏東縣"))
+                lat, lng = data.get('緯度'), data.get('經度')
+                if not (lat and lng):
+                    r0 = _L.resolve(addr)
+                    lat, lng = r0["lat"], r0["lng"]
+                city_s, _c, area, _t, _r = _L._split_city_town(addr)
+                r = _L.school_at(city, float(lat), float(lng), _L.school_door(addr, city_s, area))
+                if not r or not (r.get("elem") or r.get("jun")):
+                    return root.after(0, lambda: fallback("查不到這裡的學校"))
+                root.after(0, lambda: show(r, city))
+            except Exception as e:
+                root.after(0, lambda e=e: fallback(f"暫時查不到（{e}）"))
+
+        def show(r, city):
+            names = r["elem"] + r["jun"]
+            text = '、'.join(names)
+            school_entry.delete(0, tk.END)
+            school_entry.insert(0, text)
+            data["鄰近學校"] = text
+            update_message(f"[OK] 學區（阿生地圖 115 學年）：{r.get('district', '')}{r['village']}"
+                           + (f"{r['neighbor']}鄰" if r.get('neighbor') else "") + f" → {text}")
+            _show_kh_result_with_compare(r["village"], r.get("neighbor", ""), names, text,
+                                         '台南市' if city == '臺南市' else city, lm=r)
+
+        update_message("[資訊] 查詢學區中（阿生地圖）…")
+        threading.Thread(target=work, daemon=True).start()
 
     def query_nearby_schools():
         """查詢附近學區功能 - 先查村里，再查學區"""
@@ -6912,6 +6974,10 @@ def open_data_editor():
             if not address:
                 update_message("[錯誤] 無法取得建物門牌資料")
                 show_large_message("錯誤", "無法取得建物門牌資料\n\n請先填寫「建物門牌」欄位")
+                return
+
+            if not _school_skip_lm[0]:
+                _school_from_landmap(address)
                 return
 
             # 解析門牌地址
@@ -6932,7 +6998,11 @@ def open_data_editor():
             #    →戶政司查街道查無資料。台南「新市區」也是同款(停在『市』)。
             #    加前瞻讓它一定吃到最後一個行政字(區/鄉/鎮/市)後才收尾。
             address_pattern = r'(.+?[縣市])(.+?[鄉鎮市區](?![鄉鎮市區]))(.+?[路街巷弄])(.+)'
+            address = re.sub(r'([0-9０-９]+)[-－]([0-9０-９]+)號', r'\1之\2號', address)   # 43-1號 → 43之1號
             match = re.match(address_pattern, address)
+            if not match:
+                # 2026-11-27「綠園新村43-1號」：路名是「XX新村」不是路街巷弄結尾 → 切在第一個數字前
+                match = re.match(r'(.+?[縣市])(.+?[鄉鎮市區](?![鄉鎮市區]))(?:[^0-9０-９]{1,4}?[里村][0-9０-９]+鄰)?([^0-9０-９]+?)([0-9０-９].*)', address)
 
             if not match:
                 update_message("[錯誤] 無法解析建物門牌格式")
@@ -7680,6 +7750,49 @@ def open_data_editor():
         win.wait_window()
         return result["text"]
 
+    def _ai_nearby_facts():
+        """→ (給 AI 的周邊資料文字, [出處說明])。查不到/連不上就略過該項，不擋生成"""
+        import nearby_facts as _NF
+        secs = []
+        try:
+            update_message("[AI] 收集周邊資料（重要設施、阿生地圖重大建設新聞）…")
+            root.update_idletasks()
+        except Exception:
+            pass
+        try:
+            _dfp = get_data_final_path()          # 不用 _case_dir_from_editor：找不到會跳視窗，這裡只要安靜略過
+            case_dir = os.path.dirname(os.path.dirname(_dfp)) if os.path.exists(_dfp) else None
+            lines, src = _NF.facility_facts(case_dir)
+            secs.append(("重要設施（由近到遠）", lines, src))
+        except Exception as e:
+            update_message(f"[AI] 重要設施清單讀取略過：{e}")
+        try:
+            import landmap_api as _L
+            addr = _L.norm_city((val_of("建物門牌") or val_of("土地標示") or "").translate(_L._FW))
+            city, _c, area, _t, _r = _L._split_city_town(addr)
+            lat, lng = data.get("緯度"), data.get("經度")
+            lines, src = _NF.news_facts(float(lat) if lat else None, float(lng) if lng else None, city, area)
+            secs.append(("附近重大建設新聞", lines, src))
+        except Exception as e:
+            update_message(f"[AI] 重大建設新聞略過：{e}")
+        text = _NF.facts_block(secs)
+        srcs = [f"{t}：{s_}（{len(l)} 則）" for t, l, s_ in secs if l]
+        update_message("[AI] 周邊資料：" + ("、".join(t for t, l, _s in secs if l) or "沒有查到"))
+        return text, srcs
+
+    def _ai_tidy(text):
+        """AI 回的文字：每點之間的空白行拿掉(11-27 使用者：每一點之間多一行空白)、去掉 **粗體** 記號"""
+        import re as _re
+        t = (text or "").replace("\r\n", "\n").replace("**", "")
+        return "\n".join(ln.rstrip() for ln in t.strip().split("\n") if ln.strip())
+
+    def val_of(k):
+        w = entries.get(k)
+        try:
+            return w.get("1.0", "end-1c").strip() if isinstance(w, tk.Text) else str(w.get()).strip()
+        except Exception:
+            return str(data.get(k, "") or "")
+
     def _ai_generate():
         cfg = load_config() or {}
         api_key = (cfg.get("gemini_api_key") or "").strip()
@@ -7713,7 +7826,8 @@ def open_data_editor():
             "3. 內容分點涵蓋：本案亮點、附近環境優點(生活機能、學區、公園、山海景觀)、"
             "重大建設(如捷運、國道、百貨、商場)、交通動線(到主要地點開車或步行幾分鐘、距離多遠)、"
             "格局採光通風(可看建物測量成果圖、土地可看地籍圖)、周邊同類產品行情(查實價登錄)；"
-            "其中環境／建設／交通／行情若無確切資料，僅作概括描述，不要捏造具體建案名稱、路名或數字。\n"
+            "其中環境／建設／交通／學區／行情只能根據物件資料與下方「周邊資料」寫；沒有資料的項目整點不寫，"
+            "不要用「生活機能完善」「交通便捷」「XX商圈」這類沒有根據的形容，也不要捏造建案名稱、路名或數字。\n"
             "4. 全文共約4~5點，以「一、二、三、…」分點條列，每一點不超過36個中文字。\n"
             "5. 只輸出分點內容，不要前言、標題或結語。"
         )
@@ -7726,7 +7840,8 @@ def open_data_editor():
             "廠房/工業→車輛動線、電力、天車、可否工廠登記與生產；套房→生活便利、即可入住。\n"
             "2. 依「用途/性質」點出適合承租的客層或業種（例：適合餐飲、零售、事務所、倉儲物流…），"
             "沒把握就概括描述，不捏造具體品牌或數字。\n"
-            "3. 主打「商圈地點」優勢：周邊人流、交通(捷運/公車/幹道，開車或步行幾分鐘)、生活或營業機能。\n"
+            "3. 主打「商圈地點」優勢：周邊人流、交通(捷運/公車/幹道，開車或步行幾分鐘)、生活或營業機能；"
+            "只寫物件資料與下方「周邊資料」有的，沒有根據就不寫。\n"
             "4. 明確帶出租賃條件（僅就有提供的資料寫）：月租金、押金、租期、可否隔間/裝潢/營業登記、"
             "即可進駐、彈性配合；未提供的數字不要自行編造。\n"
             "5. 此為已完工現況，用現在式描述；坪數勿混淆(區分所有建物之土地為持份，不可說成本戶獨有)。\n"
@@ -7740,13 +7855,21 @@ def open_data_editor():
         else:
             rules = (cfg.get("gemini_instructions_sale") or cfg.get("gemini_instructions") or SALE_RULES)
         rules = rules.replace("{mode}", mode)
+        # 🔥 2026-11-27：周邊有出處的資料(重要設施清單、阿生地圖重大建設新聞)一起交給 AI，規定環境/建設/交通只能用這些寫
+        facts_text, facts_srcs = _ai_nearby_facts()
         # 🔥 若「訴求重點」欄位已有內容，一併納入並請 AI 加強修飾後融入
         existing = selling_text.get("1.0", "end-1c").strip()
         _biz = "出租" if is_rent else "出售"
         _parts = [f"你是專業房地產文案。此物件為「{_biz}」案件。以下為物件資料（皆為事實，未提供的數字請勿自行捏造）：\n{data_text}"]
+        if facts_text:
+            _parts.append("以下為「周邊資料」（查詢得到、有出處的事實，可用來寫周邊環境與重大建設；"
+                          "距離照寫，不要改成步行或開車幾分鐘）：\n" + facts_text)
         if existing:
             _parts.append("「訴求重點」欄位已有以下內容，請將其重點納入並加強修飾後融入行銷文：\n" + existing)
         _parts.append(rules)
+        _parts.append("補充規定：周邊環境、重大建設、交通、學區只能根據上面的物件資料"
+                      + ("與「周邊資料」" if facts_text else "") +
+                      "；查不到的就不要寫。「所在商圈」欄位如果只是社區或新村名稱，不可寫成「某某商圈」。")
         prompt = "\n\n".join(_parts)
 
         # 🔥 先讓使用者確認／修改提示詞，按「送出」才生成、「取消」則不動作
@@ -7885,13 +8008,15 @@ def open_data_editor():
                         messagebox.showerror("生成失敗", msg or "未取得生成內容，請再試一次。")
                 else:
                     selling_text.delete("1.0", "end")
-                    selling_text.insert("1.0", text)
+                    selling_text.insert("1.0", _ai_tidy(text))
                     try:
                         update_message(f"[AI] ✅ 生成完成，已回填「訴求重點」（{len(text)} 字）")
                     except Exception:
                         pass
                     try:
-                        messagebox.showinfo("生成完成", "已將 AI 行銷文回填到「訴求重點」欄位，請自行核對後再使用。")
+                        _src_txt = ("\n\n這次參考的周邊資料：\n" + "\n".join("• " + x for x in facts_srcs)) if facts_srcs else \
+                            "\n\n（這次沒有周邊資料：案件還沒查「重要設施」，附近也沒有近期重大建設新聞）"
+                        messagebox.showinfo("生成完成", "已將 AI 行銷文回填到「訴求重點」欄位，請自行核對後再使用。" + _src_txt)
                     except Exception:
                         pass
             selling_text.after(0, done)

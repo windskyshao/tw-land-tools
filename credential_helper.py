@@ -166,6 +166,7 @@ KNOWN_SERVICES = [
     ("104woo", "104實價網"),
     ("hinet", "全國地政電子謄本／全功能查詢"),
     ("hinet_cert", "↳ 自然人憑證（上列帳號共用）"),
+    ("fulllife", "富住通（公司系統：重要設施）"),   # 2026-11-27 台灣地圖網重要設施掛了 → 改抓公司富住通
 ]
 
 
@@ -185,10 +186,10 @@ def open_credential_manager(parent=None):
         owns_root = False
 
     dlg.title("帳密管理")
-    dlg.geometry("820x500")
+    dlg.geometry("820x580")
     dlg.update_idletasks()
     x = (dlg.winfo_screenwidth() - 820) // 2
-    y = (dlg.winfo_screenheight() - 500) // 2
+    y = (dlg.winfo_screenheight() - 580) // 2
     dlg.geometry(f"+{x}+{y}")
 
     tk.Label(dlg, text="帳密管理（Windows 認證管理員）",

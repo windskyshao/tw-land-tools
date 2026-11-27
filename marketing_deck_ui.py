@@ -403,17 +403,23 @@ def _step_template(root, facts, state, suggest, sc, W, photos=()):
 
     def show_covers():
         tp = state["template"]
-        key = (tp, state.get("theme"), state["cover"]) if tp in ("land", "farm") else None
+        # 11-27：點封面不重畫整區(重畫會讓畫面跳回最上面)→ key 不含選了哪個封面，選取只改框線顏色(paint_covers)
+        key = (tp, state.get("theme")) if tp in ("land", "farm", "villa", "shop") else None
         if key == cov["key"]:
-            return
+            return paint_covers()
         cov["key"] = key
+        y0 = _cv.yview()[0]
         for w in cov_box.winfo_children():
             w.destroy()
         cov["imgs"] = []
+        cov["tiles"] = []
         if not key:
             return
         try:
-            import marketing_deck_land as ml
+            if tp in ("villa", "shop"):                   # 11-27 透天・別墅、店面也有封面樣式可選
+                import marketing_deck_street as ml
+            else:
+                import marketing_deck_land as ml
             from PIL import ImageTk
         except Exception:
             return
@@ -435,7 +441,8 @@ def _step_template(root, facts, state, suggest, sc, W, photos=()):
                           padx=8, pady=8, cursor="hand2")
             fr.grid(row=0, column=i, padx=6, pady=6, sticky="nsew")
             try:
-                img = ImageTk.PhotoImage(ml.cover_preview(ph, k, facts, kind, acc, CW_, CH_), master=root)
+                img = ImageTk.PhotoImage((ml.cover_preview(ph, k, facts, acc, CW_, CH_) if tp in ("villa", "shop") else
+                                          ml.cover_preview(ph, k, facts, kind, acc, CW_, CH_)), master=root)
                 cov["imgs"].append(img)
                 pic = tk.Label(fr, image=img, bg=bg)
             except Exception as e:
@@ -447,10 +454,25 @@ def _step_template(root, facts, state, suggest, sc, W, photos=()):
             b.pack()
             for w in (fr, pic, a, b):
                 w.bind("<Button-1>", lambda e, kk=k: choose_cover(kk))
+            cov["tiles"].append((k, name, fr, pic, a, b))
+        try:
+            _cv.update_idletasks()
+            _cv.yview_moveto(y0)                       # 換版型/色系重畫後也留在原本捲到的位置
+        except Exception:
+            pass
+
+    def paint_covers():
+        for k, name, fr, pic, a, b in cov.get("tiles") or []:
+            sel = k == state["cover"]
+            bg = BLUE_BG if sel else "white"
+            fr.configure(bg=bg, highlightthickness=3 if sel else 1, highlightbackground=BLUE if sel else "#CBD5E1")
+            for w in (pic, b):
+                w.configure(bg=bg)
+            a.configure(bg=bg, text=("✓ " if sel else "") + f"{k}　{name}", fg=BLUE if sel else INK)
 
     def choose_cover(k):
         state["cover"] = k
-        show_covers()
+        paint_covers()
 
     paint_cards()
     paint_pages()

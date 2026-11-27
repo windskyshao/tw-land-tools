@@ -316,6 +316,15 @@ def read_first_entry_from_json(json_file):
         return None
 
 
+def _same_case_section(first_entry, district, section):
+    """這次輸入的區＋段 跟目前案件(data.json 第一筆)一樣 → 調的就是這件的謄本"""
+    if not first_entry:
+        return False
+    norm = lambda x: str(x or "").replace(" ", "").replace("臺", "台")
+    return (norm(section) != "" and norm(section) == norm(first_entry.get("section"))
+            and norm(district) == norm(first_entry.get("area")))
+
+
 def construct_custom_directory(first_entry):
     area = first_entry.get('area', '')
     section = first_entry.get('section', '')
@@ -1874,7 +1883,8 @@ def main():
             print("\033[093m１. 預設目錄（下載的謄本）\033[0m", flush=True)
             print(f"\033[093m２. 自訂目錄（{custom_dir_path}）\033[0m", flush=True)
             print("（直接按 Enter 選擇預設選項）", flush=True)
-            _dflt = '2' if LAND_ONLY else '1'   # 補調土地謄本：預設存進這件的 0.謄本
+            # 補調土地謄本、或調的就是這件同一段(11-27)：預設存進這件的 0.謄本，主程式才接得到「轉成資料」
+            _dflt = '2' if (LAND_ONLY or _same_case_section(first_entry, district, section)) else '1'
 
             while True:
                 choice = input(f"請輸入選項編號（1 或 2，預設：{_dflt}）：").strip()

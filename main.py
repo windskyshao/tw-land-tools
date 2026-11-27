@@ -94,8 +94,8 @@ tk.Label(_splash_frame, text="載入中，請稍候...",
 root.update()  # 強制立即顯示
 
 # 版本資訊
-VERSION = "1.1.9q"
-BUILD_DATE = "2026-11-18"
+VERSION = "1.1.9r"
+BUILD_DATE = "2026-11-27"
 
 # ── 權杖改由設定檔提供（2026-09-28）──────────────────────────────────
 #   這些是與 Render 環境變數共用的密鑰，寫死在程式裡等於一進版控就外流。
@@ -2971,7 +2971,7 @@ def select_continuous_mode_scripts():
         ("【使用執照查詢】屏東縣", "nlma_nbupic.py:屏東縣"),
         ("【使用執照查詢】台南市", "nlma_nbupic.py:臺南市"),
         # 4. 重要設施查詢
-        ("重要設施查詢", "gbmap.py"),
+        ("重要設施查詢", "fulllife_facility.py"),   # 11-27 台灣地圖網壞了 → 改富住通(圖霸)
         # ===== 中排 =====
         # 1. 土地使用分區（分頁內容）
         ("【土地使用分區】國土測繪圖資", "nlscmaps.py"),
@@ -5848,7 +5848,7 @@ transcript_button_style = {
 transcript_button = M.ModernButton(left_button_frame, text="謄本與土增稅", command=show_transcript_page, **transcript_button_style)
 
 start_land_use_button = M.ModernButton(left_button_frame, text="使用執照查詢", command=show_building_license_page, **button_style)
-start_important_facility_button = M.ModernButton(left_button_frame, text="重要設施查詢", command=lambda: toggle_buttons(start_important_facility_button, "重要設施查詢", "gbmap.py"), **button_style)
+start_important_facility_button = M.ModernButton(left_button_frame, text="重要設施查詢", command=lambda: toggle_buttons(start_important_facility_button, "重要設施查詢", "fulllife_facility.py"), **button_style)
 
 # 中間 4 個 - 🔥 國土測繪圖資改為土地使用分區分頁按鈕，V523 系統移至此處
 # 🔥 土地使用分區：淡紅色
@@ -6445,8 +6445,25 @@ def _structured_problem():
     return ""
 
 
-def _offer_structuring(reason, kind_hint=None, allow_continue_text=None):
-    """問要不要先做謄本結構化。回傳 'go'(使用者選直接繼續) / 'struct'(已幫他開結構化) / 'cancel'"""
+def _offer_structuring(reason, kind_hint=None, allow_continue_text=None, auto=False):
+    """問要不要先做謄本結構化。回傳 'go'(使用者選直接繼續) / 'struct'(已幫他開結構化) / 'cancel'
+    auto=True：剛從主程式調完謄本(11-27)→ 電子/電傳已知、謄本就是剛調的、案件就是目前這件
+    → 只問「要不要轉」，不再選電子/電傳、不問批次、不問要不要從別處匯入謄本"""
+    global _struct_auto
+    if auto and kind_hint in _STRUCT_TOOLS:
+        display, script = _STRUCT_TOOLS[kind_hint]
+        ans = show_large_choice(
+            "要接著轉成資料嗎？",
+            f"{reason}\n\n要把這件「0.謄本」的謄本轉成資料、算土增稅嗎？\n"
+            f"（會直接開「{display}」，謄本已經在「0.謄本」，不用再選檔案）",
+            [("💰 轉成資料＋算土增稅", "#55B092"), ("先不要", "#9E9E9E")])
+        if ans != 0:
+            return "cancel"
+        _struct_auto = True
+        _guard_structuring(display, script,
+                           structured_transcript_button if kind_hint == "電子" else telereport_structured_button)
+        _struct_auto = False
+        return "struct"
     opts = [("電子謄本結構化", "#1565C0"), ("電傳謄本結構化", "#00838F")]
     if kind_hint == "電傳":
         opts.reverse()
@@ -6507,7 +6524,7 @@ def _after_transcript_download(kind):
     update_message(f"[提醒] {kind}謄本調閱完成，{reason}")
     if watch:
         _struct_with_tax = True             # 轉好順便算土增稅(勾選預設打勾)
-    _offer_structuring(f"{kind}謄本調閱完成。{reason}", kind_hint=kind)
+    _offer_structuring(f"{kind}謄本調閱完成。{reason}", kind_hint=kind, auto=watch)
     if not is_running:
         _struct_with_tax = False            # 選「先不要」→ 不留到下次
 
@@ -6576,7 +6593,7 @@ def _ask_yesno_cancel_big(title, message):
     return result[0]
 
 
-def _prep_transcript_source(display_name, script_name):
+def _prep_transcript_source(display_name, script_name, ask_import=True):
     """結構化前置：確保案件資料夾的「0.謄本」存在、可選把既有謄本複製進去，
        並設定結構化工具預設開啟「0.謄本」。
        回傳：路徑字串=成功(要設此來源)、'__SKIP__'=無案件資料夾照原本開、None=使用者取消不開。"""
@@ -6612,9 +6629,9 @@ def _prep_transcript_source(display_name, script_name):
         messagebox.showerror("錯誤", f"建立「0.謄本」資料夾失敗：\n{e}")
         return None
 
-    # 3) 詢問是否把已自行調閱的謄本複製進來
+    # 3) 詢問是否把已自行調閱的謄本複製進來(剛從主程式調好的就不問：謄本已經在 0.謄本)
     # 按鈕直接寫要做什麼(原本要對照「是／否／取消」的說明)
-    while True:
+    while ask_import:
         pick = show_large_choice(
             f"{display_name}｜匯入既有謄本",
             "你是否已經自行調閱過謄本，想先把檔案複製進「0.謄本」再開始？\n\n"
@@ -6697,10 +6714,11 @@ def _guard_structuring(display_name, script_name, button):
     if is_running:
         toggle_buttons(button, display_name, script_name)
         return
-    choice = _confirm_batch_before_structuring(display_name)
+    auto = _struct_auto                 # 剛從主程式調完謄本(案件、謄本都確定了)
+    choice = 'proceed' if auto else _confirm_batch_before_structuring(display_name)
     if choice == 'proceed':
         # 🔥 前置：建 0.謄本、可選匯入既有謄本、設定工具預設開該資料夾
-        if _prep_transcript_source(display_name, script_name) is None:
+        if _prep_transcript_source(display_name, script_name, ask_import=not auto) is None:
             return  # 使用者在匯入步驟按了取消
         toggle_buttons(button, display_name, script_name)
     elif choice == 'goto_land':
@@ -6896,6 +6914,7 @@ script_to_button_map = {
     "land.py": land_manual_button,
     "nlma.py": building_license_kh_button,  # 🔥 改：nlma.py 對應到次頁面的「高雄市」按鈕
     "gbmap.py": start_important_facility_button,
+    "fulllife_facility.py": start_important_facility_button,
     "V523.py": start_V523_button,
     "nlscmaps.py": land_use_nlscmaps_button,  # 🔥 改用土地使用分區分頁中的按鈕
     "urbangis.py": land_use_urbangis_button,  # 🔥 改用土地使用分區分頁中的按鈕
@@ -7606,11 +7625,12 @@ def _big_dialog(title, message, buttons, enter=None, escape=None, keys=None, wai
     import math
     from tkinter import font as tkfont
     result = [escape]
-    dlg = tk.Toplevel(root)
+    owner = _dialog_owner()
+    dlg = tk.Toplevel(owner)
     dlg.withdraw()
     dlg.title(title)
     try:
-        dlg.transient(root)
+        dlg.transient(owner)
     except Exception:
         pass
     inch = dlg.winfo_fpixels('1i')
@@ -7689,11 +7709,30 @@ def _big_dialog(title, message, buttons, enter=None, escape=None, keys=None, wai
     dlg.protocol("WM_DELETE_WINDOW", lambda: done(escape))
     dlg.deiconify()
     dlg.lift()
+    try:                                     # 一出現先頂到最上面(蓋過物件編輯器等子視窗)，再放回一般層級
+        dlg.attributes('-topmost', True)
+        dlg.after(400, lambda: dlg.winfo_exists() and dlg.attributes('-topmost', False))
+    except Exception:
+        pass
     dlg.focus_force()
     if wait:
         dlg.grab_set()
         dlg.wait_window()
     return result[0]
+
+
+def _dialog_owner():
+    """對話框要掛在誰底下：目前正在用的視窗(例：物件編輯器)；都沒有才掛主視窗。
+    11-27：「資料已儲存」掛在主視窗 → 跑到物件編輯器後面，要點一下才看得到"""
+    try:
+        w = root.focus_get()
+        if w is not None:
+            top = w.winfo_toplevel()
+            if top.winfo_exists() and top.winfo_viewable():
+                return top
+    except Exception:
+        pass
+    return root
 
 
 def show_large_message(title, message):
@@ -10342,6 +10381,7 @@ except Exception as _e:
 # ===================== 單項工具：不用先建案件也能用(地籍圖處理工具、謄本結構化、土增稅) =====================
 # 2026-11-17 同事只想用地籍圖處理工具卻找不到；謄本本身就有地段地號 → 結構化做完照它建案件資料夾，不問委託／開發
 _solo_struct = None     # 單項結構化進行中：{t0, staging, files, then_tax, kind}
+_struct_auto = False  # 這次結構化是程式自己接的(剛調完謄本/補調土地)：不問批次、不問匯入既有謄本
 _struct_with_tax = False  # 下次開結構化程式帶 --with-tax(「💰 轉好後順便算土增稅」預設打勾，稅在結構化程式裡算)
 _STRUCT_TOOLS = {"電子": ("電子謄本結構化", "GUI_transcript_pdf 1141021-01.py"),
                  "電傳": ("電傳謄本結構化", "GUI_telereport.py")}
@@ -10997,10 +11037,15 @@ def _case_struct_with_tax(kind="電子"):
     if is_running:
         show_large_message("請稍等", "目前有功能正在執行，等它結束再轉謄本。")
         return
+    global _struct_auto
     display, script = _STRUCT_TOOLS[kind]
     button = structured_transcript_button if kind == "電子" else telereport_structured_button
     _struct_with_tax = True
-    _guard_structuring(display, script, button)
+    _struct_auto = True                     # 程式接的：案件、謄本都確定，不問批次、不問匯入
+    try:
+        _guard_structuring(display, script, button)
+    finally:
+        _struct_auto = False
     if not is_running:
         _struct_with_tax = False            # 中途取消 → 不留到下次
 

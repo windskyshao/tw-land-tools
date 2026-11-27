@@ -32,7 +32,7 @@ ITEMS = [
          files=["1.基本資料/02_使用執照*"], note="同地號有好幾張使照會全部存"),
     dict(key="nbupic", name="02 使用執照（屏東、台南…）", script="nlma_nbupic.py", extra=["--until-found"], answers=["1", "a", "1"], timeout=900,
          skip="高雄市", city_arg=True, files=["1.基本資料/02_使用執照*"]),
-    dict(key="gbmap", name="03 重要設施", script="gbmap.py", answers=["1"], timeout=180, files=["1.基本資料/03_重要設施*"]),
+    dict(key="gbmap", name="03 重要設施", script="fulllife_facility.py", answers=["1"], timeout=180, files=["1.基本資料/03_重要設施*"]),
     dict(key="v523", name="04 V523 地籍資料", script="V523.py", answers=["", "n", ""], timeout=300, idle=20,
          only="高雄市|屏東縣", files=["1.基本資料/04_V523*"], note="自動登入（帳密在這台電腦）"),
     dict(key="easymap", name="05 地籍便民（新版自動截圖）", script="land_auto.py", extra=["--ver", "new"], answers=[""],
